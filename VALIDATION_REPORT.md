@@ -36,3 +36,5 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
 Identificador do candidato validado: `0.4.1`.
+
+O candidato Windows deve repetir obrigatoriamente os 56 testes antes da publicação.
