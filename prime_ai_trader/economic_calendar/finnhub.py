@@ -24,6 +24,19 @@ class FinnhubEconomicCalendar:
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key.strip()
 
+    @staticmethod
+    def _currency(row: dict) -> str:
+        direct = str(row.get("currency") or "").upper().strip()
+        if direct:
+            return direct
+        country = str(row.get("country") or "").upper().strip()
+        return {
+            "US": "USD", "UNITED STATES": "USD", "EU": "EUR", "EURO ZONE": "EUR",
+            "GB": "GBP", "UNITED KINGDOM": "GBP", "JP": "JPY", "JAPAN": "JPY",
+            "CH": "CHF", "SWITZERLAND": "CHF", "CA": "CAD", "CANADA": "CAD",
+            "AU": "AUD", "AUSTRALIA": "AUD", "NZ": "NZD", "NEW ZEALAND": "NZD",
+        }.get(country, country)
+
     def fetch(self, start: date, end: date) -> list[EconomicEvent]:
         if not self.api_key:
             raise ProviderError("Configure a chave Finnhub em Configurações > APIs.")
@@ -39,7 +52,7 @@ class FinnhubEconomicCalendar:
                 when = datetime.combine(start, time.min, timezone.utc)
             impact = str(row.get("impact", row.get("importance", "medium"))).upper()
             events.append(EconomicEvent(
-                str(row.get("country", row.get("currency", ""))), str(row.get("event", "Evento econômico")),
+                self._currency(row), str(row.get("event", "Evento econômico")),
                 when, impact, str(row.get("prev", "")), str(row.get("estimate", "")), str(row.get("actual", "")),
             ))
         return sorted(events, key=lambda item: item.scheduled_at)

@@ -12,6 +12,7 @@ from unittest.mock import patch
 from prime_ai_trader.app.controller import TradingController
 from prime_ai_trader.core.models import Direction, Market, Signal, SignalState
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
+from prime_ai_trader.features.builder import FEATURE_SCHEMA_VERSION
 from prime_ai_trader.news.provider import NewsItem
 from tests.helpers import synthetic_candles
 
@@ -31,6 +32,18 @@ class _FakeSocket:
 
 
 class ControllerReconnectTests(unittest.TestCase):
+    def test_analysis_passes_complete_model_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            generated = Signal(Direction.WAIT, SignalState.WAITING, 0, {"AGUARDAR": 1.0}, None, 5)
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(
+                controller.news_provider, "fetch", return_value=[]
+            ), patch.object(controller.signal_engine, "generate", return_value=generated) as generate:
+                controller.analyze()
+            context = generate.call_args.args[-1]
+            self.assertEqual(context["feature_schema"], FEATURE_SCHEMA_VERSION)
+            self.assertEqual(context, controller.model_context())
+
     def test_risk_news_is_warning_by_default(self) -> None:
         risky = NewsItem("Fed interest rate decision", "https://example.test", datetime.now(timezone.utc), "NEUTRA", True)
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):

@@ -8,13 +8,23 @@ from unittest.mock import patch
 
 from prime_ai_trader.core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
+from prime_ai_trader.economic_calendar.finnhub import FinnhubEconomicCalendar
 from prime_ai_trader.forex.twelve_data import TwelveDataProvider
 from prime_ai_trader.market.base import ProviderError
-from prime_ai_trader.news.provider import GdeltNewsProvider
+from prime_ai_trader.news.provider import GdeltNewsProvider, classify_text
 from prime_ai_trader.ui.chart import CandleChart
 
 
 class ProviderUiContractTests(unittest.TestCase):
+    def test_news_risk_terms_use_word_boundaries(self) -> None:
+        self.assertFalse(classify_text("Second quarter results")[1])
+        self.assertTrue(classify_text("SEC lawsuit against exchange")[1])
+
+    def test_finnhub_country_is_normalized_to_pair_currency(self) -> None:
+        self.assertEqual(FinnhubEconomicCalendar._currency({"country": "US"}), "USD")
+        self.assertEqual(FinnhubEconomicCalendar._currency({"country": "GB"}), "GBP")
+        self.assertEqual(FinnhubEconomicCalendar._currency({"currency": "EUR", "country": "EU"}), "EUR")
+
     @patch("prime_ai_trader.crypto.binance.get_json")
     def test_binance_parses_real_kline_shape(self, mocked) -> None:
         mocked.return_value = [[1499040000000, "1", "3", "0.5", "2", "10", 1499040059999, "20", 5, "6", "12", "0"]]

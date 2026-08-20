@@ -26,6 +26,12 @@ class MlBacktestTests(unittest.TestCase):
         for train, test in folds:
             self.assertLess(train.max(), test.min())
 
+    def test_temporal_folds_purge_overlapping_horizon(self) -> None:
+        folds = temporal_folds(600, min_train=300, test_size=100, purge_size=5)
+        self.assertTrue(folds)
+        for train, test in folds:
+            self.assertGreaterEqual(int(test.min() - train.max()), 6)
+
     def test_training_and_probability_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             manager = ModelManager(Path(temp))
@@ -36,6 +42,10 @@ class MlBacktestTests(unittest.TestCase):
             probabilities = manager.predict_proba(self.features)
             self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=6)
             self.assertTrue(set(probabilities).issubset({-1, 0, 1}))
+            selected = next(metric for metric in report.metrics if metric.model == report.selected_model)
+            self.assertGreaterEqual(selected.directional_accuracy, 0.0)
+            self.assertLessEqual(selected.directional_accuracy, 1.0)
+            self.assertGreaterEqual(selected.selection_score, 0.0)
             manager.model = None
             manager.report = None
             self.assertTrue(manager.is_compatible(context))

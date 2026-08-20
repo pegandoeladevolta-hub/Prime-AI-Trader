@@ -48,6 +48,8 @@ class StructureFeatureTests(unittest.TestCase):
         result = build_features(self.frame)
         self.assertEqual(result.columns.tolist(), FEATURE_COLUMNS)
         self.assertEqual(len(result), len(self.frame))
+        for column in ("return_12", "ema_50_slope", "atr_regime", "trend_efficiency"):
+            self.assertTrue(np.isfinite(result[column].iloc[-1]), column)
 
     def test_feature_builder_stays_fast_on_large_history(self) -> None:
         frame = candles_frame(synthetic_candles(1000, seed=33))

@@ -13,9 +13,10 @@ FEATURE_COLUMNS = [
     "historical_volatility", "body_pct", "upper_wick_pct", "lower_wick_pct", "close_position",
     "hour_sin", "hour_cos", "day_sin", "day_cos", "distance_support", "distance_resistance",
     "fib_distance", "trend_code",
+    "return_3", "return_12", "ema_50_slope", "atr_regime", "trend_efficiency",
 ]
 
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 3
 
 
 def build_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -29,6 +30,13 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
         "volume_relative", "return_1", "historical_volatility", "close_position",
     ]].copy()
     output["atr_pct"] = data["atr_14"] / close
+    output["return_3"] = data["close"].pct_change(3)
+    output["return_12"] = data["close"].pct_change(12)
+    output["ema_50_slope"] = data["ema_50"].pct_change(5)
+    atr_median = output["atr_pct"].rolling(100, min_periods=30).median().replace(0, np.nan)
+    output["atr_regime"] = output["atr_pct"] / atr_median
+    path_length = data["close"].pct_change().abs().rolling(12, min_periods=6).sum().replace(0, np.nan)
+    output["trend_efficiency"] = data["close"].pct_change(12) / path_length
     output["bb_position"] = (data["close"] - data["bb_lower"]) / (data["bb_upper"] - data["bb_lower"]).replace(0, np.nan)
     output["vwap_distance"] = (data["close"] - data["vwap"]) / close
     output["obv_change"] = data["obv"].pct_change().replace([np.inf, -np.inf], np.nan)

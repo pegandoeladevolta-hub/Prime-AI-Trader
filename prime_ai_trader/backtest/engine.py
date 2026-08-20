@@ -45,7 +45,10 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
     if prediction not in {-1, 1}:
         return False
     adx = row.get("adx_14")
-    if pd.isna(adx) or float(adx) < 18:
+    if pd.isna(adx) or float(adx) < 20:
+        return False
+    atr_regime = row.get("atr_regime")
+    if pd.notna(atr_regime) and not 0.55 <= float(atr_regime) <= 2.25:
         return False
     sign = float(prediction)
     votes = (
@@ -54,17 +57,21 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
         sign * float(row.get("macd_hist", 0) or 0) > 0,
         sign * (float(row.get("plus_di", 0) or 0) - float(row.get("minus_di", 0) or 0)) > 0,
         sign * float(row.get("trend_code", 0) or 0) >= 0,
+        sign * float(row.get("return_12", 0) or 0) > 0,
+        sign * float(row.get("ema_50_slope", 0) or 0) > 0,
+        sign * float(row.get("trend_efficiency", 0) or 0) >= 0,
     )
-    return sum(votes) >= 3
+    return sum(votes) >= 5
 
 
 class BacktestEngine:
     def run(self, features: pd.DataFrame, labels: pd.Series, model_name: str = "Logistic Regression",
-            confidence_threshold: float = 0.58) -> BacktestResult:
+            confidence_threshold: float = 0.58, probability_edge: float = 0.12,
+            purge_size: int = 0) -> BacktestResult:
         x, y = align_supervised_data(features, labels)
         if len(x) < 130:
             raise ValueError("Histórico insuficiente para backtest walk-forward.")
-        folds = temporal_folds(len(x))
+        folds = temporal_folds(len(x), purge_size=purge_size)
         if not folds:
             raise ValueError("Não foi possível criar blocos temporais de teste.")
         model_template = candidate_models()[model_name]
@@ -97,7 +104,7 @@ class BacktestEngine:
             i for i, (pred, confidence, edge, confluence) in enumerate(
                 zip(predictions, confidences, probability_edges, confluences)
             )
-            if pred != 0 and confidence >= confidence_threshold and edge >= 0.12 and confluence
+            if pred != 0 and confidence >= confidence_threshold and edge >= probability_edge and confluence
         ]
         directional = [i for i in active if truths[i] != 0]
         outcomes: list[bool | None] = [

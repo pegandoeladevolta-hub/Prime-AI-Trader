@@ -85,7 +85,8 @@ class Repository:
                 SUM(result='WIN') wins, SUM(result='LOSS') losses, SUM(result='DRAW') draws
                 FROM signals WHERE result IS NOT NULL""").fetchone())
             grouped = [dict(row) for row in connection.execute("""SELECT symbol, timeframe, mode, COUNT(*) total,
-                SUM(result='WIN') wins FROM signals WHERE result IS NOT NULL GROUP BY symbol, timeframe, mode""")]
+                SUM(result='WIN') wins, SUM(result='LOSS') losses, SUM(result='DRAW') draws
+                FROM signals WHERE result IS NOT NULL GROUP BY symbol, timeframe, mode""")]
             by_hour = [dict(row) for row in connection.execute("""SELECT CAST(strftime('%H', created_at) AS INTEGER) hour,
                 COUNT(*) total, SUM(result='WIN') wins FROM signals WHERE result IS NOT NULL GROUP BY hour ORDER BY hour""")]
             by_score = [dict(row) for row in connection.execute("""SELECT CAST(score / 5 AS INTEGER) * 5 score_low,
@@ -93,8 +94,9 @@ class Repository:
             outcomes = [dict(row) for row in connection.execute(
                 "SELECT direction, entry, exit, result FROM signals WHERE result IS NOT NULL AND entry IS NOT NULL AND exit IS NOT NULL ORDER BY id"
             )]
-        total = totals.get("total") or 0
         wins = totals.get("wins") or 0
+        losses_count = totals.get("losses") or 0
+        directional_total = wins + losses_count
         returns = []
         for row in outcomes:
             move = (row["exit"] - row["entry"]) / row["entry"] if row["entry"] else 0
@@ -109,17 +111,31 @@ class Repository:
                 best = max(best, current)
             return best
         return {
-            **totals, "accuracy": wins / total if total else None, "groups": grouped,
+            **totals, "accuracy": wins / directional_total if directional_total else None,
+            "directional_total": directional_total, "groups": grouped,
             "profit_factor": gains / losses if losses > 0 else None,
             "longest_win_streak": streak("WIN"), "longest_loss_streak": streak("LOSS"),
             "by_hour": by_hour, "by_score": by_score,
         }
 
-    def calibration(self, score: int, width: int = 5) -> tuple[float | None, int]:
+    def calibration(self, score: int, market: str | None = None, symbol: str | None = None,
+                    timeframe: str | None = None, horizon_minutes: int | None = None,
+                    mode: str | None = None, width: int = 5) -> tuple[float | None, int]:
         low = score - score % width
         high = low + width - 1
+        clauses = ["result IS NOT NULL", "score BETWEEN ? AND ?"]
+        params: list[object] = [low, high]
+        for column, value in (
+            ("market", market), ("symbol", symbol), ("timeframe", timeframe),
+            ("horizon_minutes", horizon_minutes), ("mode", mode),
+        ):
+            if value is not None:
+                clauses.append(f"{column}=?")
+                params.append(value)
         with self.connect() as connection:
-            row = connection.execute("""SELECT COUNT(*) samples, SUM(result='WIN') wins FROM signals
-                WHERE result IS NOT NULL AND score BETWEEN ? AND ?""", (low, high)).fetchone()
+            row = connection.execute(
+                f"""SELECT SUM(result IN ('WIN','LOSS')) samples, SUM(result='WIN') wins
+                FROM signals WHERE {' AND '.join(clauses)}""", params,
+            ).fetchone()
         samples, wins = int(row["samples"] or 0), int(row["wins"] or 0)
         return (wins / samples if samples >= 30 else None), samples

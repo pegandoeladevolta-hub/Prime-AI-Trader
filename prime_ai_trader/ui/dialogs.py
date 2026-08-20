@@ -126,13 +126,18 @@ class PerformanceDialog:
         ttk.Label(outer, text="DESEMPENHO REAL", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
         total = stats.get("total") or 0
         accuracy = stats.get("accuracy")
-        summary = (
-            f"Sinais concluídos: {total}\nWIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\n"
-            f"Taxa de acerto: {accuracy * 100:.2f}%\n"
-            f"Profit factor: {stats['profit_factor']:.2f}\n" if accuracy is not None and stats.get("profit_factor") is not None else
-            f"Sinais concluídos: {total}\nWIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\nTaxa de acerto: {accuracy * 100:.2f}%\nProfit factor: não aplicável" if accuracy is not None else
-            "Nenhum sinal concluído. As estatísticas aparecerão após resultados reais serem registrados."
-        )
+        if accuracy is None:
+            summary = "Nenhuma operação direcional concluída. As estatísticas aparecerão após resultados reais serem registrados."
+        else:
+            directional_total = stats.get("directional_total") or 0
+            coverage = directional_total / total if total else 0.0
+            profit_factor = f"{stats['profit_factor']:.2f}" if stats.get("profit_factor") is not None else "não aplicável"
+            summary = (
+                f"Sinais concluídos: {total}\n"
+                f"WIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\n"
+                f"Acerto direcional: {accuracy * 100:.2f}% em {directional_total} operações\n"
+                f"Cobertura direcional: {coverage * 100:.2f}%\nProfit factor: {profit_factor}"
+            )
         ttk.Label(outer, text=summary, style="Panel.TLabel", font=("Segoe UI", 12), justify="left").pack(anchor="w", pady=(14, 20))
         if total:
             ttk.Label(outer, text=f"Maior sequência WIN: {stats.get('longest_win_streak', 0)}   •   Maior sequência LOSS: {stats.get('longest_loss_streak', 0)}", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
@@ -141,8 +146,10 @@ class PerformanceDialog:
             tree.heading(key, text=label); tree.column(key, width=width, anchor="center")
         tree.pack(fill="both", expand=True)
         for group in stats.get("groups", []):
-            rate = (group.get("wins") or 0) / group["total"] if group["total"] else 0
-            tree.insert("", "end", values=(group["symbol"], group["timeframe"], group["mode"], group["total"], f"{rate * 100:.2f}%"))
+            directional = (group.get("wins") or 0) + (group.get("losses") or 0)
+            rate = (group.get("wins") or 0) / directional if directional else 0
+            tree.insert("", "end", values=(group["symbol"], group["timeframe"], group["mode"], group["total"], f"{rate * 100:.2f}%" if directional else "—"))
+        ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e", pady=(10, 0))
 
 
 class HealthDialog:
@@ -151,7 +158,7 @@ class HealthDialog:
         outer = ttk.Frame(self.window, style="Panel.TFrame", padding=20)
         outer.pack(fill="both", expand=True, padx=12, pady=12)
         ttk.Label(outer, text="MONITOR DE SAÚDE", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
-        ttk.Label(outer, text="Diagnóstico medido agora. Serviços sem chave aparecem como indisponíveis.", style="Muted.TLabel").pack(anchor="w", pady=(3, 14))
+        ttk.Label(outer, text="Diagnóstico medido agora. Serviços opcionais sem chave aparecem em amarelo.", style="Muted.TLabel").pack(anchor="w", pady=(3, 14))
         for status in statuses:
             row = ttk.Frame(outer, style="Card.TFrame", padding=10)
             row.pack(fill="x", pady=3)
@@ -162,3 +169,4 @@ class HealthDialog:
             if status.latency_ms is not None:
                 detail += f" • {status.latency_ms:.0f} ms"
             ttk.Label(row, text=detail, style="Card.TLabel", foreground=COLORS["muted"], wraplength=430).pack(side="left", fill="x", expand=True)
+        ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e", pady=(10, 0))

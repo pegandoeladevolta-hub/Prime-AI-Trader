@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ..config.settings import app_data_dir
+from ..core.models import TIMEFRAME_MINUTES
 from ..features.builder import FEATURE_COLUMNS
 
 
@@ -40,6 +42,10 @@ class ModelMetric:
     balanced_accuracy: float
     macro_f1: float
     folds: list[FoldMetric]
+    directional_accuracy: float = 0.0
+    coverage: float = 0.0
+    directional_operations: int = 0
+    selection_score: float = 0.0
 
 
 @dataclass(slots=True)
@@ -66,7 +72,8 @@ def candidate_models(random_state: int = 42) -> dict[str, Pipeline]:
     }
 
 
-def temporal_folds(length: int, min_train: int = 300, test_size: int = 100, max_train: int = 1200) -> list[tuple[np.ndarray, np.ndarray]]:
+def temporal_folds(length: int, min_train: int = 300, test_size: int = 100,
+                   max_train: int = 1200, purge_size: int = 0) -> list[tuple[np.ndarray, np.ndarray]]:
     if length < min_train + test_size:
         min_train = max(100, int(length * 0.6))
         test_size = max(30, int(length * 0.15))
@@ -74,9 +81,33 @@ def temporal_folds(length: int, min_train: int = 300, test_size: int = 100, max_
     train_end = min_train
     while train_end + test_size <= length:
         train_start = max(0, train_end - max_train)
-        folds.append((np.arange(train_start, train_end), np.arange(train_end, train_end + test_size)))
+        purged_train_end = max(train_start, train_end - max(0, purge_size))
+        if purged_train_end - train_start >= 100:
+            folds.append((np.arange(train_start, purged_train_end), np.arange(train_end, train_end + test_size)))
         train_end += test_size
     return folds
+
+
+def purge_size_from_context(context: dict[str, str | int] | None) -> int:
+    if not context:
+        return 0
+    timeframe = str(context.get("timeframe", "1m"))
+    timeframe_minutes = TIMEFRAME_MINUTES.get(timeframe, 1)
+    try:
+        horizon_minutes = max(1, int(context.get("horizon_minutes", timeframe_minutes)))
+    except (TypeError, ValueError):
+        horizon_minutes = timeframe_minutes
+    return max(1, math.ceil(horizon_minutes / timeframe_minutes))
+
+
+def _wilson_lower_bound(wins: int, samples: int, z: float = 1.0) -> float:
+    if samples <= 0:
+        return 0.0
+    rate = wins / samples
+    denominator = 1 + z * z / samples
+    centre = rate + z * z / (2 * samples)
+    margin = z * math.sqrt((rate * (1 - rate) + z * z / (4 * samples)) / samples)
+    return max(0.0, (centre - margin) / denominator)
 
 
 def align_supervised_data(features: pd.DataFrame, labels: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
@@ -113,27 +144,58 @@ class ModelManager:
             raise ValueError("São necessários pelo menos 130 candles válidos para treinar a IA.")
         if y.nunique() < 2:
             raise ValueError("O período não contém classes suficientes para treinamento.")
-        folds = temporal_folds(len(x))
+        folds = temporal_folds(len(x), purge_size=purge_size_from_context(context))
         if not folds:
             raise ValueError("Histórico insuficiente para validação walk-forward.")
         model_metrics: list[ModelMetric] = []
         models = candidate_models()
         for name, model in models.items():
             fold_metrics: list[FoldMetric] = []
+            oos_truths: list[int] = []
+            oos_predictions: list[int] = []
+            oos_confidences: list[float] = []
+            oos_edges: list[float] = []
             for train_idx, test_idx in folds:
                 instance = clone(model)
                 instance.fit(x.iloc[train_idx], y.iloc[train_idx])
-                predicted = instance.predict(x.iloc[test_idx])
+                test_x = x.iloc[test_idx]
+                predicted = instance.predict(test_x)
+                probabilities = instance.predict_proba(test_x)
+                classes = instance.named_steps["model"].classes_
+                class_positions = {int(label): position for position, label in enumerate(classes)}
+                for row_position, prediction in enumerate(predicted):
+                    position = class_positions[int(prediction)]
+                    opposite = class_positions.get(-int(prediction))
+                    confidence = float(probabilities[row_position, position])
+                    opposite_probability = float(probabilities[row_position, opposite]) if opposite is not None else 0.0
+                    oos_truths.append(int(y.iloc[test_idx[row_position]]))
+                    oos_predictions.append(int(prediction))
+                    oos_confidences.append(confidence)
+                    oos_edges.append(confidence - opposite_probability)
                 fold_metrics.append(FoldMetric(
                     int(train_idx[0]), int(train_idx[-1]), int(test_idx[0]), int(test_idx[-1]),
                     float(balanced_accuracy_score(y.iloc[test_idx], predicted)),
                     float(f1_score(y.iloc[test_idx], predicted, average="macro", zero_division=0)), len(test_idx),
                 ))
+            active = [
+                index for index, (prediction, confidence, edge) in enumerate(
+                    zip(oos_predictions, oos_confidences, oos_edges)
+                ) if prediction != 0 and confidence >= 0.58 and edge >= 0.12
+            ]
+            directional = [index for index in active if oos_truths[index] != 0]
+            wins = sum(oos_predictions[index] == oos_truths[index] for index in directional)
+            directional_accuracy = wins / len(directional) if directional else 0.0
+            coverage = len(active) / len(oos_predictions) if oos_predictions else 0.0
             model_metrics.append(ModelMetric(
                 name, float(np.mean([f.balanced_accuracy for f in fold_metrics])),
                 float(np.mean([f.macro_f1 for f in fold_metrics])), fold_metrics,
+                directional_accuracy, coverage, len(directional), _wilson_lower_bound(wins, len(directional)),
             ))
-        selected = max(model_metrics, key=lambda metric: (metric.macro_f1, metric.balanced_accuracy))
+        eligible = [metric for metric in model_metrics if metric.directional_operations >= 20 and metric.coverage >= 0.03]
+        selected = max(
+            eligible or model_metrics,
+            key=lambda metric: (metric.selection_score, metric.macro_f1, metric.balanced_accuracy),
+        )
         trained_model = models[selected.model]
         trained_model.fit(x, y)
         stamp = datetime.now(timezone.utc)
@@ -205,7 +267,11 @@ class ModelManager:
         metrics = []
         for metric in raw["metrics"]:
             folds = [FoldMetric(**fold) for fold in metric["folds"]]
-            metrics.append(ModelMetric(metric["model"], metric["balanced_accuracy"], metric["macro_f1"], folds))
+            metrics.append(ModelMetric(
+                metric["model"], metric["balanced_accuracy"], metric["macro_f1"], folds,
+                metric.get("directional_accuracy", 0.0), metric.get("coverage", 0.0),
+                metric.get("directional_operations", 0), metric.get("selection_score", 0.0),
+            ))
         return TrainingReport(raw["selected_model"], raw["version"], raw["trained_at"], raw["samples"], raw["features"], metrics, raw.get("context", {}))
 
     def load(self) -> None:

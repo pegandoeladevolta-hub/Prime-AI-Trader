@@ -51,6 +51,36 @@ class SignalDatabaseTests(unittest.TestCase):
             self.assertEqual(stats["wins"], 30)
             self.assertIsNone(stats["profit_factor"])
 
+    def test_calibration_respects_market_context_and_ignores_draws(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Repository(Path(temp) / "context.db")
+            signal = Signal(Direction.BUY, SignalState.CONFIRMED, 72, {"COMPRA": 0.7}, 100.0, 5, ["teste"])
+            btc_ids = [
+                repo.save_signal(signal, "Criptomoedas", "BTC/USDT", "5m", {}, "CONFIRMAÇÃO")
+                for _ in range(30)
+            ]
+            eth_ids = [
+                repo.save_signal(signal, "Criptomoedas", "ETH/USDT", "5m", {}, "CONFIRMAÇÃO")
+                for _ in range(30)
+            ]
+            draw_id = repo.save_signal(signal, "Criptomoedas", "BTC/USDT", "5m", {}, "CONFIRMAÇÃO")
+            for signal_id in btc_ids:
+                repo.set_result(signal_id, 101.0, "WIN")
+            for signal_id in eth_ids:
+                repo.set_result(signal_id, 99.0, "LOSS")
+            repo.set_result(draw_id, 100.0, "DRAW")
+
+            rate, samples = repo.calibration(
+                72, market="Criptomoedas", symbol="BTC/USDT", timeframe="5m",
+                horizon_minutes=5, mode="CONFIRMAÇÃO",
+            )
+            self.assertEqual((rate, samples), (1.0, 30))
+            global_rate, global_samples = repo.calibration(72)
+            self.assertEqual((global_rate, global_samples), (0.5, 60))
+            stats = repo.statistics()
+            self.assertEqual(stats["directional_total"], 60)
+            self.assertEqual(stats["accuracy"], 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

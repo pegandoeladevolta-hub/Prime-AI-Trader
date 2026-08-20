@@ -107,7 +107,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.3.1  •  FREE DATA", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.4.0  •  FILTRO PROFISSIONAL", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -166,7 +166,7 @@ class PrimeAITraderApp(tk.Tk):
         tools.pack(fill="x", pady=(12, 4))
         ttk.Button(tools, text="APIs", command=self.open_api_settings).pack(side="left", fill="x", expand=True, padx=(0, 3))
         ttk.Button(tools, text="LOGS", command=self.open_logs).pack(side="left", fill="x", expand=True, padx=3)
-        ttk.Button(tools, text="DESEMPENHO", command=lambda: PerformanceDialog(self, self.controller.repository.statistics())).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        ttk.Button(tools, text="DESEMPENHO", command=self.open_performance).pack(side="left", fill="x", expand=True, padx=(3, 0))
         ttk.Button(panel, text="MONITOR DE SAÚDE", command=self.open_health).pack(fill="x", pady=(0, 3))
 
     def _combo(self, parent, label: str, variable, values, callback) -> ttk.Combobox:
@@ -239,11 +239,11 @@ class PrimeAITraderApp(tk.Tk):
         self.signal_state.pack(anchor="w")
         self.signal_direction = ttk.Label(hero, text="AGUARDAR", style="Card.TLabel", foreground=COLORS["amber"], font=("Segoe UI Semibold", 28))
         self.signal_direction.pack(anchor="w", pady=(3, 8))
-        self.signal_score = ttk.Label(hero, text="Score do modelo: —", style="Card.TLabel", font=("Segoe UI Semibold", 11))
+        self.signal_score = ttk.Label(hero, text="Score combinado: —", style="Card.TLabel", font=("Segoe UI Semibold", 11))
         self.signal_score.pack(anchor="w")
         self.score_bar = ttk.Progressbar(hero, style="Score.Horizontal.TProgressbar", maximum=100, variable=self.score_var)
         self.score_bar.pack(fill="x", pady=(7, 10))
-        self.probability_high_label = ttk.Label(hero, text="Probabilidade alta: —", style="CardMuted.TLabel")
+        self.probability_high_label = ttk.Label(hero, text="Cenário dominante: —", style="CardMuted.TLabel")
         self.probability_high_label.pack(anchor="w")
         self.probability_low_label = ttk.Label(hero, text="Probabilidade baixa: —", style="CardMuted.TLabel")
         self.probability_low_label.pack(anchor="w")
@@ -524,7 +524,15 @@ class PrimeAITraderApp(tk.Tk):
     def _training_ready(self, report) -> None:
         selected = next(metric for metric in report.metrics if metric.model == report.selected_model)
         self.status_var.set(f"IA treinada • {report.selected_model} • versão {report.version}")
-        messagebox.showinfo("Treinamento concluído", f"Modelo selecionado: {report.selected_model}\nAmostras: {report.samples}\nMacro F1 fora da amostra: {selected.macro_f1 * 100:.2f}%\nBalanced accuracy: {selected.balanced_accuracy * 100:.2f}%", parent=self)
+        messagebox.showinfo(
+            "Treinamento concluído",
+            f"Modelo selecionado: {report.selected_model}\nAmostras: {report.samples}\n"
+            f"Acerto direcional seletivo: {selected.directional_accuracy * 100:.2f}% "
+            f"em {selected.directional_operations} operações\nCobertura seletiva: {selected.coverage * 100:.2f}%\n"
+            f"Macro F1 fora da amostra: {selected.macro_f1 * 100:.2f}%\n"
+            f"Balanced accuracy: {selected.balanced_accuracy * 100:.2f}%",
+            parent=self,
+        )
         self._load_health()
         if self._analysis_active:
             self._schedule_analysis_restart()
@@ -540,6 +548,12 @@ class PrimeAITraderApp(tk.Tk):
     def open_health(self) -> None:
         self._run_task("Executando diagnóstico dos serviços…", self.controller.health,
                        lambda statuses: (self.status_var.set("Diagnóstico concluído"), HealthDialog(self, statuses)))
+
+    def open_performance(self) -> None:
+        self._run_task(
+            "Calculando desempenho real…", self.controller.repository.statistics,
+            lambda stats: (self.status_var.set("Desempenho atualizado"), PerformanceDialog(self, stats)),
+        )
 
     def _radar_analyze(self, symbol: str) -> None:
         self.symbol_var.set(symbol)
@@ -581,15 +595,15 @@ class PrimeAITraderApp(tk.Tk):
         color = COLORS["green"] if signal.direction == Direction.BUY else COLORS["red"] if signal.direction == Direction.SELL else COLORS["amber"]
         self.signal_state.configure(text=signal.state.value)
         self.signal_direction.configure(text=signal.direction.value, foreground=color)
-        self.signal_score.configure(text=f"Score do modelo: {signal.score}/100")
+        self.signal_score.configure(text=f"Score combinado: {signal.score}/100")
         self.score_var.set(signal.score)
         ordered = sorted(signal.probabilities.items(), key=lambda item: item[1], reverse=True)
         if ordered:
-            self.probability_high_label.configure(text=f"Probabilidade alta: {ordered[0][0]} {ordered[0][1] * 100:.1f}%")
-            self.probability_low_label.configure(text=f"Probabilidade baixa: {ordered[-1][0]} {ordered[-1][1] * 100:.1f}%")
+            self.probability_high_label.configure(text=f"Cenário dominante: {ordered[0][0]} {ordered[0][1] * 100:.1f}%")
+            self.probability_low_label.configure(text=f"Cenário secundário: {ordered[-1][0]} {ordered[-1][1] * 100:.1f}%")
         else:
-            self.probability_high_label.configure(text="Probabilidade alta: —")
-            self.probability_low_label.configure(text="Probabilidade baixa: —")
+            self.probability_high_label.configure(text="Cenário dominante: —")
+            self.probability_low_label.configure(text="Cenário secundário: —")
         if signal.calibrated_rate is not None:
             self.calibration_label.configure(text=f"Confiança calibrada: {signal.calibrated_rate * 100:.1f}% em {signal.calibrated_samples} operações semelhantes")
         else:

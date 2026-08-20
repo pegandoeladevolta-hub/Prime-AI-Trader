@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -21,11 +22,11 @@ from ..features.builder import FEATURE_SCHEMA_VERSION, build_features, build_lab
 from ..fibonacci.auto import FibonacciResult, automatic_fibonacci
 from ..forex.twelve_data import TwelveDataProvider
 from ..indicators.technical import calculate_all, candles_frame
-from ..ml.models import ModelManager, TrainingReport
+from ..ml.models import ModelManager, TrainingReport, purge_size_from_context
 from ..news.provider import GdeltNewsProvider, NewsItem
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
-from ..signals.engine import SignalEngine, THRESHOLDS
+from ..signals.engine import PROBABILITY_EDGES, PROBABILITY_FLOORS, SignalEngine
 
 
 @dataclass(slots=True)
@@ -118,7 +119,10 @@ class TradingController:
         strict_risk_blocks = self.settings.strict_risk_blocks
         symbol = self.settings.crypto_symbol if market == Market.CRYPTO.value else self.settings.forex_symbol
         provider = self.binance if market == Market.CRYPTO.value else self.forex
-        context = {"market": market, "symbol": symbol, "timeframe": timeframe, "horizon_minutes": horizon_minutes}
+        context = {
+            "market": market, "symbol": symbol, "timeframe": timeframe,
+            "horizon_minutes": horizon_minutes, "feature_schema": FEATURE_SCHEMA_VERSION,
+        }
         self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
         candles = provider.fetch_candles(symbol, timeframe, limit=limit)
         if len(candles) < 80:
@@ -162,7 +166,9 @@ class TradingController:
         )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
-        calibrated, samples = self.repository.calibration(signal.score)
+        calibrated, samples = self.repository.calibration(
+            signal.score, market, symbol, timeframe, horizon_minutes, mode,
+        )
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
         snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal, news, calendar_events,
                                     symbol, timeframe, market, datetime.now(timezone.utc))
@@ -191,7 +197,15 @@ class TradingController:
             entry = float(row["entry"])
             move = (current_price - entry) / entry if entry else 0
             signed = move if row["direction"] == "COMPRA" else -move
-            result = "DRAW" if abs(signed) < 0.0002 else "WIN" if signed > 0 else "LOSS"
+            try:
+                indicator_values = json.loads(row.get("indicators_json") or "{}")
+                atr_value = float(indicator_values.get("atr_14") or 0)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                atr_value = 0.0
+            atr_pct = atr_value / entry if entry and atr_value > 0 else 0.0
+            market_floor = 0.0008 if row.get("market") == Market.CRYPTO.value else 0.00025
+            neutral_threshold = max(market_floor, atr_pct * 0.15)
+            result = "DRAW" if abs(signed) < neutral_threshold else "WIN" if signed > 0 else "LOSS"
             self.repository.set_result(int(row["id"]), current_price, result)
 
     def merge_live_candle(self, candle: Candle) -> AnalysisSnapshot | None:
@@ -215,25 +229,41 @@ class TradingController:
         fibonacci = automatic_fibonacci(indicators)
         feature_frame = frame.iloc[-180:] if len(frame) > 180 else frame
         features = build_features(feature_frame)
-        blockers = list(snapshot.signal.blockers)
-        warnings = list(snapshot.signal.warnings)
+        blockers: list[str] = []
+        warnings: list[str] = []
+        recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
+        risky = [item for item in snapshot.news if item.high_risk and item.published_at >= recent_limit]
+        if risky:
+            message = f"Notícia de alto risco: {risky[0].title[:90]}"
+            (blockers if self.settings.strict_risk_blocks else warnings).append(message)
+        if snapshot.market == Market.FOREX.value and snapshot.calendar_events:
+            event = self.calendar_provider.blocking_event(
+                snapshot.calendar_events, datetime.now(timezone.utc), self.settings.high_impact_block_minutes,
+                tuple(snapshot.symbol.split("/")),
+            )
+            if event:
+                message = f"Evento de alto impacto: {event.event} ({event.currency})"
+                (blockers if self.settings.strict_risk_blocks else warnings).append(message)
         signal = self.signal_engine.generate(indicators, features, structure, fibonacci,
             self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, blockers, self.settings.mode, self.model_context())
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
         )
-        signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(signal.score)
+        signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(
+            signal.score, snapshot.market, snapshot.symbol, snapshot.timeframe,
+            self.settings.horizon_minutes, self.settings.mode,
+        )
         self.snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal,
             snapshot.news, snapshot.calendar_events, snapshot.symbol, snapshot.timeframe, snapshot.market, datetime.now(timezone.utc))
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
         return self.snapshot
 
     def train(self) -> TrainingReport:
-        if self.snapshot is None or len(self.snapshot.candles) < 130:
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 800:
             self.analyze(limit=1000)
         assert self.snapshot is not None
-        threshold = max(float(self.snapshot.indicators["atr_14"].median() / self.snapshot.indicators["close"].median()) * 0.35, 0.0004)
+        threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
         features = self.snapshot.features
         if len(features) != len(self.snapshot.indicators):
@@ -243,24 +273,43 @@ class TradingController:
         return report
 
     def backtest(self) -> BacktestResult:
-        if self.snapshot is None:
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 800:
             self.analyze(limit=1000)
         assert self.snapshot is not None
-        median_atr = float(self.snapshot.indicators["atr_14"].median())
-        median_price = float(self.snapshot.indicators["close"].median())
-        threshold = max((median_atr / median_price) * 0.35, 0.0004)
+        threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
-        confidence = THRESHOLDS.get(self.settings.sensitivity, 68) / 100
+        sensitivity = self.settings.sensitivity.upper()
+        confidence = PROBABILITY_FLOORS.get(sensitivity, 0.64)
+        probability_edge = PROBABILITY_EDGES.get(sensitivity, 0.16)
         compatible_model = self.model_manager.is_compatible(self.model_context())
         model_name = self.model_manager.report.selected_model if compatible_model and self.model_manager.report else "Logistic Regression"
         features = self.snapshot.features
         if len(features) != len(self.snapshot.indicators):
             features = build_features(candles_frame(self.snapshot.candles))
-        result = self.backtest_engine.run(features, labels, model_name, confidence)
+        result = self.backtest_engine.run(
+            features, labels, model_name, confidence, probability_edge,
+            purge_size_from_context(self.model_context()),
+        )
         gate_key = (self.snapshot.market, self.snapshot.symbol, self.snapshot.timeframe, self.settings.horizon_minutes)
         self._quality_gate[gate_key] = result
         self.logger.info("Backtest concluído | operações=%s acerto=%.3f cobertura=%.3f", result.operations, result.accuracy, result.coverage)
         return result
+
+    def _snapshot_matches_settings(self) -> bool:
+        return bool(
+            self.snapshot
+            and self.snapshot.market == self.settings.market
+            and self.snapshot.symbol == self.symbol()
+            and self.snapshot.timeframe == self.settings.timeframe
+            and self.snapshot.signal.horizon_minutes == self.settings.horizon_minutes
+        )
+
+    def _label_threshold(self) -> float:
+        assert self.snapshot is not None
+        median_atr = float(self.snapshot.indicators["atr_14"].median())
+        median_price = float(self.snapshot.indicators["close"].median())
+        floor = 0.0008 if self.settings.market == Market.CRYPTO.value else 0.00025
+        return max((median_atr / median_price) * 0.45, floor)
 
     def _apply_quality_gate(self, signal: Signal, market: str, symbol: str, timeframe: str,
                             horizon_minutes: int) -> Signal:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 from threading import Lock
 import time
 
@@ -27,10 +28,11 @@ class NewsItem:
 
 def classify_text(text: str) -> tuple[str, bool]:
     lower = text.lower()
-    positive = sum(word in lower for word in POSITIVE)
-    negative = sum(word in lower for word in NEGATIVE)
+    contains = lambda term: re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lower) is not None
+    positive = sum(contains(word) for word in POSITIVE)
+    negative = sum(contains(word) for word in NEGATIVE)
     sentiment = "POSITIVA" if positive > negative else "NEGATIVA" if negative > positive else "NEUTRA"
-    return sentiment, any(word in lower for word in HIGH_RISK)
+    return sentiment, any(contains(word) for word in HIGH_RISK)
 
 
 class NewsProvider(ABC):
