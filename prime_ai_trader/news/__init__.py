@@ -1,0 +1,2 @@
+"""Contexto de notícias."""
+

@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.base import clone
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier, HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import balanced_accuracy_score, f1_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from ..config.settings import app_data_dir
+from ..features.builder import FEATURE_COLUMNS
+
+
+@dataclass(slots=True)
+class FoldMetric:
+    train_start: int
+    train_end: int
+    test_start: int
+    test_end: int
+    balanced_accuracy: float
+    macro_f1: float
+    samples: int
+
+
+@dataclass(slots=True)
+class ModelMetric:
+    model: str
+    balanced_accuracy: float
+    macro_f1: float
+    folds: list[FoldMetric]
+
+
+@dataclass(slots=True)
+class TrainingReport:
+    selected_model: str
+    version: str
+    trained_at: str
+    samples: int
+    features: int
+    metrics: list[ModelMetric]
+    context: dict[str, str | int]
+
+
+def candidate_models(random_state: int = 42) -> dict[str, Pipeline]:
+    scaled = ColumnTransformer([("numeric", Pipeline([
+        ("imputer", SimpleImputer(strategy="median")), ("scale", StandardScaler()),
+    ]), FEATURE_COLUMNS)], remainder="drop")
+    unscaled = ColumnTransformer([("numeric", SimpleImputer(strategy="median"), FEATURE_COLUMNS)], remainder="drop")
+    return {
+        "Logistic Regression": Pipeline([("prepare", scaled), ("model", LogisticRegression(max_iter=800, class_weight="balanced", random_state=random_state))]),
+        "HistGradientBoosting": Pipeline([("prepare", unscaled), ("model", HistGradientBoostingClassifier(max_iter=120, max_leaf_nodes=15, learning_rate=0.06, l2_regularization=0.2, random_state=random_state))]),
+        "Random Forest": Pipeline([("prepare", unscaled), ("model", RandomForestClassifier(n_estimators=100, max_depth=7, min_samples_leaf=8, class_weight="balanced_subsample", n_jobs=1, random_state=random_state))]),
+        "Gradient Boosting": Pipeline([("prepare", unscaled), ("model", GradientBoostingClassifier(n_estimators=90, max_depth=2, learning_rate=0.05, random_state=random_state))]),
+    }
+
+
+def temporal_folds(length: int, min_train: int = 300, test_size: int = 100, max_train: int = 1200) -> list[tuple[np.ndarray, np.ndarray]]:
+    if length < min_train + test_size:
+        min_train = max(100, int(length * 0.6))
+        test_size = max(30, int(length * 0.15))
+    folds = []
+    train_end = min_train
+    while train_end + test_size <= length:
+        train_start = max(0, train_end - max_train)
+        folds.append((np.arange(train_start, train_end), np.arange(train_end, train_end + test_size)))
+        train_end += test_size
+    return folds
+
+
+class ModelManager:
+    def __init__(self, model_dir: Path | None = None) -> None:
+        self.model_dir = model_dir or app_data_dir() / "models"
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        self.model: Pipeline | None = None
+        self.report: TrainingReport | None = None
+        self.load()
+
+    @property
+    def trained(self) -> bool:
+        return self.model is not None and self.report is not None
+
+    def train(self, features: pd.DataFrame, labels: pd.Series, context: dict[str, str | int] | None = None) -> TrainingReport:
+        valid = labels.notna()
+        x = features.loc[valid, FEATURE_COLUMNS]
+        y = labels.loc[valid].astype(int)
+        if len(x) < 130:
+            raise ValueError("São necessários pelo menos 130 candles válidos para treinar a IA.")
+        if y.nunique() < 2:
+            raise ValueError("O período não contém classes suficientes para treinamento.")
+        folds = temporal_folds(len(x))
+        if not folds:
+            raise ValueError("Histórico insuficiente para validação walk-forward.")
+        model_metrics: list[ModelMetric] = []
+        models = candidate_models()
+        for name, model in models.items():
+            fold_metrics: list[FoldMetric] = []
+            for train_idx, test_idx in folds:
+                instance = clone(model)
+                instance.fit(x.iloc[train_idx], y.iloc[train_idx])
+                predicted = instance.predict(x.iloc[test_idx])
+                fold_metrics.append(FoldMetric(
+                    int(train_idx[0]), int(train_idx[-1]), int(test_idx[0]), int(test_idx[-1]),
+                    float(balanced_accuracy_score(y.iloc[test_idx], predicted)),
+                    float(f1_score(y.iloc[test_idx], predicted, average="macro", zero_division=0)), len(test_idx),
+                ))
+            model_metrics.append(ModelMetric(
+                name, float(np.mean([f.balanced_accuracy for f in fold_metrics])),
+                float(np.mean([f.macro_f1 for f in fold_metrics])), fold_metrics,
+            ))
+        selected = max(model_metrics, key=lambda metric: (metric.macro_f1, metric.balanced_accuracy))
+        self.model = models[selected.model]
+        self.model.fit(x, y)
+        stamp = datetime.now(timezone.utc)
+        version = f"ml-{stamp.strftime('%Y%m%d-%H%M%S')}"
+        self.report = TrainingReport(selected.model, version, stamp.isoformat(), len(x), len(FEATURE_COLUMNS), model_metrics, context or {})
+        self.save()
+        return self.report
+
+    def predict_proba(self, features: pd.DataFrame) -> dict[int, float]:
+        if not self.model:
+            raise RuntimeError("A IA ainda não foi treinada.")
+        row = features.reindex(columns=FEATURE_COLUMNS).iloc[[-1]]
+        probabilities = self.model.predict_proba(row)[0]
+        classes = self.model.named_steps["model"].classes_
+        return {int(label): float(probability) for label, probability in zip(classes, probabilities)}
+
+    def is_compatible(self, context: dict[str, str | int] | None) -> bool:
+        if not self.trained:
+            return False
+        if not context:
+            return not bool(self.report.context)
+        return self.report.context == context
+
+    def save(self) -> None:
+        if not self.model or not self.report:
+            return
+        joblib.dump(self.model, self.model_dir / "active_model.joblib")
+        (self.model_dir / "training_report.json").write_text(json.dumps(asdict(self.report), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load(self) -> None:
+        model_path = self.model_dir / "active_model.joblib"
+        report_path = self.model_dir / "training_report.json"
+        if not model_path.exists() or not report_path.exists():
+            return
+        try:
+            self.model = joblib.load(model_path)
+            raw = json.loads(report_path.read_text(encoding="utf-8"))
+            metrics = []
+            for metric in raw["metrics"]:
+                folds = [FoldMetric(**fold) for fold in metric["folds"]]
+                metrics.append(ModelMetric(metric["model"], metric["balanced_accuracy"], metric["macro_f1"], folds))
+            self.report = TrainingReport(raw["selected_model"], raw["version"], raw["trained_at"], raw["samples"], raw["features"], metrics, raw.get("context", {}))
+        except (OSError, ValueError, KeyError):
+            self.model = None
+            self.report = None

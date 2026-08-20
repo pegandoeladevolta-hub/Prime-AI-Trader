@@ -1,0 +1,2 @@
+"""Integração de criptomoedas."""
+

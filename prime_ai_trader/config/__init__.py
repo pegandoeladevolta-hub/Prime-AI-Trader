@@ -1,0 +1,2 @@
+"""Configuração e armazenamento seguro."""
+

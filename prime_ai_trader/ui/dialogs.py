@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+from ..backtest.engine import BacktestResult
+from ..core.models import HealthStatus
+from ..radar.engine import RadarItem
+from .theme import COLORS
+
+
+def centered_window(parent, title: str, size: str) -> tk.Toplevel:
+    window = tk.Toplevel(parent)
+    window.title(title)
+    window.geometry(size)
+    window.configure(bg=COLORS["bg"])
+    window.transient(parent)
+    window.grab_set()
+    return window
+
+
+class ApiSettingsDialog:
+    FIELDS = [
+        ("twelve_data_key", "Twelve Data API Key"), ("finnhub_key", "Finnhub API Key"),
+    ]
+
+    def __init__(self, parent, values: dict[str, str], on_save) -> None:
+        self.window = centered_window(parent, "Configurações de APIs", "590x360")
+        panel = ttk.Frame(self.window, style="Panel.TFrame", padding=22)
+        panel.pack(fill="both", expand=True, padx=14, pady=14)
+        ttk.Label(panel, text="CHAVES DE API", style="Panel.TLabel", font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        ttk.Label(panel, text="As chaves são protegidas pelo Windows DPAPI e nunca ficam no código-fonte.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(4, 18))
+        self.variables = {}
+        for key, label in self.FIELDS:
+            ttk.Label(panel, text=label, style="Panel.TLabel").pack(anchor="w", pady=(7, 3))
+            variable = tk.StringVar(value=values.get(key, ""))
+            entry = ttk.Entry(panel, textvariable=variable, show="•", width=64)
+            entry.pack(fill="x")
+            self.variables[key] = variable
+        buttons = ttk.Frame(panel, style="Panel.TFrame")
+        buttons.pack(fill="x", pady=(20, 0))
+        ttk.Button(buttons, text="CANCELAR", command=self.window.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(buttons, text="SALVAR CHAVES", style="Accent.TButton", command=lambda: self._save(on_save)).pack(side="right")
+
+    def _save(self, on_save) -> None:
+        on_save({key: variable.get().strip() for key, variable in self.variables.items()})
+        messagebox.showinfo("APIs", "Chaves salvas com proteção local.", parent=self.window)
+        self.window.destroy()
+
+
+class BacktestDialog:
+    def __init__(self, parent, result: BacktestResult) -> None:
+        self.window = centered_window(parent, "Backtest walk-forward", "780x650")
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=20)
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(outer, text="BACKTEST PROFISSIONAL", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
+        ttk.Label(outer, text="Resultados exclusivamente fora da amostra. Nenhuma taxa é estimada ou inventada.", style="Muted.TLabel").pack(anchor="w", pady=(3, 15))
+        metrics = ttk.Frame(outer, style="Panel.TFrame")
+        metrics.pack(fill="x")
+        values = [
+            ("OPERAÇÕES", str(result.operations)), ("WIN", str(result.wins)), ("LOSS", str(result.losses)),
+            ("DRAW", str(result.draws)), ("ACERTO", f"{result.accuracy * 100:.2f}%" if result.operations else "SEM OPERAÇÕES"),
+            ("COBERTURA", f"{result.coverage * 100:.2f}%"), ("MÁX. WIN", str(result.longest_win_streak)),
+            ("MÁX. LOSS", str(result.longest_loss_streak)), ("SINAIS/DIA", f"{result.signals_per_day:.2f}"),
+        ]
+        for index, (label, value) in enumerate(values):
+            card = ttk.Frame(metrics, style="Card.TFrame", padding=12)
+            card.grid(row=index // 3, column=index % 3, sticky="nsew", padx=4, pady=4)
+            metrics.columnconfigure(index % 3, weight=1)
+            ttk.Label(card, text=label, style="Card.TLabel", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(anchor="w")
+            ttk.Label(card, text=value, style="Card.TLabel", font=("Segoe UI Semibold", 14)).pack(anchor="w", pady=(3, 0))
+        detail = tk.Text(outer, bg=COLORS["card_alt"], fg=COLORS["text"], insertbackground=COLORS["text"], relief="flat", height=14, font=("Consolas", 10), padx=12, pady=12)
+        detail.pack(fill="both", expand=True, pady=(14, 8))
+        matrix = result.confusion
+        detail.insert("end", "MATRIZ DE CONFUSÃO (real → previsto)\n")
+        detail.insert("end", "             VENDA  AGUARDAR  COMPRA\n")
+        for label, row in zip(("VENDA", "AGUARDAR", "COMPRA"), matrix):
+            detail.insert("end", f"{label:<10} {row[0]:>6} {row[1]:>9} {row[2]:>7}\n")
+        detail.insert("end", f"\nSeparação temporal\nTRAIN: {result.train_samples} amostras\nVALIDATION: {result.validation_samples} amostras\nTEST: {result.test_samples} amostras\n")
+        if result.by_hour:
+            detail.insert("end", "\nDesempenho por horário\n")
+            for hour, item in result.by_hour.items():
+                detail.insert("end", f"{hour:02d}:00  sinais={int(item['signals']):>4}  acerto={item['accuracy'] * 100:>6.2f}%\n")
+        detail.configure(state="disabled")
+        ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e")
+
+
+class RadarDialog:
+    def __init__(self, parent, items: list[RadarItem], on_analyze) -> None:
+        self.window = centered_window(parent, "Radar de mercado", "720x560")
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=18)
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(outer, text="RADAR DE MERCADO", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
+        ttk.Label(outer, text="O score indica interesse para análise; não é garantia nem sinal de operação.", style="Muted.TLabel").pack(anchor="w", pady=(3, 14))
+        tree = ttk.Treeview(outer, columns=("rank", "symbol", "score", "reason"), show="headings")
+        tree.heading("rank", text="#"); tree.heading("symbol", text="ATIVO"); tree.heading("score", text="SCORE"); tree.heading("reason", text="MOTIVO")
+        tree.column("rank", width=40, anchor="center"); tree.column("symbol", width=110); tree.column("score", width=80, anchor="center"); tree.column("reason", width=420)
+        tree.pack(fill="both", expand=True)
+        for rank, item in enumerate(items, 1):
+            tree.insert("", "end", values=(rank, item.symbol, item.score, item.reason))
+        def select() -> None:
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("Radar", "Selecione um ativo.", parent=self.window)
+                return
+            symbol = tree.item(selected[0], "values")[1]
+            self.window.destroy()
+            on_analyze(symbol)
+        tree.bind("<Double-1>", lambda _: select())
+        ttk.Button(outer, text="ANALISAR ATIVO", style="Accent.TButton", command=select).pack(anchor="e", pady=(12, 0))
+
+
+class PerformanceDialog:
+    def __init__(self, parent, stats: dict) -> None:
+        self.window = centered_window(parent, "Desempenho", "680x520")
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=20)
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(outer, text="DESEMPENHO REAL", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
+        total = stats.get("total") or 0
+        accuracy = stats.get("accuracy")
+        summary = (
+            f"Sinais concluídos: {total}\nWIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\n"
+            f"Taxa de acerto: {accuracy * 100:.2f}%\n"
+            f"Profit factor: {stats['profit_factor']:.2f}\n" if accuracy is not None and stats.get("profit_factor") is not None else
+            f"Sinais concluídos: {total}\nWIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\nTaxa de acerto: {accuracy * 100:.2f}%\nProfit factor: não aplicável" if accuracy is not None else
+            "Nenhum sinal concluído. As estatísticas aparecerão após resultados reais serem registrados."
+        )
+        ttk.Label(outer, text=summary, style="Panel.TLabel", font=("Segoe UI", 12), justify="left").pack(anchor="w", pady=(14, 20))
+        if total:
+            ttk.Label(outer, text=f"Maior sequência WIN: {stats.get('longest_win_streak', 0)}   •   Maior sequência LOSS: {stats.get('longest_loss_streak', 0)}", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
+        tree = ttk.Treeview(outer, columns=("symbol", "timeframe", "mode", "total", "accuracy"), show="headings")
+        for key, label, width in (("symbol", "ATIVO", 120), ("timeframe", "TF", 60), ("mode", "MODO", 130), ("total", "TOTAL", 70), ("accuracy", "ACERTO", 90)):
+            tree.heading(key, text=label); tree.column(key, width=width, anchor="center")
+        tree.pack(fill="both", expand=True)
+        for group in stats.get("groups", []):
+            rate = (group.get("wins") or 0) / group["total"] if group["total"] else 0
+            tree.insert("", "end", values=(group["symbol"], group["timeframe"], group["mode"], group["total"], f"{rate * 100:.2f}%"))
+
+
+class HealthDialog:
+    def __init__(self, parent, statuses: list[HealthStatus]) -> None:
+        self.window = centered_window(parent, "Monitor de saúde", "650x500")
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=20)
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(outer, text="MONITOR DE SAÚDE", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
+        ttk.Label(outer, text="Diagnóstico medido agora. Serviços sem chave aparecem como indisponíveis.", style="Muted.TLabel").pack(anchor="w", pady=(3, 14))
+        for status in statuses:
+            row = ttk.Frame(outer, style="Card.TFrame", padding=10)
+            row.pack(fill="x", pady=3)
+            color = COLORS["green"] if status.online else COLORS["red"]
+            ttk.Label(row, text=f"● {status.name}", style="Card.TLabel", foreground=color, font=("Segoe UI Semibold", 10), width=14).pack(side="left")
+            detail = status.detail
+            if status.latency_ms is not None:
+                detail += f" • {status.latency_ms:.0f} ms"
+            ttk.Label(row, text=detail, style="Card.TLabel", foreground=COLORS["muted"], wraplength=430).pack(side="left", fill="x", expand=True)

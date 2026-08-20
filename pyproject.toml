@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prime-ai-trader"
+version = "0.1.0"
+description = "Assistente quantitativo desktop para criptomoedas e Forex"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "numpy>=2.0,<3",
+  "pandas>=2.2,<3",
+  "scikit-learn>=1.6,<2",
+  "joblib>=1.4,<2",
+  "websockets>=14,<17",
+  "cryptography>=44,<48",
+]
+
+[tool.setuptools.packages.find]
+include = ["prime_ai_trader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
