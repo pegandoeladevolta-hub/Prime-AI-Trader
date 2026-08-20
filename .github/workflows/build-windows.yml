@@ -59,8 +59,10 @@ jobs:
           retention-days: 7
 
       - name: Publish build status
+        if: always()
         shell: powershell
         env:
+          BUILD_JOB_STATUS: ${{ job.status }}
           BUILD_RUN_ID: ${{ github.run_id }}
           BUILD_COMMIT_SHA: ${{ github.sha }}
           BUILD_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
@@ -68,10 +70,10 @@ jobs:
           BUILD_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
         run: |
           $status = [ordered]@{
-            status = "success"
+            status = $env:BUILD_JOB_STATUS
             run_id = [long]$env:BUILD_RUN_ID
             commit_sha = $env:BUILD_COMMIT_SHA
-            artifact_id = [long]$env:BUILD_ARTIFACT_ID
+            artifact_id = if ($env:BUILD_ARTIFACT_ID) { [long]$env:BUILD_ARTIFACT_ID } else { 0 }
             artifact_name = "PRIME-AI-TRADER-Windows-x64"
             artifact_url = $env:BUILD_ARTIFACT_URL
             artifact_digest = $env:BUILD_ARTIFACT_DIGEST
