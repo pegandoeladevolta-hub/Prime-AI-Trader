@@ -1,6 +1,6 @@
 # PRIME AI TRADER
 
-Build automático para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.3.1 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.3.1 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
