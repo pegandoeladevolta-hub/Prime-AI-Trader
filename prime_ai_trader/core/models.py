@@ -94,11 +94,21 @@ class HealthStatus:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-CRYPTO_DEFAULTS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
+CRYPTO_DEFAULTS = [
+    "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+    "DOGE/USDT", "ADA/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
+    "DOT/USDT", "LTC/USDT", "BCH/USDT", "SHIB/USDT", "PEPE/USDT",
+    "SUI/USDT", "NEAR/USDT", "AAVE/USDT", "UNI/USDT", "ICP/USDT",
+    "ETC/USDT", "ATOM/USDT", "FIL/USDT", "ARB/USDT", "OP/USDT",
+    "INJ/USDT", "SEI/USDT", "FET/USDT", "RENDER/USDT", "WIF/USDT",
+]
 FOREX_DEFAULTS = [
     "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD",
     "USD/CAD", "NZD/USD", "EUR/JPY", "GBP/JPY", "EUR/GBP",
+    "EUR/CHF", "EUR/AUD", "EUR/CAD", "EUR/NZD", "GBP/CHF",
+    "GBP/AUD", "GBP/CAD", "GBP/NZD", "AUD/JPY", "AUD/CAD",
+    "AUD/NZD", "AUD/CHF", "NZD/JPY", "NZD/CAD", "NZD/CHF",
+    "CAD/JPY", "CAD/CHF", "CHF/JPY",
 ]
 TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h"]
 TIMEFRAME_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
-

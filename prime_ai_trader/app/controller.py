@@ -17,7 +17,7 @@ from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Candle, Direction, He
 from ..crypto.binance import BinanceSpotProvider
 from ..database.repository import Repository
 from ..economic_calendar.finnhub import EconomicEvent, FinnhubEconomicCalendar
-from ..features.builder import build_features, build_labels, build_time_labels
+from ..features.builder import FEATURE_SCHEMA_VERSION, build_features, build_labels, build_time_labels
 from ..fibonacci.auto import FibonacciResult, automatic_fibonacci
 from ..forex.twelve_data import TwelveDataProvider
 from ..indicators.technical import calculate_all, candles_frame
@@ -62,6 +62,7 @@ class TradingController:
         self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.snapshot: AnalysisSnapshot | None = None
         self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
+        self._quality_gate: dict[tuple[str, str, str, int], BacktestResult] = {}
         self._last_saved_signature: tuple | None = None
         self.websocket_online = False
 
@@ -89,7 +90,7 @@ class TradingController:
     def model_context(self) -> dict[str, str | int]:
         return {
             "market": self.settings.market, "symbol": self.symbol(), "timeframe": self.settings.timeframe,
-            "horizon_minutes": self.settings.horizon_minutes,
+            "horizon_minutes": self.settings.horizon_minutes, "feature_schema": FEATURE_SCHEMA_VERSION,
         }
 
     def cached_snapshot(self, max_age_seconds: float = 120.0) -> AnalysisSnapshot | None:
@@ -155,6 +156,7 @@ class TradingController:
             indicators, features, structure, fibonacci, horizon_minutes,
             sensitivity, candles[-1].closed, blockers, mode, context,
         )
+        signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         calibrated, samples = self.repository.calibration(signal.score)
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
         snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal, news, calendar_events,
@@ -211,6 +213,9 @@ class TradingController:
         blockers = list(snapshot.signal.blockers)
         signal = self.signal_engine.generate(indicators, features, structure, fibonacci,
             self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, blockers, self.settings.mode, self.model_context())
+        signal = self._apply_quality_gate(
+            signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
+        )
         signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(signal.score)
         self.snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal,
             snapshot.news, snapshot.calendar_events, snapshot.symbol, snapshot.timeframe, snapshot.market, datetime.now(timezone.utc))
@@ -239,13 +244,31 @@ class TradingController:
         threshold = max((median_atr / median_price) * 0.35, 0.0004)
         labels = self._labels_for_horizon(threshold)
         confidence = THRESHOLDS.get(self.settings.sensitivity, 68) / 100
-        model_name = self.model_manager.report.selected_model if self.model_manager.report else "Logistic Regression"
+        compatible_model = self.model_manager.is_compatible(self.model_context())
+        model_name = self.model_manager.report.selected_model if compatible_model and self.model_manager.report else "Logistic Regression"
         features = self.snapshot.features
         if len(features) != len(self.snapshot.indicators):
             features = build_features(candles_frame(self.snapshot.candles))
         result = self.backtest_engine.run(features, labels, model_name, confidence)
+        gate_key = (self.snapshot.market, self.snapshot.symbol, self.snapshot.timeframe, self.settings.horizon_minutes)
+        self._quality_gate[gate_key] = result
         self.logger.info("Backtest concluído | operações=%s acerto=%.3f cobertura=%.3f", result.operations, result.accuracy, result.coverage)
         return result
+
+    def _apply_quality_gate(self, signal: Signal, market: str, symbol: str, timeframe: str,
+                            horizon_minutes: int) -> Signal:
+        result = self._quality_gate.get((market, symbol, timeframe, horizon_minutes))
+        if not result or result.quality not in {"FRACA", "AMOSTRA INSUFICIENT"}:
+            return signal
+        reason = (
+            f"Backtest fora da amostra {result.quality.lower()}: "
+            f"{result.accuracy * 100:.1f}% de acerto direcional em {result.directional_operations} operações"
+        )
+        return Signal(
+            Direction.WAIT, SignalState.BLOCKED, signal.score, signal.probabilities, None,
+            signal.horizon_minutes, signal.confluences, [*signal.blockers, reason],
+            model_version=signal.model_version,
+        )
 
     def _labels_for_horizon(self, threshold: float) -> pd.Series:
         assert self.snapshot is not None
@@ -266,6 +289,7 @@ class TradingController:
     def health(self) -> list[HealthStatus]:
         crypto_ok, crypto_latency, crypto_detail = self.binance.test_connection()
         forex_ok, forex_latency, forex_detail = self.forex.test_connection()
+        model_ready = self.model_manager.is_compatible(self.model_context())
         news_started = time.perf_counter()
         try:
             self.news_provider.fetch("bitcoin", 1)
@@ -286,7 +310,7 @@ class TradingController:
             HealthStatus("BINANCE", crypto_ok, crypto_detail, crypto_latency),
             HealthStatus("FOREX", forex_ok, forex_detail, forex_latency),
             HealthStatus("WEBSOCKET", self.websocket_online, last_detail),
-            HealthStatus("IA", self.model_manager.trained, "TREINADA" if self.model_manager.trained else "NÃO TREINADA"),
+            HealthStatus("IA", model_ready, "TREINADA PARA ESTE ATIVO" if model_ready else "RETREINAR PARA ESTE ATIVO/CONTEXTO"),
             HealthStatus("NEWS", news_ok, news_detail, news_latency),
             HealthStatus("DATABASE", database_ok, "ONLINE" if database_ok else "ERRO"),
             HealthStatus("ÁUDIO", os.name == "nt" and shutil.which("powershell") is not None, "DISPONÍVEL" if os.name == "nt" else "SOMENTE WINDOWS"),

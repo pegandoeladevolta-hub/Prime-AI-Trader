@@ -1,5 +1,28 @@
 # Release notes
 
+## 0.3.0 — 20/08/2026
+
+Atualização focada em fluidez, qualidade dos sinais e cobertura de mercados.
+
+### Desempenho
+
+- Cálculo de features históricas vetorizado: benchmark local de 180 candles caiu de aproximadamente 3,66 s para 0,03 s.
+- A cada tick, somente a última vela e a linha de preço são redesenhadas; grid, histórico e overlays permanecem intactos.
+- Análise pesada da Binance ocorre no fechamento da vela ou a cada 30 segundos, sem interromper o preço visual.
+
+### Qualidade e backtest
+
+- Limiares mais seletivos, diferença mínima entre compra/venda e confirmação de tendência, momentum e ADX.
+- Backtest agora contabiliza `WIN + LOSS + DRAW = operações` e calcula acerto direcional sem tratar DRAW como LOSS.
+- Contextos com qualidade fraca ou amostra insuficiente são bloqueados após o backtest, em vez de continuar emitindo sinal.
+- Modelos passam a ser salvos separadamente por ativo, timeframe, horizonte e versão das features.
+
+### Mercados
+
+- 30 criptomoedas iniciais e carregamento de até 100 pares USDT líquidos disponíveis na Binance.
+- 28 pares Forex visíveis mesmo antes da consulta de candles.
+- Cache da Twelve Data, mensagens específicas de chave/créditos/par e atualização a cada 125 segundos para respeitar o plano gratuito.
+
 ## 0.2.0 — 20/08/2026
 
 Atualização de interface, desempenho e experiência Forex.
@@ -49,4 +72,3 @@ Primeira versão funcional do PRIME AI TRADER.
 - Streaming Forex por provedor compatível.
 - Suporte opcional a OANDA e Alpha Vantage.
 - Resultado por stop/target configurável e métricas de retorno/risco mais completas.
-- Atualização incremental do vetor de features em vez de recomputação parcial.

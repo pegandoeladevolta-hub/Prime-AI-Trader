@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from ..core.models import Candle
+from ..core.models import CRYPTO_DEFAULTS, Candle
 from ..market.base import MarketDataProvider, ProviderError
 from ..market.http import get_json
 
@@ -15,6 +15,9 @@ class BinanceSpotProvider(MarketDataProvider):
     name = "Binance Spot"
     rest_url = "https://api.binance.com"
     ws_url = "wss://stream.binance.com:9443/ws"
+
+    def __init__(self) -> None:
+        self._symbols_cache: tuple[float, list[str]] | None = None
 
     @staticmethod
     def api_symbol(symbol: str) -> str:
@@ -49,12 +52,37 @@ class BinanceSpotProvider(MarketDataProvider):
         return [Candle.from_binance(row, closed=datetime.fromtimestamp(int(row[6]) / 1000, tz=timezone.utc) <= now) for row in ordered]
 
     def list_symbols(self) -> list[str]:
+        if self._symbols_cache and time.monotonic() - self._symbols_cache[0] < 600:
+            return self._symbols_cache[1].copy()
         payload = get_json(f"{self.rest_url}/api/v3/exchangeInfo")
-        symbols = []
+        candidates: dict[str, str] = {}
+        stable_bases = {"USDT", "USDC", "FDUSD", "TUSD", "USDP", "DAI", "EUR", "BRL"}
+        leveraged_suffixes = ("UP", "DOWN", "BULL", "BEAR")
         for item in payload.get("symbols", []):
             if item.get("status") == "TRADING" and item.get("quoteAsset") == "USDT" and item.get("isSpotTradingAllowed", True):
-                symbols.append(f"{item['baseAsset']}/USDT")
-        return sorted(symbols)
+                base = str(item.get("baseAsset", "")).upper()
+                if not base or base in stable_bases or base.endswith(leveraged_suffixes):
+                    continue
+                candidates[str(item["symbol"])] = f"{base}/USDT"
+        ranked: list[str] = []
+        try:
+            tickers = get_json(f"{self.rest_url}/api/v3/ticker/24hr")
+            if isinstance(tickers, list):
+                liquid = sorted(
+                    (
+                        (float(item.get("quoteVolume") or 0), candidates[item["symbol"]])
+                        for item in tickers if item.get("symbol") in candidates
+                    ),
+                    reverse=True,
+                )
+                ranked = [symbol for volume, symbol in liquid if volume >= 1_000_000][:100]
+        except ProviderError:
+            ranked = []
+        if not ranked:
+            ranked = [symbol for symbol in CRYPTO_DEFAULTS if self.api_symbol(symbol) in candidates]
+            ranked.extend(sorted(symbol for symbol in candidates.values() if symbol not in ranked)[:70])
+        self._symbols_cache = (time.monotonic(), ranked)
+        return ranked.copy()
 
     def book_ticker(self, symbol: str) -> dict[str, float]:
         data = get_json(f"{self.rest_url}/api/v3/ticker/bookTicker", {"symbol": self.api_symbol(symbol)})

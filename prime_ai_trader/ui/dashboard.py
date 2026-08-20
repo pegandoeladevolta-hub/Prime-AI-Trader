@@ -27,6 +27,9 @@ INDICATOR_LAYOUT = [
     ("VOLUME", "volume"), ("PRICE ACTION", "price_action"), ("NEWS", "news"),
 ]
 
+LIVE_ANALYSIS_INTERVAL_SECONDS = 30
+FOREX_POLL_INTERVAL_MS = 125_000
+
 
 class PrimeAITraderApp(tk.Tk):
     def __init__(self, controller: TradingController) -> None:
@@ -103,7 +106,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.2  •  LOW CPU", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.3  •  PERFORMANCE", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -130,7 +133,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(panel, text="Mercado, ativo e estratégia", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
         self.market_combo = self._combo(panel, "Mercado", self.market_var, [Market.CRYPTO.value, Market.FOREX.value], self._market_changed)
         self.symbol_combo = self._combo(panel, "Ativo", self.symbol_var, CRYPTO_DEFAULTS, self._selection_changed)
-        ttk.Button(panel, text="↻  ATUALIZAR LISTA", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(0, 7))
+        ttk.Button(panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(0, 7))
         self._combo(panel, "Timeframe do gráfico", self.timeframe_var, TIMEFRAMES, self._selection_changed)
         self._combo(panel, "Horizonte / previsão", self.horizon_var, ["1", "2", "3", "5", "10", "15", "30", "60", "240"], self._save_form)
         self._combo(panel, "Sensibilidade", self.sensitivity_var, ["CONSERVADOR", "EQUILIBRADO", "RÁPIDO"], self._save_form)
@@ -141,7 +144,7 @@ class PrimeAITraderApp(tk.Tk):
         actions = ttk.Frame(panel, style="Panel.TFrame")
         actions.pack(fill="x", pady=(4, 0))
         ttk.Button(actions, text="BACKTEST", style="Secondary.TButton", command=self.run_backtest).pack(side="left", fill="x", expand=True, padx=(0, 3))
-        ttk.Button(actions, text="TREINAR IA", style="Secondary.TButton", command=self.train_ai).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        ttk.Button(actions, text="TREINAR ATIVO", style="Secondary.TButton", command=self.train_ai).pack(side="left", fill="x", expand=True, padx=(3, 0))
         ttk.Button(panel, text="RADAR DE MERCADO", style="Secondary.TButton", command=self.run_radar).pack(fill="x", pady=(6, 3))
         sep = ttk.Separator(panel)
         sep.pack(fill="x", pady=11)
@@ -374,7 +377,9 @@ class PrimeAITraderApp(tk.Tk):
         if quiet:
             self.status_var.set(f"Atualização temporariamente indisponível • {error[:80]}")
             if self._analysis_active and self.market_var.get() == Market.FOREX.value:
-                self._schedule_forex_poll(self._analysis_token, delay_ms=30_000)
+                lowered = error.lower()
+                delay = 300_000 if "crédito" in lowered or "limite" in lowered or "429" in lowered else FOREX_POLL_INTERVAL_MS
+                self._schedule_forex_poll(self._analysis_token, delay_ms=delay)
             return
         self.task_progress.stop()
         self.status_var.set("Falha — consulte os logs")
@@ -413,7 +418,10 @@ class PrimeAITraderApp(tk.Tk):
         if token != self._analysis_token or context != current or not self._analysis_active:
             return
         self.render_snapshot(snapshot)
-        self.status_var.set(f"Análise ativa • {snapshot.symbol} • {snapshot.timeframe} • {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
+        if snapshot.market == Market.FOREX.value:
+            self.status_var.set(f"Forex ativo • {snapshot.symbol} • próxima atualização em cerca de 2 minutos")
+        else:
+            self.status_var.set(f"Análise ativa • {snapshot.symbol} • {snapshot.timeframe} • {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         if snapshot.market == Market.CRYPTO.value:
             self._start_crypto_stream(token, context)
         else:
@@ -428,7 +436,7 @@ class PrimeAITraderApp(tk.Tk):
             self.controller.websocket_online = True
             now = time.monotonic()
             self.after(0, lambda c=candle: self._queue_live_chart(c, token))
-            if candle.closed or now - self._last_live_analysis >= 10:
+            if candle.closed or now - self._last_live_analysis >= LIVE_ANALYSIS_INTERVAL_SECONDS:
                 self._last_live_analysis = now
                 self.after(0, lambda c=candle: self._process_live(c, token, context))
         async def run() -> None:
@@ -441,7 +449,7 @@ class PrimeAITraderApp(tk.Tk):
             return
         self._pending_live_candle = candle
         if self._live_ui_job is None:
-            self._live_ui_job = self.after(120, lambda: self._flush_live_chart(token))
+            self._live_ui_job = self.after(100, lambda: self._flush_live_chart(token))
 
     def _flush_live_chart(self, token: int) -> None:
         self._live_ui_job = None
@@ -461,7 +469,7 @@ class PrimeAITraderApp(tk.Tk):
                 self.render_snapshot(snapshot)
         self._run_task("Atualizando análise em tempo real…", lambda: self.controller.merge_live_candle(candle), ready, quiet=True)
 
-    def _schedule_forex_poll(self, token: int, delay_ms: int = 15_000) -> None:
+    def _schedule_forex_poll(self, token: int, delay_ms: int = FOREX_POLL_INTERVAL_MS) -> None:
         if self._forex_poll_job is not None:
             self.after_cancel(self._forex_poll_job)
         self._forex_poll_job = self.after(delay_ms, lambda: self._forex_poll(token))
@@ -504,6 +512,8 @@ class PrimeAITraderApp(tk.Tk):
         self.status_var.set(f"IA treinada • {report.selected_model} • versão {report.version}")
         messagebox.showinfo("Treinamento concluído", f"Modelo selecionado: {report.selected_model}\nAmostras: {report.samples}\nMacro F1 fora da amostra: {selected.macro_f1 * 100:.2f}%\nBalanced accuracy: {selected.balanced_accuracy * 100:.2f}%", parent=self)
         self._load_health()
+        if self._analysis_active:
+            self._schedule_analysis_restart()
 
     def run_backtest(self) -> None:
         self._save_form()

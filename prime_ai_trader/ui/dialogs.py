@@ -21,7 +21,7 @@ def centered_window(parent, title: str, size: str) -> tk.Toplevel:
 
 class ApiSettingsDialog:
     FIELDS = [
-        ("twelve_data_key", "Twelve Data API Key", "Obrigatória para ativar preços e candles de Forex."),
+        ("twelve_data_key", "Twelve Data API Key", "Obrigatória para Forex. O modo gratuito tem 800 créditos/dia; o app usa atualização econômica para não esgotar a cota."),
         ("finnhub_key", "Finnhub API Key", "Opcional: calendário econômico; o endpoint pode exigir plano Premium."),
     ]
 
@@ -56,14 +56,14 @@ class BacktestDialog:
         outer = ttk.Frame(self.window, style="Panel.TFrame", padding=20)
         outer.pack(fill="both", expand=True, padx=12, pady=12)
         ttk.Label(outer, text="BACKTEST PROFISSIONAL", style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
-        ttk.Label(outer, text="Resultados exclusivamente fora da amostra. Nenhuma taxa é estimada ou inventada.", style="Muted.TLabel").pack(anchor="w", pady=(3, 15))
+        ttk.Label(outer, text="Resultados fora da amostra. ACERTO DIRECIONAL exclui DRAW e não mascara movimentos neutros.", style="Muted.TLabel").pack(anchor="w", pady=(3, 15))
         metrics = ttk.Frame(outer, style="Panel.TFrame")
         metrics.pack(fill="x")
         values = [
             ("OPERAÇÕES", str(result.operations)), ("WIN", str(result.wins)), ("LOSS", str(result.losses)),
-            ("DRAW", str(result.draws)), ("ACERTO", f"{result.accuracy * 100:.2f}%" if result.operations else "SEM OPERAÇÕES"),
-            ("COBERTURA", f"{result.coverage * 100:.2f}%"), ("MÁX. WIN", str(result.longest_win_streak)),
-            ("MÁX. LOSS", str(result.longest_loss_streak)), ("SINAIS/DIA", f"{result.signals_per_day:.2f}"),
+            ("DRAW", str(result.draws)), ("ACERTO DIRECIONAL", f"{result.accuracy * 100:.2f}%" if result.directional_operations else "SEM AMOSTRA"),
+            ("QUALIDADE", result.quality), ("COBERTURA", f"{result.coverage * 100:.2f}%"),
+            ("OP. DIRECIONAIS", str(result.directional_operations)), ("SINAIS/DIA", f"{result.signals_per_day:.2f}"),
         ]
         for index, (label, value) in enumerate(values):
             card = ttk.Frame(metrics, style="Card.TFrame", padding=12)
@@ -79,10 +79,13 @@ class BacktestDialog:
         for label, row in zip(("VENDA", "AGUARDAR", "COMPRA"), matrix):
             detail.insert("end", f"{label:<10} {row[0]:>6} {row[1]:>9} {row[2]:>7}\n")
         detail.insert("end", f"\nSeparação temporal\nTRAIN: {result.train_samples} amostras\nVALIDATION: {result.validation_samples} amostras\nTEST: {result.test_samples} amostras\n")
+        detail.insert("end", f"\nDRAW: {result.draw_rate * 100:.2f}% das operações • sequência WIN {result.longest_win_streak} • sequência LOSS {result.longest_loss_streak}\n")
+        if result.quality in {"FRACA", "AMOSTRA INSUFICIENT"}:
+            detail.insert("end", "PROTEÇÃO ATIVA: este contexto será bloqueado até um novo backtest apresentar qualidade suficiente.\n")
         if result.by_hour:
             detail.insert("end", "\nDesempenho por horário\n")
             for hour, item in result.by_hour.items():
-                detail.insert("end", f"{hour:02d}:00  sinais={int(item['signals']):>4}  acerto={item['accuracy'] * 100:>6.2f}%\n")
+                detail.insert("end", f"{hour:02d}:00  sinais={int(item['signals']):>4}  draw={int(item.get('draws', 0)):>3}  acerto dir.={item['accuracy'] * 100:>6.2f}%\n")
         detail.configure(state="disabled")
         ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e")
 

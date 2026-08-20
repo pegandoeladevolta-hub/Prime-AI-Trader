@@ -3,9 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..fibonacci.auto import automatic_fibonacci
 from ..indicators.technical import calculate_all
-from ..priceaction.structure import analyze_structure
 
 
 FEATURE_COLUMNS = [
@@ -16,6 +14,8 @@ FEATURE_COLUMNS = [
     "hour_sin", "hour_cos", "day_sin", "day_cos", "distance_support", "distance_resistance",
     "fib_distance", "trend_code",
 ]
+
+FEATURE_SCHEMA_VERSION = 2
 
 
 def build_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -41,21 +41,23 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     output["hour_cos"] = np.cos(2 * np.pi * hours / 24)
     output["day_sin"] = np.sin(2 * np.pi * days / 7)
     output["day_cos"] = np.cos(2 * np.pi * days / 7)
-    support_distance, resistance_distance, fib_distance, trend_codes = [], [], [], []
-    for end in range(len(data)):
-        window = data.iloc[max(0, end - 120):end + 1]
-        atr_value = float(data["atr_14"].iloc[end]) if pd.notna(data["atr_14"].iloc[end]) else None
-        structure = analyze_structure(window, atr_value)
-        current = float(data["close"].iloc[end])
-        support_distance.append((current - structure.support_zones[0].midpoint) / current if structure.support_zones else np.nan)
-        resistance_distance.append((structure.resistance_zones[0].midpoint - current) / current if structure.resistance_zones else np.nan)
-        fib = automatic_fibonacci(window)
-        fib_distance.append(fib.distance_pct / 100 if fib else np.nan)
-        trend_codes.append({"BAIXA": -1.0, "LATERAL": 0.0, "ALTA": 1.0}.get(structure.trend, 0.0))
-    output["distance_support"] = support_distance
-    output["distance_resistance"] = resistance_distance
-    output["fib_distance"] = fib_distance
-    output["trend_code"] = trend_codes
+    # Proxies causais e vetorizadas. A implementação antiga executava análise
+    # estrutural e Fibonacci 500 vezes por atualização, monopolizando a CPU.
+    # Estas séries preservam apenas dados presentes/passados e ficam dezenas de
+    # vezes mais rápidas sem introduzir look-ahead no treino ou backtest.
+    rolling_low = data["low"].rolling(120, min_periods=9).min()
+    rolling_high = data["high"].rolling(120, min_periods=9).max()
+    swing = (rolling_high - rolling_low).replace(0, np.nan)
+    output["distance_support"] = (data["close"] - rolling_low) / close
+    output["distance_resistance"] = (rolling_high - data["close"]) / close
+    fib_distances = []
+    for ratio in (0.236, 0.382, 0.5, 0.618, 0.786):
+        level = rolling_low + swing * ratio
+        fib_distances.append((data["close"] - level).abs() / close)
+    output["fib_distance"] = pd.concat(fib_distances, axis=1).min(axis=1)
+    aligned_up = (data["ema_9"] > data["ema_21"]) & (data["ema_21"] > data["ema_50"])
+    aligned_down = (data["ema_9"] < data["ema_21"]) & (data["ema_21"] < data["ema_50"])
+    output["trend_code"] = np.select([aligned_up, aligned_down], [1.0, -1.0], default=0.0)
     return output.reindex(columns=FEATURE_COLUMNS).replace([np.inf, -np.inf], np.nan)
 
 

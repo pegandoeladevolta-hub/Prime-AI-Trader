@@ -18,7 +18,9 @@ class BacktestResult:
     wins: int
     losses: int
     draws: int
+    directional_operations: int
     accuracy: float
+    draw_rate: float
     coverage: float
     confusion: list[list[int]]
     longest_win_streak: int
@@ -28,14 +30,33 @@ class BacktestResult:
     train_samples: int
     validation_samples: int
     test_samples: int
+    quality: str
 
 
-def _longest(values: list[bool], target: bool) -> int:
+def _longest(values: list[bool | None], target: bool) -> int:
     best = current = 0
     for value in values:
         current = current + 1 if value is target else 0
         best = max(best, current)
     return best
+
+
+def _directional_confluence(row: pd.Series, prediction: int) -> bool:
+    """Filtra previsões isoladas que contradizem tendência e momentum."""
+    if prediction not in {-1, 1}:
+        return False
+    adx = row.get("adx_14")
+    if pd.isna(adx) or float(adx) < 18:
+        return False
+    sign = float(prediction)
+    votes = (
+        sign * float(row.get("ema_distance_9_21", 0) or 0) > 0,
+        sign * float(row.get("ema_distance_21_50", 0) or 0) > 0,
+        sign * float(row.get("macd_hist", 0) or 0) > 0,
+        sign * (float(row.get("plus_di", 0) or 0) - float(row.get("minus_di", 0) or 0)) > 0,
+        sign * float(row.get("trend_code", 0) or 0) >= 0,
+    )
+    return sum(votes) >= 3
 
 
 class BacktestEngine:
@@ -53,6 +74,8 @@ class BacktestEngine:
         truths: list[int] = []
         timestamps = []
         confidences = []
+        probability_edges = []
+        confluences = []
         for train_idx, test_idx in folds:
             model = clone(model_template)
             model.fit(x.iloc[train_idx], y.iloc[train_idx])
@@ -61,29 +84,51 @@ class BacktestEngine:
             best_idx = np.argmax(proba, axis=1)
             fold_predictions = classes[best_idx]
             fold_confidence = proba[np.arange(len(proba)), best_idx]
+            class_positions = {int(label): position for position, label in enumerate(classes)}
+            fold_rows = x.iloc[test_idx]
+            for row_position, prediction in enumerate(fold_predictions):
+                opposite_position = class_positions.get(-int(prediction))
+                opposite_probability = float(proba[row_position, opposite_position]) if opposite_position is not None else 0.0
+                probability_edges.append(float(fold_confidence[row_position]) - opposite_probability)
+                confluences.append(_directional_confluence(fold_rows.iloc[row_position], int(prediction)))
             predictions.extend(int(v) for v in fold_predictions)
             truths.extend(int(v) for v in y.iloc[test_idx])
             confidences.extend(float(v) for v in fold_confidence)
             timestamps.extend(x.index[test_idx])
-        active = [i for i, (pred, confidence) in enumerate(zip(predictions, confidences)) if pred != 0 and confidence >= confidence_threshold]
-        outcomes = [predictions[i] == truths[i] for i in active]
-        wins = sum(outcomes)
-        losses = len(outcomes) - wins
-        draws = sum(truths[i] == 0 for i in active)
+        active = [
+            i for i, (pred, confidence, edge, confluence) in enumerate(
+                zip(predictions, confidences, probability_edges, confluences)
+            )
+            if pred != 0 and confidence >= confidence_threshold and edge >= 0.12 and confluence
+        ]
+        directional = [i for i in active if truths[i] != 0]
+        outcomes: list[bool | None] = [
+            None if truths[i] == 0 else predictions[i] == truths[i] for i in active
+        ]
+        wins = sum(predictions[i] == truths[i] for i in directional)
+        losses = len(directional) - wins
+        draws = len(active) - len(directional)
+        accuracy = wins / len(directional) if directional else 0.0
+        quality = "AMOSTRA INSUFICIENT" if len(directional) < 20 else "FORTE" if accuracy >= 0.62 else "MODERADA" if accuracy >= 0.55 else "FRACA"
         matrix = confusion_matrix(truths, predictions, labels=[-1, 0, 1]).tolist()
         unique_days = max(len({timestamp.date() for timestamp in timestamps}), 1)
         by_hour: dict[int, dict[str, float]] = {}
         for hour in range(24):
             indices = [i for i in active if timestamps[i].hour == hour]
             if indices:
-                hour_wins = sum(predictions[i] == truths[i] for i in indices)
-                by_hour[hour] = {"signals": len(indices), "accuracy": hour_wins / len(indices)}
+                hour_directional = [i for i in indices if truths[i] != 0]
+                hour_wins = sum(predictions[i] == truths[i] for i in hour_directional)
+                by_hour[hour] = {
+                    "signals": len(indices),
+                    "draws": len(indices) - len(hour_directional),
+                    "accuracy": hour_wins / len(hour_directional) if hour_directional else 0.0,
+                }
         first_train, last_test = folds[0][0], folds[-1][1]
         validation = sum(len(test) for _, test in folds[:-1])
         return BacktestResult(
-            len(x), len(active), wins, losses, draws, wins / len(active) if active else 0.0,
+            len(x), len(active), wins, losses, draws, len(directional), accuracy,
+            draws / len(active) if active else 0.0,
             len(active) / len(predictions) if predictions else 0.0, matrix,
             _longest(outcomes, True), _longest(outcomes, False), len(active) / unique_days,
-            by_hour, len(first_train), validation, len(last_test),
+            by_hour, len(first_train), validation, len(last_test), quality,
         )
-

@@ -28,6 +28,8 @@ class CandleChart(tk.Canvas):
         self.on_ohlc = on_ohlc
         self._context_key = ""
         self._redraw_job: str | None = None
+        self._live_redraw_job: str | None = None
+        self._plot_state: dict[str, float | int] | None = None
         self.bind("<Configure>", lambda _: self.schedule_redraw(60))
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", lambda e: self._zoom_linux(e, 1))
@@ -54,10 +56,19 @@ class CandleChart(tk.Canvas):
             return
         if self.candles[-1].open_time == candle.open_time:
             self.candles[-1] = candle
+            self._schedule_live_redraw()
         elif candle.open_time > self.candles[-1].open_time:
             self.candles.append(candle)
             self.candles = self.candles[-500:]
-        self.schedule_redraw(80)
+            self.schedule_redraw(40)
+
+    def _schedule_live_redraw(self, delay_ms: int = 100) -> None:
+        if self._live_redraw_job is not None:
+            try:
+                self.after_cancel(self._live_redraw_job)
+            except tk.TclError:
+                pass
+        self._live_redraw_job = self.after(delay_ms, self._redraw_live_candle)
 
     def schedule_redraw(self, delay_ms: int = 16) -> None:
         if self._redraw_job is not None:
@@ -109,6 +120,12 @@ class CandleChart(tk.Canvas):
 
     def redraw(self) -> None:
         self._redraw_job = None
+        if self._live_redraw_job is not None:
+            try:
+                self.after_cancel(self._live_redraw_job)
+            except tk.TclError:
+                pass
+            self._live_redraw_job = None
         self.delete("all")
         width, height = self.winfo_width(), self.winfo_height()
         if width < 120 or height < 100:
@@ -153,14 +170,15 @@ class CandleChart(tk.Canvas):
         for index, candle in enumerate(visible):
             x = left + (index + 0.5) * step
             color = COLORS["green"] if candle.close >= candle.open else COLORS["red"]
-            self.create_line(x, y(candle.high), x, y(candle.low), fill=color, width=1)
+            tags = ("market-candle", "live-candle") if index == count - 1 else ("market-candle",)
+            self.create_line(x, y(candle.high), x, y(candle.low), fill=color, width=1, tags=tags)
             y_open, y_close = y(candle.open), y(candle.close)
             if abs(y_open - y_close) < 1:
-                self.create_line(x - body_width / 2, y_open, x + body_width / 2, y_close, fill=color, width=2)
+                self.create_line(x - body_width / 2, y_open, x + body_width / 2, y_close, fill=color, width=2, tags=tags)
             else:
-                self.create_rectangle(x - body_width / 2, min(y_open, y_close), x + body_width / 2, max(y_open, y_close), fill=color, outline=color)
+                self.create_rectangle(x - body_width / 2, min(y_open, y_close), x + body_width / 2, max(y_open, y_close), fill=color, outline=color, tags=tags)
             bar_height = candle.volume / max_volume * volume_height
-            self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="")
+            self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags=tags)
         if self.structure and self.overlays.get("swings"):
             for pivot_index, marker, color, anchor in (
                 *[(i, "▼", COLORS["red"], "s") for i in self.structure.pivot_highs[-8:]],
@@ -185,9 +203,51 @@ class CandleChart(tk.Canvas):
             color = COLORS["green"] if self.signal.direction == Direction.BUY else COLORS["red"]
             self.create_text(right - 12, top + 14, text=marker, fill=color, anchor="ne", font=("Segoe UI Semibold", 10))
         current = visible[-1].close
-        self.create_line(left, y(current), right, y(current), fill=COLORS["accent2"], dash=(2, 3))
-        self.create_rectangle(right, y(current) - 9, width, y(current) + 9, fill=COLORS["accent"], outline="")
-        self.create_text(right + 5, y(current), anchor="w", text=f"{current:,.4f}", fill="white", font=("Segoe UI Semibold", 8))
+        self.create_line(left, y(current), right, y(current), fill=COLORS["accent2"], dash=(2, 3), tags="live-price")
+        self.create_rectangle(right, y(current) - 9, width, y(current) + 9, fill=COLORS["accent"], outline="", tags="live-price")
+        self.create_text(right + 5, y(current), anchor="w", text=f"{current:,.4f}", fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
+        self._plot_state = {
+            "width": width, "height": height, "left": left, "right": right,
+            "top": top, "bottom": bottom, "low": low, "high": high,
+            "step": step, "count": count, "max_volume": max_volume,
+            "volume_base": volume_base, "volume_height": volume_height,
+            "body_width": body_width,
+        }
+
+    def _redraw_live_candle(self) -> None:
+        """Redesenha só a última vela e o preço; mantém grid, overlays e histórico intactos."""
+        self._live_redraw_job = None
+        state = self._plot_state
+        if not state or not self.candles or self.offset != 0:
+            return
+        candle = self.candles[-1]
+        low, high = float(state["low"]), float(state["high"])
+        if candle.low < low or candle.high > high or candle.volume > float(state["max_volume"]) * 1.05:
+            self.schedule_redraw(16)
+            return
+        left, right = float(state["left"]), float(state["right"])
+        top, bottom = float(state["top"]), float(state["bottom"])
+        height, width = float(state["height"]), float(state["width"])
+        price_height = bottom - top
+        y = lambda price: bottom - (price - low) / (high - low) * price_height
+        x = left + (int(state["count"]) - 0.5) * float(state["step"])
+        body_width = float(state["body_width"])
+        color = COLORS["green"] if candle.close >= candle.open else COLORS["red"]
+        self.delete("live-candle")
+        self.create_line(x, y(candle.high), x, y(candle.low), fill=color, width=1, tags="live-candle")
+        y_open, y_close = y(candle.open), y(candle.close)
+        if abs(y_open - y_close) < 1:
+            self.create_line(x - body_width / 2, y_open, x + body_width / 2, y_close, fill=color, width=2, tags="live-candle")
+        else:
+            self.create_rectangle(x - body_width / 2, min(y_open, y_close), x + body_width / 2, max(y_open, y_close), fill=color, outline=color, tags="live-candle")
+        bar_height = candle.volume / max(float(state["max_volume"]), 1) * float(state["volume_height"])
+        volume_base = float(state["volume_base"])
+        self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags="live-candle")
+        self.delete("live-price")
+        current_y = y(candle.close)
+        self.create_line(left, current_y, right, current_y, fill=COLORS["accent2"], dash=(2, 3), tags="live-price")
+        self.create_rectangle(right, current_y - 9, width, current_y + 9, fill=COLORS["accent"], outline="", tags="live-price")
+        self.create_text(right + 5, current_y, anchor="w", text=f"{candle.close:,.4f}", fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
 
     def _draw_line(self, column: str, start: int, count: int, left: float, step: float, y, color: str) -> None:
         if column not in self.indicators:

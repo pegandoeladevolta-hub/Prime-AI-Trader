@@ -10,7 +10,8 @@ from ..ml.models import ModelManager
 from ..priceaction.structure import MarketStructure
 
 
-THRESHOLDS = {"CONSERVADOR": 78, "EQUILIBRADO": 68, "RÁPIDO": 60}
+THRESHOLDS = {"CONSERVADOR": 84, "EQUILIBRADO": 76, "RÁPIDO": 68}
+PROBABILITY_FLOORS = {"CONSERVADOR": 0.68, "EQUILIBRADO": 0.62, "RÁPIDO": 0.56}
 
 
 @dataclass(slots=True)
@@ -41,16 +42,17 @@ class SignalEngine:
             buy += 10; buy_reasons.append("MACD acima da linha de sinal")
         elif last["macd_hist"] < 0:
             sell += 10; sell_reasons.append("MACD abaixo da linha de sinal")
-        if last["adx_14"] >= 22:
+        if pd.notna(last["adx_14"]) and last["adx_14"] >= 22:
             if last["plus_di"] > last["minus_di"]:
                 buy += 12; buy_reasons.append(f"ADX confirma força compradora ({last['adx_14']:.1f})")
             else:
                 sell += 12; sell_reasons.append(f"ADX confirma força vendedora ({last['adx_14']:.1f})")
-        if last["close"] > last["vwap"]:
-            buy += 7; buy_reasons.append("Preço acima da VWAP")
-        else:
-            sell += 7; sell_reasons.append("Preço abaixo da VWAP")
-        if last["volume_relative"] >= 1.2:
+        if pd.notna(last["vwap"]):
+            if last["close"] > last["vwap"]:
+                buy += 7; buy_reasons.append("Preço acima da VWAP")
+            else:
+                sell += 7; sell_reasons.append("Preço abaixo da VWAP")
+        if pd.notna(last["volume_relative"]) and last["volume_relative"] >= 1.2:
             if last["close"] >= last["open"]:
                 buy += 8; buy_reasons.append(f"Volume relativo {last['volume_relative']:.2f}x")
             else:
@@ -94,12 +96,28 @@ class SignalEngine:
             total = max(buy_score + sell_score + 30, 1)
             probabilities = {"COMPRA": buy_score / total, "VENDA": sell_score / total, "AGUARDAR": 30 / total}
             model_version = "rules-v1"
-        threshold = THRESHOLDS.get(sensitivity.upper(), 68)
+        sensitivity_key = sensitivity.upper()
+        threshold = THRESHOLDS.get(sensitivity_key, 76)
         if buy_score >= sell_score:
             direction, score, confluences = Direction.BUY, buy_score, rules.buy_reasons
         else:
             direction, score, confluences = Direction.SELL, sell_score, rules.sell_reasons
-        if score < threshold or len(confluences) < 3:
+        last = indicators.iloc[-1]
+        score_gap = abs(buy_score - sell_score)
+        direction_sign = 1 if direction == Direction.BUY else -1
+        momentum_votes = (
+            direction_sign * float(last.get("ema_9", 0) - last.get("ema_21", 0)) > 0,
+            direction_sign * float(last.get("macd_hist", 0) or 0) > 0,
+            direction_sign * float((last.get("plus_di", 0) or 0) - (last.get("minus_di", 0) or 0)) > 0,
+            structure.trend != ("BAIXA" if direction == Direction.BUY else "ALTA"),
+        )
+        weak_regime = pd.notna(last.get("adx_14")) and float(last["adx_14"]) < 18 and not structure.breakout
+        probability_ok = True
+        if self.model_manager.is_compatible(model_context):
+            chosen = probabilities[direction.value]
+            opposite = probabilities[Direction.SELL.value if direction == Direction.BUY else Direction.BUY.value]
+            probability_ok = chosen >= PROBABILITY_FLOORS.get(sensitivity_key, 0.62) and chosen - opposite >= 0.15
+        if score < threshold or score_gap < 12 or len(confluences) < 4 or sum(momentum_votes) < 3 or weak_regime or not probability_ok:
             return Signal(Direction.WAIT, SignalState.WAITING, max(buy_score, sell_score), probabilities, None, horizon_minutes, confluences[:4], model_version=model_version)
         state = SignalState.CONFIRMED if candle_closed else SignalState.FORMING
         entry = float(indicators["close"].iloc[-1])

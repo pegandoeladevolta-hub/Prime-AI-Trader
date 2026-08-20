@@ -27,12 +27,17 @@ class MlBacktestTests(unittest.TestCase):
     def test_training_and_probability_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             manager = ModelManager(Path(temp))
-            report = manager.train(self.features, self.labels)
+            context = {"market": "Criptomoedas", "symbol": "BTC/USDT", "timeframe": "5m", "horizon_minutes": 5, "feature_schema": 2}
+            report = manager.train(self.features, self.labels, context)
             self.assertTrue(manager.trained)
             self.assertGreater(report.samples, 100)
             probabilities = manager.predict_proba(self.features)
             self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=6)
             self.assertTrue(set(probabilities).issubset({-1, 0, 1}))
+            manager.model = None
+            manager.report = None
+            self.assertTrue(manager.is_compatible(context))
+            self.assertFalse(manager.is_compatible({**context, "symbol": "ETH/USDT"}))
 
     def test_backtest_reports_only_oos_predictions(self) -> None:
         result = BacktestEngine().run(self.features, self.labels, confidence_threshold=0.0)
@@ -41,8 +46,10 @@ class MlBacktestTests(unittest.TestCase):
         self.assertLessEqual(result.operations, result.validation_samples + result.test_samples)
         self.assertGreaterEqual(result.coverage, 0)
         self.assertLessEqual(result.coverage, 1)
+        self.assertEqual(result.operations, result.wins + result.losses + result.draws)
+        if result.directional_operations:
+            self.assertAlmostEqual(result.accuracy, result.wins / result.directional_operations)
 
 
 if __name__ == "__main__":
     unittest.main()
-

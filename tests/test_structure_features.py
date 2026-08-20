@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,13 @@ class StructureFeatureTests(unittest.TestCase):
         result = build_features(self.frame)
         self.assertEqual(result.columns.tolist(), FEATURE_COLUMNS)
         self.assertEqual(len(result), len(self.frame))
+
+    def test_feature_builder_stays_fast_on_large_history(self) -> None:
+        frame = candles_frame(synthetic_candles(1000, seed=33))
+        started = time.perf_counter()
+        result = build_features(frame)
+        self.assertEqual(len(result), 1000)
+        self.assertLess(time.perf_counter() - started, 2.0)
 
     def test_features_do_not_change_when_future_is_appended(self) -> None:
         first = build_features(self.frame.iloc[:180])

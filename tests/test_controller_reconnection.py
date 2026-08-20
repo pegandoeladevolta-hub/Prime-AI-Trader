@@ -5,10 +5,11 @@ import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from prime_ai_trader.app.controller import TradingController
-from prime_ai_trader.core.models import Market
+from prime_ai_trader.core.models import Direction, Market, Signal, SignalState
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
 from tests.helpers import synthetic_candles
 
@@ -28,6 +29,19 @@ class _FakeSocket:
 
 
 class ControllerReconnectTests(unittest.TestCase):
+    def test_weak_backtest_blocks_live_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            key = (Market.CRYPTO.value, "BTC/USDT", "5m", 5)
+            controller._quality_gate[key] = SimpleNamespace(
+                quality="FRACA", accuracy=0.42, directional_operations=31,
+            )
+            original = Signal(Direction.BUY, SignalState.CONFIRMED, 82, {"COMPRA": 0.8}, 100.0, 5)
+            guarded = controller._apply_quality_gate(original, *key)
+            self.assertEqual(guarded.direction, Direction.WAIT)
+            self.assertEqual(guarded.state, SignalState.BLOCKED)
+            self.assertIn("Backtest fora da amostra", guarded.blockers[0])
+
     def test_controller_switches_asset_and_timeframe_without_stale_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
@@ -73,4 +87,3 @@ class ControllerReconnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 
 import joblib
 import numpy as np
@@ -83,6 +85,7 @@ class ModelManager:
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.model: Pipeline | None = None
         self.report: TrainingReport | None = None
+        self._lock = RLock()
         self.load()
 
     @property
@@ -118,34 +121,79 @@ class ModelManager:
                 float(np.mean([f.macro_f1 for f in fold_metrics])), fold_metrics,
             ))
         selected = max(model_metrics, key=lambda metric: (metric.macro_f1, metric.balanced_accuracy))
-        self.model = models[selected.model]
-        self.model.fit(x, y)
+        trained_model = models[selected.model]
+        trained_model.fit(x, y)
         stamp = datetime.now(timezone.utc)
         version = f"ml-{stamp.strftime('%Y%m%d-%H%M%S')}"
-        self.report = TrainingReport(selected.model, version, stamp.isoformat(), len(x), len(FEATURE_COLUMNS), model_metrics, context or {})
-        self.save()
-        return self.report
+        report = TrainingReport(selected.model, version, stamp.isoformat(), len(x), len(FEATURE_COLUMNS), model_metrics, context or {})
+        with self._lock:
+            self.model = trained_model
+            self.report = report
+            self.save()
+        return report
 
     def predict_proba(self, features: pd.DataFrame) -> dict[int, float]:
-        if not self.model:
-            raise RuntimeError("A IA ainda não foi treinada.")
-        row = features.reindex(columns=FEATURE_COLUMNS).iloc[[-1]]
-        probabilities = self.model.predict_proba(row)[0]
-        classes = self.model.named_steps["model"].classes_
+        with self._lock:
+            if not self.model:
+                raise RuntimeError("A IA ainda não foi treinada.")
+            row = features.reindex(columns=FEATURE_COLUMNS).iloc[[-1]]
+            probabilities = self.model.predict_proba(row)[0]
+            classes = self.model.named_steps["model"].classes_
         return {int(label): float(probability) for label, probability in zip(classes, probabilities)}
 
     def is_compatible(self, context: dict[str, str | int] | None) -> bool:
-        if not self.trained:
+        with self._lock:
+            if context and (not self.report or self.report.context != context):
+                self._activate_unlocked(context)
+            if not self.trained:
+                return False
+            if not context:
+                return not bool(self.report.context)
+            return self.report.context == context
+
+    @staticmethod
+    def _context_key(context: dict[str, str | int]) -> str:
+        payload = json.dumps(context, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(payload).hexdigest()[:24]
+
+    def _context_paths(self, context: dict[str, str | int]) -> tuple[Path, Path]:
+        directory = self.model_dir / "contexts"
+        directory.mkdir(parents=True, exist_ok=True)
+        key = self._context_key(context)
+        return directory / f"{key}.joblib", directory / f"{key}.json"
+
+    def _activate_unlocked(self, context: dict[str, str | int]) -> bool:
+        model_path, report_path = self._context_paths(context)
+        if not model_path.exists() or not report_path.exists():
             return False
-        if not context:
-            return not bool(self.report.context)
-        return self.report.context == context
+        try:
+            model = joblib.load(model_path)
+            report = self._decode_report(json.loads(report_path.read_text(encoding="utf-8")))
+            if report.context != context:
+                return False
+            self.model, self.report = model, report
+            return True
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
 
     def save(self) -> None:
         if not self.model or not self.report:
             return
+        report_text = json.dumps(asdict(self.report), ensure_ascii=False, indent=2)
         joblib.dump(self.model, self.model_dir / "active_model.joblib")
-        (self.model_dir / "training_report.json").write_text(json.dumps(asdict(self.report), ensure_ascii=False, indent=2), encoding="utf-8")
+        (self.model_dir / "training_report.json").write_text(report_text, encoding="utf-8")
+        if self.report.context:
+            model_path, report_path = self._context_paths(self.report.context)
+            joblib.dump(self.model, model_path)
+            report_path.write_text(report_text, encoding="utf-8")
+
+    @staticmethod
+    def _decode_report(raw: dict) -> TrainingReport:
+        metrics = []
+        for metric in raw["metrics"]:
+            folds = [FoldMetric(**fold) for fold in metric["folds"]]
+            metrics.append(ModelMetric(metric["model"], metric["balanced_accuracy"], metric["macro_f1"], folds))
+        return TrainingReport(raw["selected_model"], raw["version"], raw["trained_at"], raw["samples"], raw["features"], metrics, raw.get("context", {}))
 
     def load(self) -> None:
         model_path = self.model_dir / "active_model.joblib"
@@ -154,12 +202,7 @@ class ModelManager:
             return
         try:
             self.model = joblib.load(model_path)
-            raw = json.loads(report_path.read_text(encoding="utf-8"))
-            metrics = []
-            for metric in raw["metrics"]:
-                folds = [FoldMetric(**fold) for fold in metric["folds"]]
-                metrics.append(ModelMetric(metric["model"], metric["balanced_accuracy"], metric["macro_f1"], folds))
-            self.report = TrainingReport(raw["selected_model"], raw["version"], raw["trained_at"], raw["samples"], raw["features"], metrics, raw.get("context", {}))
+            self.report = self._decode_report(json.loads(report_path.read_text(encoding="utf-8")))
         except (OSError, ValueError, KeyError):
             self.model = None
             self.report = None

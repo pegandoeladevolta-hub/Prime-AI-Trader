@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from prime_ai_trader.core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
 from prime_ai_trader.forex.twelve_data import TwelveDataProvider
 from prime_ai_trader.market.base import ProviderError
@@ -37,6 +38,41 @@ class ProviderUiContractTests(unittest.TestCase):
         self.assertEqual(len(candles), 2)
         self.assertAlmostEqual(candles[-1].close, 1.11)
 
+    @patch("prime_ai_trader.forex.twelve_data.get_json")
+    def test_forex_reuses_cache_to_preserve_free_credits(self, mocked) -> None:
+        mocked.return_value = {"values": [{"datetime": "2026-08-20 12:00:00", "open": "1.09", "high": "1.11", "low": "1.08", "close": "1.10"}]}
+        provider = TwelveDataProvider("test-key")
+        provider.fetch_candles("EUR/USD", "1m", 1)
+        provider.fetch_candles("EUR/USD", "1m", 1)
+        mocked.assert_called_once()
+
+    @patch("prime_ai_trader.forex.twelve_data.get_json")
+    def test_forex_credit_error_is_actionable(self, mocked) -> None:
+        mocked.return_value = {"status": "error", "code": 429, "message": "API credits exhausted"}
+        with self.assertRaisesRegex(ProviderError, "Limite de créditos"):
+            TwelveDataProvider("test-key").fetch_candles("EUR/USD", "1m", 1)
+
+    @patch("prime_ai_trader.crypto.binance.get_json")
+    def test_crypto_list_prioritizes_liquid_usdt_pairs(self, mocked) -> None:
+        mocked.side_effect = [
+            {"symbols": [
+                {"symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT", "status": "TRADING", "isSpotTradingAllowed": True},
+                {"symbol": "ETHUSDT", "baseAsset": "ETH", "quoteAsset": "USDT", "status": "TRADING", "isSpotTradingAllowed": True},
+                {"symbol": "USDCUSDT", "baseAsset": "USDC", "quoteAsset": "USDT", "status": "TRADING", "isSpotTradingAllowed": True},
+            ]},
+            [
+                {"symbol": "BTCUSDT", "quoteVolume": "9000000"},
+                {"symbol": "ETHUSDT", "quoteVolume": "12000000"},
+                {"symbol": "USDCUSDT", "quoteVolume": "999000000"},
+            ],
+        ]
+        symbols = BinanceSpotProvider().list_symbols()
+        self.assertEqual(symbols, ["ETH/USDT", "BTC/USDT"])
+
+    def test_default_market_lists_are_not_artificially_tiny(self) -> None:
+        self.assertGreaterEqual(len(CRYPTO_DEFAULTS), 25)
+        self.assertGreaterEqual(len(FOREX_DEFAULTS), 25)
+
     @patch("prime_ai_trader.news.provider.get_json")
     def test_news_success_is_cached(self, mocked) -> None:
         mocked.return_value = {"articles": [{"title": "Bitcoin rally", "url": "https://example.test", "seendate": "20260820T120000", "domain": "example.test"}]}
@@ -58,6 +94,11 @@ class ProviderUiContractTests(unittest.TestCase):
         source = inspect.getsource(CandleChart._crosshair)
         self.assertNotIn("self.redraw()", source)
         self.assertIn('self.delete("crosshair")', source)
+
+    def test_live_tick_uses_partial_chart_redraw(self) -> None:
+        source = inspect.getsource(CandleChart.update_last_candle)
+        self.assertIn("_schedule_live_redraw", source)
+        self.assertNotIn("schedule_redraw(80)", source)
 
     def test_every_visible_button_declares_a_command(self) -> None:
         ui_dir = Path(__file__).parents[1] / "prime_ai_trader" / "ui"
