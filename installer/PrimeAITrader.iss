@@ -1,5 +1,5 @@
 #define MyAppName "PRIME AI TRADER"
-#define MyAppVersion "0.4.0"
+#define MyAppVersion "0.4.1"
 #define MyAppPublisher "PRIME"
 #define MyAppExeName "PrimeAITrader.exe"
 
@@ -36,16 +36,27 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar um atalho na Área de Trabalho"; GroupDescription: "Atalhos adicionais:"; Flags: unchecked
+Name: "cleancache"; Description: "Limpar cache e modelos de versões antigas (mantém chaves, configurações e histórico)"; GroupDescription: "Atualização segura:"; Flags: checkedonce
 
 [Files]
 Source: "..\release\PrimeAITrader.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\RELEASE_NOTES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config\apis.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
+Source: "..\scripts\Limpar-Cache-PrimeAITrader.cmd"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\cache"
+Type: filesandordirs; Name: "{app}\models"
+Type: filesandordirs; Name: "{app}\temp"
+Type: filesandordirs; Name: "{app}\old_versions"
+Type: filesandordirs; Name: "{app}\updates"
+Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{group}\Limpar cache e modelos antigos"; Filename: "{app}\Limpar-Cache-PrimeAITrader.cmd"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
@@ -53,3 +64,19 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME AI TRADER"; Flags: 
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssInstall) and WizardIsTaskSelected('cleancache') then
+  begin
+    DelTree(ExpandConstant('{userappdata}\PrimeAITrader\models'), True, True, True);
+    DelTree(ExpandConstant('{userappdata}\PrimeAITrader\cache'), True, True, True);
+    DelTree(ExpandConstant('{userappdata}\PrimeAITrader\temp'), True, True, True);
+    DelTree(ExpandConstant('{userappdata}\PrimeAITrader\old_versions'), True, True, True);
+    DelTree(ExpandConstant('{userappdata}\PrimeAITrader\updates'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\PrimeAITrader\models'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\PrimeAITrader\cache'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\PrimeAITrader\temp'), True, True, True);
+  end;
+end;

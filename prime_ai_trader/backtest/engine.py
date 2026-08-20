@@ -45,10 +45,10 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
     if prediction not in {-1, 1}:
         return False
     adx = row.get("adx_14")
-    if pd.isna(adx) or float(adx) < 20:
+    if pd.isna(adx) or float(adx) < 18:
         return False
     atr_regime = row.get("atr_regime")
-    if pd.notna(atr_regime) and not 0.55 <= float(atr_regime) <= 2.25:
+    if pd.notna(atr_regime) and not 0.40 <= float(atr_regime) <= 3.00:
         return False
     sign = float(prediction)
     votes = (
@@ -57,11 +57,8 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
         sign * float(row.get("macd_hist", 0) or 0) > 0,
         sign * (float(row.get("plus_di", 0) or 0) - float(row.get("minus_di", 0) or 0)) > 0,
         sign * float(row.get("trend_code", 0) or 0) >= 0,
-        sign * float(row.get("return_12", 0) or 0) > 0,
-        sign * float(row.get("ema_50_slope", 0) or 0) > 0,
-        sign * float(row.get("trend_efficiency", 0) or 0) >= 0,
     )
-    return sum(votes) >= 5
+    return sum(votes) >= 3
 
 
 class BacktestEngine:

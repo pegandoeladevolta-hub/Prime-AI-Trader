@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -57,9 +58,12 @@ class PrimeAITraderApp(tk.Tk):
         self._last_voice_signature = None
         self._forex_prompted = False
         self._countdown_job = None
+        self._ui_events = queue.Queue()
+        self._ui_events_job = None
         self._build_variables()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._close)
+        self._ui_events_job = self.after(25, self._drain_ui_events)
         self.after(500, self._load_health)
 
     def _build_variables(self) -> None:
@@ -107,7 +111,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.4.0  •  FILTRO PROFISSIONAL", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.4.1  •  ESTÁVEL E OTIMIZADO", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -141,6 +145,7 @@ class PrimeAITraderApp(tk.Tk):
         self._combo(panel, "Modo", self.mode_var, ["CONFIRMAÇÃO", "PRICE ACTION", "QUANTITATIVO"], self._save_form)
         ttk.Label(panel, text="RÁPIDO gera mais sinais e pode aumentar falsos positivos.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 10))
         ttk.Button(panel, text="▶  INICIAR ANÁLISE", style="Accent.TButton", command=self.start_analysis).pack(fill="x", pady=(3, 4))
+        ttk.Button(panel, text="↻  ATUALIZAR GRÁFICO AGORA", style="Secondary.TButton", command=self.refresh_analysis).pack(fill="x", pady=3)
         ttk.Button(panel, text="Ⅱ  PAUSAR", style="Danger.TButton", command=self.pause_analysis).pack(fill="x", pady=3)
         actions = ttk.Frame(panel, style="Panel.TFrame")
         actions.pack(fill="x", pady=(4, 0))
@@ -168,6 +173,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Button(tools, text="LOGS", command=self.open_logs).pack(side="left", fill="x", expand=True, padx=3)
         ttk.Button(tools, text="DESEMPENHO", command=self.open_performance).pack(side="left", fill="x", expand=True, padx=(3, 0))
         ttk.Button(panel, text="MONITOR DE SAÚDE", command=self.open_health).pack(fill="x", pady=(0, 3))
+        ttk.Button(panel, text="LIMPAR CACHE / MODELOS ANTIGOS", command=self.clean_cache).pack(fill="x", pady=(3, 0))
 
     def _combo(self, parent, label: str, variable, values, callback) -> ttk.Combobox:
         ttk.Label(parent, text=label, style="Muted.TLabel").pack(anchor="w", pady=(4, 3))
@@ -357,6 +363,25 @@ class PrimeAITraderApp(tk.Tk):
             self.indicator_holder.grid()
             self.status_var.set("Cards de indicadores visíveis")
 
+    def _post_ui(self, callback, *args) -> None:
+        self._ui_events.put((callback, args))
+
+    def _drain_ui_events(self) -> None:
+        self._ui_events_job = None
+        try:
+            while True:
+                callback, args = self._ui_events.get_nowait()
+                try:
+                    callback(*args)
+                except Exception as exc:
+                    self.controller.logger.exception("Falha ao atualizar a interface: %s", exc)
+                    if self.winfo_exists():
+                        self.status_var.set("Falha ao atualizar a tela — consulte os logs")
+        except queue.Empty:
+            pass
+        if self.winfo_exists():
+            self._ui_events_job = self.after(25, self._drain_ui_events)
+
     def _run_task(self, label: str, function, on_success, quiet: bool = False) -> None:
         if self._task_running:
             if not quiet:
@@ -369,10 +394,10 @@ class PrimeAITraderApp(tk.Tk):
         def worker() -> None:
             try:
                 result = function()
-                self.after(0, lambda: self._task_success(result, on_success, quiet))
+                self._post_ui(self._task_success, result, on_success, quiet)
             except Exception as exc:
                 self.controller.logger.exception("Falha na tarefa: %s", label)
-                self.after(0, lambda err=str(exc): self._task_error(err, quiet))
+                self._post_ui(self._task_error, str(exc), quiet)
         threading.Thread(target=worker, daemon=True).start()
 
     def _task_success(self, result, callback, quiet: bool = False) -> None:
@@ -427,6 +452,10 @@ class PrimeAITraderApp(tk.Tk):
             lambda snapshot: self._analysis_ready(snapshot, token, context),
         )
 
+    def refresh_analysis(self) -> None:
+        self.status_var.set("Atualização manual solicitada…")
+        self.start_analysis()
+
     def _analysis_ready(self, snapshot: AnalysisSnapshot, token: int, context: tuple[str, str, str]) -> None:
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
         if token != self._analysis_token or context != current or not self._analysis_active:
@@ -449,10 +478,10 @@ class PrimeAITraderApp(tk.Tk):
                 return
             self.controller.websocket_online = True
             now = time.monotonic()
-            self.after(0, lambda c=candle: self._queue_live_chart(c, token))
+            self._post_ui(self._queue_live_chart, candle, token)
             if candle.closed or now - self._last_live_analysis >= LIVE_ANALYSIS_INTERVAL_SECONDS:
                 self._last_live_analysis = now
-                self.after(0, lambda c=candle: self._process_live(c, token, context))
+                self._post_ui(self._process_live, candle, token, context)
         async def run() -> None:
             await self.controller.binance.stream_candles(symbol, timeframe, on_candle, stop_event)
         self._stream_thread = threading.Thread(target=lambda: asyncio.run(run()), daemon=True)
@@ -543,7 +572,13 @@ class PrimeAITraderApp(tk.Tk):
 
     def run_radar(self) -> None:
         self._save_form()
-        self._run_task("Analisando ativos do radar…", self.controller.radar, lambda items: (self.status_var.set(f"Radar: {len(items)} ativos analisados"), RadarDialog(self, items, self._radar_analyze)))
+        self._run_task(
+            "Analisando ativos do radar…", self.controller.radar,
+            lambda items: (
+                self.status_var.set(self.controller.last_radar_note or f"Radar: {len(items)} ativos analisados"),
+                RadarDialog(self, items, self._radar_analyze),
+            ),
+        )
 
     def open_health(self) -> None:
         self._run_task("Executando diagnóstico dos serviços…", self.controller.health,
@@ -554,6 +589,38 @@ class PrimeAITraderApp(tk.Tk):
             "Calculando desempenho real…", self.controller.repository.statistics,
             lambda stats: (self.status_var.set("Desempenho atualizado"), PerformanceDialog(self, stats)),
         )
+
+    def clean_cache(self) -> None:
+        confirmed = messagebox.askyesno(
+            "Limpeza segura",
+            "Esta limpeza remove cache e modelos de versões antigas.\n\n"
+            "Suas chaves de API, configurações e histórico de sinais serão preservados. "
+            "A IA precisará ser treinada novamente para cada ativo.\n\nContinuar?",
+            parent=self,
+        )
+        if not confirmed:
+            return
+        self.pause_analysis(silent=True)
+        self._run_task("Limpando cache e modelos antigos…", self.controller.cleanup_cache, self._cache_cleaned)
+
+    def _cache_cleaned(self, result: dict) -> None:
+        self.chart.candles = []
+        self.chart.indicators = pd.DataFrame()
+        self.chart.zones = []
+        self.chart.fibonacci = None
+        self.chart.structure = None
+        self.chart.signal = None
+        self.chart.schedule_redraw()
+        self.context_var.set("CACHE LIMPO • INICIE UMA NOVA ANÁLISE")
+        self.updated_var.set("Modelos antigos removidos")
+        removed = ", ".join(result.get("removed", [])) or "nenhum arquivo antigo encontrado"
+        failures = result.get("failures", [])
+        self.status_var.set("Limpeza concluída com segurança")
+        detail = f"Removido: {removed}.\n\nChaves, configurações e histórico foram preservados."
+        if failures:
+            detail += "\n\nAlguns itens em uso não puderam ser removidos; reinicie o Windows e use o limpador do menu Iniciar."
+        messagebox.showinfo("Limpeza concluída", detail, parent=self)
+        self._load_health()
 
     def _radar_analyze(self, symbol: str) -> None:
         self.symbol_var.set(symbol)
@@ -673,7 +740,20 @@ class PrimeAITraderApp(tk.Tk):
                 if self._health_job is not None:
                     self.after_cancel(self._health_job)
                 self._health_job = self.after(60_000, self._load_health)
-        threading.Thread(target=lambda: self.after(0, update, self.controller.health()), daemon=True).start()
+        def failed(error: str) -> None:
+            self._health_running = False
+            self.controller.logger.warning("Monitor de saúde indisponível: %s", error)
+            if self.winfo_exists():
+                if self._health_job is not None:
+                    self.after_cancel(self._health_job)
+                self._health_job = self.after(60_000, self._load_health)
+        def worker() -> None:
+            try:
+                statuses = self.controller.health()
+                self._post_ui(update, statuses)
+            except Exception as exc:
+                self._post_ui(failed, str(exc))
+        threading.Thread(target=worker, daemon=True).start()
 
     def _apply_window_icon(self) -> None:
         try:
@@ -698,5 +778,8 @@ class PrimeAITraderApp(tk.Tk):
 
     def _close(self) -> None:
         self.pause_analysis(silent=True)
+        if self._ui_events_job is not None:
+            self.after_cancel(self._ui_events_job)
+            self._ui_events_job = None
         self.controller.save_settings()
         self.destroy()

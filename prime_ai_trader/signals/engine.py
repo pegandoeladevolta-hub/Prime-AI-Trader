@@ -10,9 +10,11 @@ from ..ml.models import ModelManager
 from ..priceaction.structure import MarketStructure
 
 
-THRESHOLDS = {"CONSERVADOR": 86, "EQUILIBRADO": 78, "RÁPIDO": 70}
-PROBABILITY_FLOORS = {"CONSERVADOR": 0.70, "EQUILIBRADO": 0.64, "RÁPIDO": 0.58}
-PROBABILITY_EDGES = {"CONSERVADOR": 0.20, "EQUILIBRADO": 0.16, "RÁPIDO": 0.13}
+# Perfil estável da v0.3.0. Mantém seleção suficiente para o backtest formar
+# uma amostra útil, sem abandonar a confirmação de tendência e probabilidade.
+THRESHOLDS = {"CONSERVADOR": 84, "EQUILIBRADO": 76, "RÁPIDO": 68}
+PROBABILITY_FLOORS = {"CONSERVADOR": 0.68, "EQUILIBRADO": 0.62, "RÁPIDO": 0.56}
+PROBABILITY_EDGES = {"CONSERVADOR": 0.16, "EQUILIBRADO": 0.14, "RÁPIDO": 0.12}
 
 
 @dataclass(slots=True)
@@ -128,22 +130,9 @@ class SignalEngine:
         overextended = atr_value > 0 and abs(close_value - ema_21) > 2.2 * atr_value
         feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
         atr_regime_value = feature_row.get("atr_regime")
-        volatility_ok = pd.isna(atr_regime_value) or 0.55 <= float(atr_regime_value) <= 2.25
-        macro_votes = (
-            direction_sign * float(feature_row.get("return_12", 0) or 0) > 0,
-            direction_sign * float(feature_row.get("ema_50_slope", 0) or 0) > 0,
-            direction_sign * float(feature_row.get("trend_efficiency", 0) or 0) >= 0,
-        )
-        macro_required = 1 if sensitivity_key == "RÁPIDO" else 2
-        macro_ok = sum(macro_votes) >= macro_required
-        market = str((model_context or {}).get("market", ""))
-        volume_relative = last.get("volume_relative")
-        liquidity_ok = market != "Criptomoedas" or pd.isna(volume_relative) or float(volume_relative) >= 0.65
-        room_ok = True
-        if atr_value > 0 and direction == Direction.BUY and structure.resistance_zones and structure.breakout != "ROMPIMENTO DE ALTA":
-            room_ok = structure.resistance_zones[0].midpoint - close_value >= 0.70 * atr_value
-        elif atr_value > 0 and direction == Direction.SELL and structure.support_zones and structure.breakout != "ROMPIMENTO DE BAIXA":
-            room_ok = close_value - structure.support_zones[0].midpoint >= 0.70 * atr_value
+        # Somente regimes realmente extremos são rejeitados. A faixa anterior
+        # era estreita demais e reduzia o backtest a poucas operações.
+        volatility_ok = pd.isna(atr_regime_value) or 0.40 <= float(atr_regime_value) <= 3.00
         probability_ok = True
         if model_ready:
             chosen = probabilities[direction.value]
@@ -152,12 +141,12 @@ class SignalEngine:
                 chosen >= PROBABILITY_FLOORS.get(sensitivity_key, 0.64)
                 and chosen - opposite >= PROBABILITY_EDGES.get(sensitivity_key, 0.16)
             )
-        required_confluences = 4 if sensitivity_key == "RÁPIDO" else 5
-        required_momentum = 4 if sensitivity_key == "CONSERVADOR" else 3
+        required_confluences = 4
+        required_momentum = 3
         if (
             score < threshold or score_gap < 12 or len(confluences) < required_confluences
             or sum(momentum_votes) < required_momentum or weak_regime or not probability_ok
-            or not macro_ok or not volatility_ok or overextended or not liquidity_ok or not room_ok
+            or not volatility_ok or overextended
         ):
             return Signal(Direction.WAIT, SignalState.WAITING, max(buy_score, sell_score), probabilities, None, horizon_minutes, confluences[:4], model_version=model_version)
         state = SignalState.CONFIRMED if candle_closed else SignalState.FORMING

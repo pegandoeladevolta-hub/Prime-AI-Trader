@@ -1,5 +1,29 @@
 # Release notes
 
+## 0.4.1 — 20/08/2026
+
+Versão estável reconstruída a partir do comportamento da v0.3.0.
+
+### Estabilidade e desempenho
+
+- Atualizações de rede e tarefas em segundo plano usam uma fila segura; nenhuma thread chama o Tkinter diretamente.
+- Limiares de sinal e backtest foram recalibrados para recuperar cobertura útil sem remover as confirmações principais.
+- Treino e backtest carregam até 1.500 candles para aumentar a amostra fora da amostra.
+- Aviso de amostra pequena explica que o resultado parcial não é erro e não bloqueia a análise.
+
+### Funções e instalador
+
+- Novo botão **ATUALIZAR GRÁFICO AGORA**.
+- Novo botão **LIMPAR CACHE / MODELOS ANTIGOS**.
+- Arquivo `Limpar-Cache-PrimeAITrader.cmd` incluído na instalação e no menu Iniciar.
+- O instalador oferece limpeza segura de cache/modelos antigos, preservando API keys, configurações e banco de sinais.
+- Radar Forex consulta lotes rotativos de 6 pares para respeitar o plano gratuito.
+- Auditoria reforçada verifica comandos, existência dos handlers e isolamento das threads da interface.
+
+### Validação
+
+- 56 testes automatizados aprovados no ambiente local.
+
 ## 0.4.0 — 20/08/2026
 
 Auditoria funcional e atualização do motor de sinais.

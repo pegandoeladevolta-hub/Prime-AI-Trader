@@ -65,6 +65,8 @@ class TradingController:
         self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
         self._quality_gate: dict[tuple[str, str, str, int], BacktestResult] = {}
         self._last_saved_signature: tuple | None = None
+        self._radar_offset = 0
+        self.last_radar_note = ""
         self.websocket_online = False
 
     def save_settings(self) -> None:
@@ -260,8 +262,8 @@ class TradingController:
         return self.snapshot
 
     def train(self) -> TrainingReport:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 800:
-            self.analyze(limit=1000)
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1200:
+            self.analyze(limit=1500)
         assert self.snapshot is not None
         threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
@@ -273,8 +275,8 @@ class TradingController:
         return report
 
     def backtest(self) -> BacktestResult:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 800:
-            self.analyze(limit=1000)
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1200:
+            self.analyze(limit=1500)
         assert self.snapshot is not None
         threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
@@ -308,18 +310,24 @@ class TradingController:
         assert self.snapshot is not None
         median_atr = float(self.snapshot.indicators["atr_14"].median())
         median_price = float(self.snapshot.indicators["close"].median())
-        floor = 0.0008 if self.settings.market == Market.CRYPTO.value else 0.00025
-        return max((median_atr / median_price) * 0.45, floor)
+        floor = 0.0004 if self.settings.market == Market.CRYPTO.value else 0.00020
+        return max((median_atr / median_price) * 0.35, floor)
 
     def _apply_quality_gate(self, signal: Signal, market: str, symbol: str, timeframe: str,
                             horizon_minutes: int) -> Signal:
         result = self._quality_gate.get((market, symbol, timeframe, horizon_minutes))
         if not result or result.quality not in {"FRACA", "AMOSTRA INSUFICIENT"}:
             return signal
-        reason = (
-            f"Backtest fora da amostra {result.quality.lower()}: "
-            f"{result.accuracy * 100:.1f}% de acerto direcional em {result.directional_operations} operações"
-        )
+        if result.quality == "AMOSTRA INSUFICIENT":
+            reason = (
+                f"Backtest em coleta: {result.directional_operations}/20 operações direcionais. "
+                f"Resultado parcial de {result.accuracy * 100:.1f}% ainda não é confiável e não bloqueia a análise"
+            )
+        else:
+            reason = (
+                f"Backtest fora da amostra fraco: {result.accuracy * 100:.1f}% de acerto "
+                f"em {result.directional_operations} operações; use cautela, sem bloqueio automático"
+            )
         if reason not in signal.warnings:
             signal.warnings.append(reason)
         return signal
@@ -336,9 +344,60 @@ class TradingController:
         return build_labels(self.snapshot.indicators["close"], horizon_candles, threshold)
 
     def radar(self) -> list[RadarItem]:
-        items = self.radar_engine.analyze(self.provider(), self.symbols(), self.settings.timeframe)
+        symbols = self.symbols()
+        if self.settings.market == Market.FOREX.value:
+            # O plano gratuito da Twelve Data não permite consultar 28 pares de
+            # uma vez. Cada clique analisa um lote diferente sem estourar a cota.
+            batch_size = min(6, len(symbols))
+            start = self._radar_offset % len(symbols)
+            doubled = symbols + symbols
+            selected = doubled[start:start + batch_size]
+            self._radar_offset = (start + batch_size) % len(symbols)
+            self.last_radar_note = (
+                f"Forex gratuito: {len(selected)} de {len(symbols)} pares analisados neste lote. "
+                "Clique novamente para o próximo lote."
+            )
+        else:
+            selected = symbols
+            self.last_radar_note = f"{len(selected)} criptomoedas analisadas."
+        items = self.radar_engine.analyze(self.provider(), selected, self.settings.timeframe)
         self.logger.info("Radar concluído | ativos=%s", len(items))
         return items
+
+    def cleanup_cache(self) -> dict[str, list[str]]:
+        """Remove somente dados regeneráveis e preserva chaves, preferências e histórico."""
+        data_root = app_data_dir().resolve()
+        candidates = [
+            data_root / "models", data_root / "cache", data_root / "temp",
+            data_root / "old_versions", data_root / "updates",
+        ]
+        removed: list[str] = []
+        failures: list[str] = []
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if data_root not in resolved.parents:
+                failures.append(candidate.name)
+                continue
+            if not resolved.exists():
+                continue
+            try:
+                shutil.rmtree(resolved)
+                removed.append(candidate.name)
+            except OSError as exc:
+                failures.append(f"{candidate.name}: {exc}")
+        self._snapshot_cache.clear()
+        self._quality_gate.clear()
+        self.snapshot = None
+        self._last_saved_signature = None
+        self.websocket_online = False
+        self.binance = BinanceSpotProvider()
+        self.forex = TwelveDataProvider(self.secrets.get("twelve_data_key", ""))
+        self.news_provider = GdeltNewsProvider()
+        self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
+        self.model_manager = ModelManager()
+        self.signal_engine = SignalEngine(self.model_manager)
+        self.logger.info("Limpeza segura concluída | removidos=%s falhas=%s", removed, failures)
+        return {"removed": removed, "failures": failures}
 
     def health(self) -> list[HealthStatus]:
         crypto_ok, crypto_latency, crypto_detail = self.binance.test_connection()

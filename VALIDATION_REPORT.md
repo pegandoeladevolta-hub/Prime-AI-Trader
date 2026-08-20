@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.4.0
+# Relatório de validação — PRIME AI TRADER 0.4.1
 
 Data: 20/08/2026
 
@@ -6,21 +6,22 @@ Data: 20/08/2026
 
 | Área | Verificação |
 |---|---|
-| Interface | Todos os botões visíveis possuem comando; tarefas pesadas ficam fora da thread da UI. |
+| Interface | Todos os botões visíveis possuem comando/handler válido; workers usam fila segura e não chamam Tkinter diretamente. |
 | IA | Contexto completo, persistência por ativo e seleção por desempenho seletivo fora da amostra. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
-| Sinais | Confluência de tendência, momentum, volatilidade, liquidez, extensão e espaço para S/R. |
+| Sinais | Perfil estável da v0.3.0 com tendência, momentum, volatilidade extrema, extensão e confirmação probabilística. |
 | Backtest | Mesmos limites de probabilidade do sinal ao vivo; WIN/LOSS/DRAW coerentes. |
 | Estatísticas | DRAW excluído do acerto direcional; calibração separada por contexto. |
 | Cripto | Binance pública, lista líquida, WebSocket e reconexão. |
 | Forex | Twelve Data, 28 pares, cache, mensagens de cota e normalização de moedas de eventos. |
 | Notícias | GDELT, cache, cooldown e correspondência de termos por palavra completa. |
 | Gráfico | Redesenho parcial da última vela e crosshair sem redesenho integral. |
+| Limpeza | Cache/modelos antigos removíveis pelo app, instalador e arquivo externo, sem excluir chaves/configurações/banco. |
 
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **49 testes aprovados, 0 falhas**.
+- Resultado local: **56 testes aprovados, 0 falhas**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -34,4 +35,4 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `0.4.0`.
+Identificador do candidato validado: `0.4.1`.

@@ -1,20 +1,23 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.4.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.4.1 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.4.0
+## Destaques da versão 0.4.1
 
 - Correção do contexto do modelo: a IA treinada agora é carregada também na primeira análise completa.
-- Mais histórico no treinamento e backtest (até 1.000 candles por contexto).
+- Comportamento fluido da v0.3.0 restaurado, mantendo as correções das versões posteriores.
+- Mais histórico no treinamento e backtest (até 1.500 candles por contexto).
 - Seleção de modelo pela precisão direcional seletiva com limite inferior de Wilson, cobertura mínima e validação walk-forward.
 - Purga temporal entre treino e teste para evitar vazamento causado pelo horizonte do rótulo.
-- Filtros profissionais de regime de volatilidade, tendência, momentum, liquidez, distância para suporte/resistência e preço excessivamente estendido.
+- Limites de sinais recalibrados para não reduzir o backtest a poucas operações; tendência, momentum, volatilidade extrema e preço excessivamente estendido continuam filtrados.
 - Probabilidade mínima e vantagem mínima sobre o cenário oposto iguais no sinal ao vivo e no backtest.
 - Calibração separada por mercado, ativo, timeframe, horizonte e modo; `DRAW` não entra na taxa de acerto.
 - Notícias classificadas por palavras completas, correção de moedas de eventos Forex e expiração de bloqueios antigos.
-- Treinamento, backtest, desempenho e diagnósticos executados fora da thread da interface.
+- Threads de rede e cálculo não acessam mais o Tkinter diretamente; treinamento, backtest, desempenho e diagnósticos ficam fora da interface.
+- Botões para atualizar o gráfico e limpar cache/modelos antigos com preservação de chaves, configurações e histórico.
+- Radar Forex em lotes rotativos compatíveis com o limite da API gratuita.
 - 30 criptomoedas iniciais, até 100 pares USDT líquidos e 28 pares de Forex.
 
 ## Recursos
@@ -77,7 +80,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.4.0 possui 49 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos, backtest, sinais, banco, provedores, reconexão, desempenho do gráfico e comandos dos botões.
+A versão 0.4.1 possui 56 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos, backtest, sinais, banco, limpeza segura, provedores, reconexão, threads da interface, desempenho do gráfico e comandos dos botões.
 
 ## Dados locais
 

@@ -13,6 +13,7 @@ from prime_ai_trader.forex.twelve_data import TwelveDataProvider
 from prime_ai_trader.market.base import ProviderError
 from prime_ai_trader.news.provider import GdeltNewsProvider, classify_text
 from prime_ai_trader.ui.chart import CandleChart
+from prime_ai_trader.ui.dashboard import PrimeAITraderApp
 
 
 class ProviderUiContractTests(unittest.TestCase):
@@ -120,6 +121,44 @@ class ProviderUiContractTests(unittest.TestCase):
                     button_calls += 1
                     self.assertTrue(any(keyword.arg == "command" for keyword in node.keywords), f"Botão sem command em {path.name}:{node.lineno}")
         self.assertGreater(button_calls, 10)
+
+    def test_direct_button_handlers_exist_on_their_ui_classes(self) -> None:
+        ui_dir = Path(__file__).parents[1] / "prime_ai_trader" / "ui"
+        checked = 0
+        for path in ui_dir.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for class_node in (node for node in tree.body if isinstance(node, ast.ClassDef)):
+                methods = {node.name for node in class_node.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                for node in ast.walk(class_node):
+                    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "Button"):
+                        continue
+                    command = next((keyword.value for keyword in node.keywords if keyword.arg == "command"), None)
+                    if isinstance(command, ast.Attribute) and isinstance(command.value, ast.Name) and command.value.id == "self":
+                        checked += 1
+                        self.assertIn(command.attr, methods, f"Handler ausente em {class_node.name}: self.{command.attr}")
+        self.assertGreater(checked, 8)
+
+    def test_background_workers_do_not_call_tkinter_directly(self) -> None:
+        task_source = inspect.getsource(PrimeAITraderApp._run_task)
+        stream_source = inspect.getsource(PrimeAITraderApp._start_crypto_stream)
+        health_source = inspect.getsource(PrimeAITraderApp._load_health)
+        self.assertNotIn("self.after(", task_source)
+        self.assertNotIn("self.after(", stream_source)
+        health_worker = health_source.split("def worker()", 1)[1]
+        self.assertNotIn("self.after(", health_worker)
+        self.assertIn("_post_ui", task_source)
+        self.assertIn("_post_ui", stream_source)
+        self.assertIn("_post_ui", health_source)
+
+    def test_installer_contains_safe_cache_cleaner(self) -> None:
+        root = Path(__file__).parents[1]
+        cleaner = (root / "scripts" / "Limpar-Cache-PrimeAITrader.cmd").read_text(encoding="utf-8").lower()
+        installer = (root / "installer" / "PrimeAITrader.iss").read_text(encoding="utf-8").lower()
+        self.assertIn("limpar-cache-primeaitrader.cmd", installer)
+        self.assertIn("cleancache", installer)
+        self.assertNotIn("prime_ai_trader.db", cleaner)
+        self.assertNotIn("settings.json", cleaner)
+        self.assertNotIn("secrets.dat", cleaner)
 
 
 if __name__ == "__main__":

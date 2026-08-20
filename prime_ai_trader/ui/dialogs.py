@@ -84,7 +84,14 @@ class BacktestDialog:
         detail.insert("end", f"\nSeparação temporal\nTRAIN: {result.train_samples} amostras\nVALIDATION: {result.validation_samples} amostras\nTEST: {result.test_samples} amostras\n")
         detail.insert("end", f"\nDRAW: {result.draw_rate * 100:.2f}% das operações • sequência WIN {result.longest_win_streak} • sequência LOSS {result.longest_loss_streak}\n")
         if result.quality in {"FRACA", "AMOSTRA INSUFICIENT"}:
-            detail.insert("end", "AVISO DE QUALIDADE: o contexto continua disponível, mas exige cautela e novo treinamento/backtest.\n")
+            if result.quality == "AMOSTRA INSUFICIENT":
+                detail.insert(
+                    "end",
+                    f"AMOSTRA EM COLETA: existem {result.directional_operations} operações direcionais; "
+                    "o mínimo para avaliar é 20. Isto não é erro e não bloqueia a análise.\n",
+                )
+            else:
+                detail.insert("end", "AVISO DE QUALIDADE: resultado fraco fora da amostra. O app não bloqueia a análise, mas recomenda cautela.\n")
         if result.by_hour:
             detail.insert("end", "\nDesempenho por horário\n")
             for hour, item in result.by_hour.items():

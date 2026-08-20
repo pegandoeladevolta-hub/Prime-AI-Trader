@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -77,6 +78,53 @@ class ControllerReconnectTests(unittest.TestCase):
             self.assertEqual(guarded.state, SignalState.CONFIRMED)
             self.assertFalse(guarded.blockers)
             self.assertIn("Backtest fora da amostra", guarded.warnings[0])
+
+    def test_small_backtest_sample_is_explained_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            key = (Market.CRYPTO.value, "BTC/USDT", "5m", 5)
+            controller._quality_gate[key] = SimpleNamespace(
+                quality="AMOSTRA INSUFICIENT", accuracy=5 / 9, directional_operations=9,
+            )
+            original = Signal(Direction.BUY, SignalState.CONFIRMED, 80, {"COMPRA": 0.7}, 100.0, 5)
+            guarded = controller._apply_quality_gate(original, *key)
+            self.assertEqual(guarded.state, SignalState.CONFIRMED)
+            self.assertIn("9/20", guarded.warnings[0])
+            self.assertIn("não bloqueia", guarded.warnings[0])
+
+    def test_cleanup_preserves_keys_settings_and_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            controller.save_settings()
+            controller.save_secrets({"twelve_data_key": "test-key"})
+            data_root = Path(temp) / "PrimeAITrader"
+            (data_root / "models").mkdir(exist_ok=True)
+            (data_root / "models" / "legacy.joblib").write_bytes(b"old")
+            (data_root / "cache").mkdir(exist_ok=True)
+            (data_root / "cache" / "snapshot.tmp").write_text("old", encoding="utf-8")
+
+            result = controller.cleanup_cache()
+
+            self.assertFalse((data_root / "models" / "legacy.joblib").exists())
+            self.assertFalse((data_root / "cache").exists())
+            self.assertTrue((data_root / "settings.json").exists())
+            self.assertTrue((data_root / "secrets.dat").exists())
+            self.assertTrue((data_root / "prime_ai_trader.db").exists())
+            self.assertIn("models", result["removed"])
+
+    def test_forex_radar_uses_rotating_free_api_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            controller.settings.market = Market.FOREX.value
+            with patch.object(controller.radar_engine, "analyze", return_value=[]) as analyze:
+                controller.radar()
+                first = analyze.call_args.args[1]
+                controller.radar()
+                second = analyze.call_args.args[1]
+            self.assertEqual(len(first), 6)
+            self.assertEqual(len(second), 6)
+            self.assertNotEqual(first, second)
+            self.assertIn("Clique novamente", controller.last_radar_note)
 
     def test_controller_switches_asset_and_timeframe_without_stale_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
