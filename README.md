@@ -1,5 +1,7 @@
 # PRIME AI TRADER
 
+Build automático para Windows x64 configurado no GitHub Actions.
+
 Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.1.0 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
 ## O que funciona nesta versão
@@ -89,4 +91,3 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 ## Aviso de risco
 
 Este software é uma ferramenta de análise e educação. Criptomoedas e Forex envolvem risco elevado, inclusive perda integral do capital. Verifique os dados e faça sua própria gestão de risco antes de operar.
-
