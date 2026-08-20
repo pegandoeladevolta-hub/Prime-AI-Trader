@@ -79,6 +79,7 @@ class Signal:
     horizon_minutes: int
     confluences: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     model_version: str = "rules-v1"
     calibrated_rate: float | None = None

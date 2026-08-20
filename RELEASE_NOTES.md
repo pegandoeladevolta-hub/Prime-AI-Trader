@@ -1,5 +1,18 @@
 # Release notes
 
+## 0.3.1 — 20/08/2026
+
+Atualização de APIs gratuitas e controle do usuário sobre bloqueios.
+
+### Alterações
+
+- Backtest fraco ou com amostra insuficiente agora gera aviso amarelo, sem bloquear o sinal.
+- Notícias e eventos de risco geram aviso por padrão; o bloqueio automático pode ser ligado manualmente.
+- Binance e GDELT identificadas na interface como fontes públicas que não exigem chave.
+- Twelve Data identificada como plano Basic gratuito para Forex, com botão direto para criar a chave.
+- Finnhub permanece totalmente opcional e a ausência da chave não aparece mais como falha crítica.
+- Monitor de saúde diferencia serviço opcional de erro real.
+
 ## 0.3.0 — 20/08/2026
 
 Atualização focada em fluidez, qualidade dos sinais e cobertura de mercados.

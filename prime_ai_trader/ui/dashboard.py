@@ -76,6 +76,7 @@ class PrimeAITraderApp(tk.Tk):
         self.confirmed_voice_var = tk.BooleanVar(value=settings.voice_confirmed)
         self.alert_voice_var = tk.BooleanVar(value=settings.voice_alerts)
         self.impact_block_var = tk.StringVar(value=str(settings.high_impact_block_minutes))
+        self.strict_risk_blocks_var = tk.BooleanVar(value=settings.strict_risk_blocks)
         self.status_var = tk.StringVar(value="Pronto para iniciar")
         self.ohlc_var = tk.StringVar(value="OHLC aparecerá ao mover o cursor no gráfico")
         self.context_var = tk.StringVar(value="SELECIONE UM ATIVO")
@@ -106,7 +107,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.3  •  PERFORMANCE", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.3.1  •  FREE DATA", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -155,7 +156,12 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Checkbutton(panel, text="Alertas de risco", variable=self.alert_voice_var, command=self._save_form).pack(anchor="w")
         ttk.Label(panel, text="Volume da voz", style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
         ttk.Scale(panel, from_=0, to=100, variable=self.audio_volume_var, command=lambda _: self._save_form()).pack(fill="x")
-        self._combo(panel, "Bloquear antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
+        self._combo(panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
+        ttk.Checkbutton(
+            panel, text="Bloquear automaticamente por notícia/evento",
+            variable=self.strict_risk_blocks_var, command=self._save_form,
+        ).pack(anchor="w", pady=(4, 0))
+        ttk.Label(panel, text="Desligado: mostra aviso, mas não impede o sinal.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 3))
         tools = ttk.Frame(panel, style="Panel.TFrame")
         tools.pack(fill="x", pady=(12, 4))
         ttk.Button(tools, text="APIs", command=self.open_api_settings).pack(side="left", fill="x", expand=True, padx=(0, 3))
@@ -260,6 +266,8 @@ class PrimeAITraderApp(tk.Tk):
         self.confluence_labels: list[ttk.Label] = []
         self.blocker_label = ttk.Label(panel, text="", style="Panel.TLabel", foreground=COLORS["red"], wraplength=265)
         self.blocker_label.pack(anchor="w", pady=(10, 0))
+        self.warning_label = ttk.Label(panel, text="", style="Panel.TLabel", foreground=COLORS["amber"], wraplength=265)
+        self.warning_label.pack(anchor="w", pady=(6, 0))
         ttk.Separator(panel).pack(fill="x", pady=14)
         warning = ttk.Label(panel, text="Assistente de análise. Não executa ordens e não garante lucro.", style="Muted.TLabel", wraplength=265, justify="left")
         warning.pack(anchor="w")
@@ -281,6 +289,7 @@ class PrimeAITraderApp(tk.Tk):
         settings.voice_confirmed = self.confirmed_voice_var.get()
         settings.voice_alerts = self.alert_voice_var.get()
         settings.high_impact_block_minutes = int(self.impact_block_var.get())
+        settings.strict_risk_blocks = self.strict_risk_blocks_var.get()
         self.controller.save_settings()
 
     def _market_changed(self) -> None:
@@ -592,6 +601,7 @@ class PrimeAITraderApp(tk.Tk):
         for label in self.confluence_labels[len(signal.confluences):]:
             label.pack_forget()
         self.blocker_label.configure(text="\n".join(f"⚠ {item}" for item in signal.blockers))
+        self.warning_label.configure(text="\n".join(f"AVISO • {item}" for item in signal.warnings))
         self._start_countdown(snapshot)
         voice_signature = (
             snapshot.symbol,
@@ -599,6 +609,7 @@ class PrimeAITraderApp(tk.Tk):
             signal.state.value,
             signal.direction.value,
             tuple(signal.blockers),
+            tuple(signal.warnings),
         )
         should_speak = voice_signature != self._last_voice_signature
         if self.audio_var.get() and should_speak:
@@ -608,6 +619,8 @@ class PrimeAITraderApp(tk.Tk):
                 self.voice.speak(f"Possível sinal de {signal.direction.value.lower()} em {snapshot.symbol}.", self.controller.settings.audio_volume)
             elif signal.blockers and self.alert_voice_var.get():
                 self.voice.speak("Atenção. Notícia de alto impacto. Operações temporariamente bloqueadas.", self.controller.settings.audio_volume)
+            elif signal.warnings and self.alert_voice_var.get():
+                self.voice.speak("Atenção. Existe um aviso de risco para esta análise.", self.controller.settings.audio_volume)
         self._last_voice_signature = voice_signature
 
     def _start_countdown(self, snapshot: AnalysisSnapshot) -> None:
@@ -630,7 +643,13 @@ class PrimeAITraderApp(tk.Tk):
             for status in statuses:
                 label = self.health_labels.get(status.name)
                 if label:
-                    label.configure(foreground=COLORS["green"] if status.online else COLORS["red"], text=f"● {status.name}")
+                    optional = not status.online and (
+                        "CHAVE NÃO CONFIGURADA" in status.detail.upper()
+                        or "RETREINAR" in status.detail.upper()
+                    )
+                    color = COLORS["green"] if status.online else COLORS["amber"] if optional else COLORS["red"]
+                    suffix = " • OPCIONAL" if optional and status.name == "FOREX" else ""
+                    label.configure(foreground=color, text=f"● {status.name}{suffix}")
             if self.winfo_exists():
                 if self._health_job is not None:
                     self.after_cancel(self._health_job)

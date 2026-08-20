@@ -5,12 +5,14 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from prime_ai_trader.app.controller import TradingController
 from prime_ai_trader.core.models import Direction, Market, Signal, SignalState
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
+from prime_ai_trader.news.provider import NewsItem
 from tests.helpers import synthetic_candles
 
 
@@ -29,7 +31,27 @@ class _FakeSocket:
 
 
 class ControllerReconnectTests(unittest.TestCase):
-    def test_weak_backtest_blocks_live_context(self) -> None:
+    def test_risk_news_is_warning_by_default(self) -> None:
+        risky = NewsItem("Fed interest rate decision", "https://example.test", datetime.now(timezone.utc), "NEUTRA", True)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
+                snapshot = controller.analyze()
+            self.assertFalse(snapshot.signal.blockers)
+            self.assertTrue(snapshot.signal.warnings)
+            self.assertNotEqual(snapshot.signal.state, SignalState.BLOCKED)
+
+    def test_risk_news_can_be_strictly_blocked(self) -> None:
+        risky = NewsItem("Fed interest rate decision", "https://example.test", datetime.now(timezone.utc), "NEUTRA", True)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
+            controller = TradingController()
+            controller.settings.strict_risk_blocks = True
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
+                snapshot = controller.analyze()
+            self.assertTrue(snapshot.signal.blockers)
+            self.assertEqual(snapshot.signal.state, SignalState.BLOCKED)
+
+    def test_weak_backtest_warns_without_blocking_live_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
             key = (Market.CRYPTO.value, "BTC/USDT", "5m", 5)
@@ -38,9 +60,10 @@ class ControllerReconnectTests(unittest.TestCase):
             )
             original = Signal(Direction.BUY, SignalState.CONFIRMED, 82, {"COMPRA": 0.8}, 100.0, 5)
             guarded = controller._apply_quality_gate(original, *key)
-            self.assertEqual(guarded.direction, Direction.WAIT)
-            self.assertEqual(guarded.state, SignalState.BLOCKED)
-            self.assertIn("Backtest fora da amostra", guarded.blockers[0])
+            self.assertEqual(guarded.direction, Direction.BUY)
+            self.assertEqual(guarded.state, SignalState.CONFIRMED)
+            self.assertFalse(guarded.blockers)
+            self.assertIn("Backtest fora da amostra", guarded.warnings[0])
 
     def test_controller_switches_asset_and_timeframe_without_stale_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):

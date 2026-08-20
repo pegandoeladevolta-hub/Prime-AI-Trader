@@ -36,6 +36,7 @@ class AppSettings:
     voice_confirmed: bool = True
     voice_alerts: bool = True
     high_impact_block_minutes: int = 10
+    strict_risk_blocks: bool = False
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
         "swings": True, "trend": True, "signals": True,

@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.3.0
+# Relatório de validação — PRIME AI TRADER 0.3.1
 
 Data: 20/08/2026
 
@@ -13,8 +13,8 @@ Data: 20/08/2026
 | 5. Indicadores | Fórmulas automatizadas testadas para todos os indicadores exigidos. |
 | 6. Price Action/Fibonacci | Pivôs, zonas, estrutura, rompimentos, retestes e níveis automáticos testados. |
 | 7. IA | Quatro modelos CPU, comparação walk-forward e persistência separada por ativo/timeframe/horizonte/schema. |
-| 8. Backtest | Previsões fora da amostra, WIN/LOSS/DRAW coerentes, acerto direcional, filtro de confluência e proteção de contexto fraco. |
-| 9. Notícias | GDELT real, classificação local, cache, cooldown de falha e bloqueio de risco. |
+| 8. Backtest | Previsões fora da amostra, WIN/LOSS/DRAW coerentes, acerto direcional, filtro de confluência e aviso de contexto fraco. |
+| 9. Notícias | GDELT público, classificação local, cache, cooldown e aviso/bloqueio configurável de risco. |
 | 10. Forex | Provider Twelve Data ativo, 28 pares, cache, polling a cada 125 segundos, mensagens de cota/chave/par e calendário Finnhub opcional. |
 | 11. Radar | Score auditável e botão para mudar/analisar ativo. |
 | 12. Voz | Windows Speech pt-BR, volume, categorias e antirrepetição. |
@@ -24,8 +24,8 @@ Data: 20/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado: **41 testes aprovados, 0 falhas**.
-- Tempo da última execução: 5,183 segundos.
+- Resultado: **43 testes aprovados, 0 falhas**.
+- Tempo da última execução: 3,524 segundos.
 
 Benchmark local de desempenho:
 
@@ -41,7 +41,7 @@ Cobertura funcional dos testes:
 - labels por número de candles e por horizonte exato em minutos;
 - folds temporais sem sobreposição, treino dos quatro candidatos e probabilidades;
 - backtest apenas fora da amostra e contabilidade coerente de WIN/LOSS/DRAW;
-- bloqueio de risco e impossibilidade de confirmar vela aberta;
+- aviso/bloqueio configurável de risco e impossibilidade de confirmar vela aberta;
 - SQLite, calibração e estatísticas;
 - parsing Binance e Twelve Data, ausência de chave Forex e contrato de ações dos botões;
 - cache e cooldown de notícias para evitar travamento da interface;

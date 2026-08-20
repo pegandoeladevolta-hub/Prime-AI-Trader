@@ -2,7 +2,7 @@
 
 Build automático para Windows x64 configurado no GitHub Actions.
 
-Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.3.0 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
+Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.3.1 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
 ## O que funciona nesta versão
 
@@ -17,7 +17,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão
 - Seleção do modelo por validação temporal walk-forward, sem random split.
 - Sinal de três classes, pré-sinal, confirmação no fechamento, três sensibilidades e filtros de tendência/momentum.
 - Notícias GDELT e classificação local de risco/sentimento; calendário Finnhub para Forex quando a chave permite o endpoint.
-- Radar de mercado, backtest fora da amostra, acerto direcional sem misturar DRAW com LOSS, matriz de confusão, cobertura e proteção contra contextos fracos.
+- Radar de mercado, backtest fora da amostra, acerto direcional sem misturar DRAW com LOSS, matriz de confusão, cobertura e aviso para contextos fracos.
 - SQLite para histórico, fechamento posterior do resultado e confiança calibrada somente após 30 exemplos do mesmo intervalo de score.
 - Voz pt-BR via Windows Speech, com limitação de repetição.
 - Chaves protegidas por Windows DPAPI; nenhuma chave fica no código-fonte.
@@ -44,6 +44,17 @@ python run.py
 ```
 
 Criptomoedas públicas da Binance funcionam sem chave. Para ativar Forex, abra **APIs** no aplicativo e informe a chave da Twelve Data. A chave Finnhub é opcional e serve para o calendário econômico quando o plano permite. As chaves são salvas fora da pasta de instalação.
+
+Fontes de dados da versão:
+
+| Fonte | Uso | Chave | Custo obrigatório |
+|---|---|---|---|
+| Binance Spot | Criptomoedas | Não | Nenhum |
+| GDELT | Notícias | Não | Nenhum |
+| Twelve Data Basic | Forex | Sim, gratuita | Nenhum |
+| Finnhub | Calendário extra | Opcional | Nenhum para o funcionamento do app |
+
+Por padrão, notícias, eventos e backtest fraco aparecem como **avisos** e não impedem o sinal. O bloqueio automático de notícia/evento pode ser ligado manualmente no painel esquerdo.
 
 ## Gerar o EXE e o instalador
 
@@ -79,11 +90,11 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - `models\` — modelos e relatórios separados por contexto;
 - `logs\app.log` — logs rotativos.
 
-## Limitações honestas da 0.3.0
+## Limitações honestas da 0.3.1
 
 - Não envia nem executa ordens.
 - Twelve Data precisa de chave. O plano gratuito informa 800 créditos por dia, por isso o app consulta Forex em ritmo econômico.
-- O calendário econômico Finnhub pode exigir plano com acesso ao endpoint.
+- O calendário econômico Finnhub pode exigir plano com acesso ao endpoint, mas é totalmente opcional e nunca impede a análise.
 - O feed Forex usa atualização periódica de aproximadamente 125 segundos; o streaming contínuo implementado nesta versão é o da Binance.
 - A voz depende de PowerShell e das vozes instaladas no Windows.
 - “Score do modelo” não significa “chance de ganhar”. A taxa observada só aparece após amostra real suficiente.

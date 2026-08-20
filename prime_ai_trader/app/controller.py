@@ -115,6 +115,7 @@ class TradingController:
         sensitivity = self.settings.sensitivity
         mode = self.settings.mode
         high_impact_block_minutes = self.settings.high_impact_block_minutes
+        strict_risk_blocks = self.settings.strict_risk_blocks
         symbol = self.settings.crypto_symbol if market == Market.CRYPTO.value else self.settings.forex_symbol
         provider = self.binance if market == Market.CRYPTO.value else self.forex
         context = {"market": market, "symbol": symbol, "timeframe": timeframe, "horizon_minutes": horizon_minutes}
@@ -131,13 +132,15 @@ class TradingController:
         news: list[NewsItem] = []
         calendar_events: list[EconomicEvent] = []
         blockers: list[str] = []
+        warnings: list[str] = []
         try:
             query = symbol.split("/")[0] if market == Market.CRYPTO.value else " OR ".join(symbol.split("/"))
             news = self.news_provider.fetch(query, limit=12)
             recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
             risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
             if risky:
-                blockers.append(f"Notícia de alto risco: {risky[0].title[:90]}")
+                message = f"Notícia de alto risco: {risky[0].title[:90]}"
+                (blockers if strict_risk_blocks else warnings).append(message)
         except Exception as exc:
             self.logger.warning("Notícias indisponíveis: %s", exc)
         if market == Market.FOREX.value and self.secrets.get("finnhub_key"):
@@ -149,13 +152,15 @@ class TradingController:
                     tuple(symbol.split("/")),
                 )
                 if event:
-                    blockers.append(f"Evento de alto impacto: {event.event} ({event.currency})")
+                    message = f"Evento de alto impacto: {event.event} ({event.currency})"
+                    (blockers if strict_risk_blocks else warnings).append(message)
             except Exception as exc:
                 self.logger.warning("Calendário econômico indisponível: %s", exc)
         signal = self.signal_engine.generate(
             indicators, features, structure, fibonacci, horizon_minutes,
             sensitivity, candles[-1].closed, blockers, mode, context,
         )
+        signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         calibrated, samples = self.repository.calibration(signal.score)
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
@@ -211,8 +216,10 @@ class TradingController:
         feature_frame = frame.iloc[-180:] if len(frame) > 180 else frame
         features = build_features(feature_frame)
         blockers = list(snapshot.signal.blockers)
+        warnings = list(snapshot.signal.warnings)
         signal = self.signal_engine.generate(indicators, features, structure, fibonacci,
             self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, blockers, self.settings.mode, self.model_context())
+        signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
         )
@@ -264,11 +271,9 @@ class TradingController:
             f"Backtest fora da amostra {result.quality.lower()}: "
             f"{result.accuracy * 100:.1f}% de acerto direcional em {result.directional_operations} operações"
         )
-        return Signal(
-            Direction.WAIT, SignalState.BLOCKED, signal.score, signal.probabilities, None,
-            signal.horizon_minutes, signal.confluences, [*signal.blockers, reason],
-            model_version=signal.model_version,
-        )
+        if reason not in signal.warnings:
+            signal.warnings.append(reason)
+        return signal
 
     def _labels_for_horizon(self, threshold: float) -> pd.Series:
         assert self.snapshot is not None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox, ttk
 
 from ..backtest.engine import BacktestResult
@@ -21,8 +22,8 @@ def centered_window(parent, title: str, size: str) -> tk.Toplevel:
 
 class ApiSettingsDialog:
     FIELDS = [
-        ("twelve_data_key", "Twelve Data API Key", "Obrigatória para Forex. O modo gratuito tem 800 créditos/dia; o app usa atualização econômica para não esgotar a cota."),
-        ("finnhub_key", "Finnhub API Key", "Opcional: calendário econômico; o endpoint pode exigir plano Premium."),
+        ("twelve_data_key", "Twelve Data API Key", "Chave gratuita para Forex. O plano Basic oferece cota diária e não exige assinatura paga."),
+        ("finnhub_key", "Finnhub API Key", "Totalmente opcional. Pode deixar vazio; isso nunca bloqueia criptomoedas nem Forex."),
     ]
 
     def __init__(self, parent, values: dict[str, str], on_save) -> None:
@@ -31,6 +32,7 @@ class ApiSettingsDialog:
         panel.pack(fill="both", expand=True, padx=14, pady=14)
         ttk.Label(panel, text="CHAVES DE API", style="Panel.TLabel", font=("Segoe UI Semibold", 14)).pack(anchor="w")
         ttk.Label(panel, text="As chaves são protegidas pelo Windows DPAPI e nunca ficam no código-fonte.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(4, 18))
+        ttk.Label(panel, text="Binance (cripto) e GDELT (notícias) funcionam sem chave. Forex usa uma chave gratuita da Twelve Data.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(0, 8))
         self.variables = {}
         for key, label, help_text in self.FIELDS:
             ttk.Label(panel, text=label, style="Panel.TLabel").pack(anchor="w", pady=(7, 3))
@@ -41,6 +43,7 @@ class ApiSettingsDialog:
             self.variables[key] = variable
         buttons = ttk.Frame(panel, style="Panel.TFrame")
         buttons.pack(fill="x", pady=(20, 0))
+        ttk.Button(buttons, text="CRIAR CHAVE GRÁTIS", command=lambda: webbrowser.open("https://twelvedata.com/pricing")).pack(side="left")
         ttk.Button(buttons, text="CANCELAR", command=self.window.destroy).pack(side="right", padx=(8, 0))
         ttk.Button(buttons, text="SALVAR CHAVES", style="Accent.TButton", command=lambda: self._save(on_save)).pack(side="right")
 
@@ -81,7 +84,7 @@ class BacktestDialog:
         detail.insert("end", f"\nSeparação temporal\nTRAIN: {result.train_samples} amostras\nVALIDATION: {result.validation_samples} amostras\nTEST: {result.test_samples} amostras\n")
         detail.insert("end", f"\nDRAW: {result.draw_rate * 100:.2f}% das operações • sequência WIN {result.longest_win_streak} • sequência LOSS {result.longest_loss_streak}\n")
         if result.quality in {"FRACA", "AMOSTRA INSUFICIENT"}:
-            detail.insert("end", "PROTEÇÃO ATIVA: este contexto será bloqueado até um novo backtest apresentar qualidade suficiente.\n")
+            detail.insert("end", "AVISO DE QUALIDADE: o contexto continua disponível, mas exige cautela e novo treinamento/backtest.\n")
         if result.by_hour:
             detail.insert("end", "\nDesempenho por horário\n")
             for hour, item in result.by_hour.items():
@@ -152,7 +155,8 @@ class HealthDialog:
         for status in statuses:
             row = ttk.Frame(outer, style="Card.TFrame", padding=10)
             row.pack(fill="x", pady=3)
-            color = COLORS["green"] if status.online else COLORS["red"]
+            optional = not status.online and ("CHAVE NÃO CONFIGURADA" in status.detail.upper() or "RETREINAR" in status.detail.upper())
+            color = COLORS["green"] if status.online else COLORS["amber"] if optional else COLORS["red"]
             ttk.Label(row, text=f"● {status.name}", style="Card.TLabel", foreground=color, font=("Segoe UI Semibold", 10), width=14).pack(side="left")
             detail = status.detail
             if status.latency_ms is not None:
