@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.3.1
+# Relatório de validação — PRIME AI TRADER 0.3.2
 
 Data: 20/08/2026
 
@@ -24,8 +24,8 @@ Data: 20/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado: **43 testes aprovados, 0 falhas**.
-- Tempo da última execução: 3,524 segundos.
+- Resultado: **44 testes aprovados, 0 falhas**.
+- A suíte completa é repetida no executor Windows antes de gerar o instalador.
 
 Benchmark local de desempenho:
 
@@ -40,6 +40,7 @@ Cobertura funcional dos testes:
 - schema de features e teste de invariância contra inclusão de candles futuros;
 - labels por número de candles e por horizonte exato em minutos;
 - folds temporais sem sobreposição, treino dos quatro candidatos e probabilidades;
+- alinhamento por timestamp entre features e rótulos, inclusive com linha extra no histórico;
 - backtest apenas fora da amostra e contabilidade coerente de WIN/LOSS/DRAW;
 - aviso/bloqueio configurável de risco e impossibilidade de confirmar vela aberta;
 - SQLite, calibração e estatísticas;

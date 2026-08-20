@@ -392,7 +392,12 @@ class PrimeAITraderApp(tk.Tk):
             return
         self.task_progress.stop()
         self.status_var.set("Falha — consulte os logs")
-        messagebox.showerror("Não foi possível concluir", f"{error}\n\nVerifique sua internet e as chaves de API. Você pode tentar novamente.", parent=self)
+        messagebox.showerror(
+            "Não foi possível concluir",
+            f"{error}\n\nOs detalhes foram registrados nos logs. Atualize a análise e tente novamente. "
+            "Se a mensagem citar uma API, verifique a conexão e a respectiva chave.",
+            parent=self,
+        )
 
     def start_analysis(self) -> None:
         self._save_form()

@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from prime_ai_trader.backtest.engine import BacktestEngine
 from prime_ai_trader.features.builder import build_features, build_labels
 from prime_ai_trader.indicators.technical import candles_frame
@@ -38,6 +40,17 @@ class MlBacktestTests(unittest.TestCase):
             manager.report = None
             self.assertTrue(manager.is_compatible(context))
             self.assertFalse(manager.is_compatible({**context, "symbol": "ETH/USDT"}))
+
+    def test_training_aligns_extra_label_row_by_timestamp(self) -> None:
+        extra_time = self.labels.index[0] - pd.Timedelta(minutes=1)
+        labels_with_extra_row = pd.concat([
+            pd.Series([float("nan")], index=[extra_time]),
+            self.labels,
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            manager = ModelManager(Path(temp))
+            report = manager.train(self.features, labels_with_extra_row)
+        self.assertEqual(report.samples, int(self.labels.notna().sum()))
 
     def test_backtest_reports_only_oos_predictions(self) -> None:
         result = BacktestEngine().run(self.features, self.labels, confidence_threshold=0.0)

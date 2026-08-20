@@ -7,8 +7,7 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import confusion_matrix
 
-from ..features.builder import FEATURE_COLUMNS
-from ..ml.models import candidate_models, temporal_folds
+from ..ml.models import align_supervised_data, candidate_models, temporal_folds
 
 
 @dataclass(slots=True)
@@ -62,8 +61,7 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
 class BacktestEngine:
     def run(self, features: pd.DataFrame, labels: pd.Series, model_name: str = "Logistic Regression",
             confidence_threshold: float = 0.58) -> BacktestResult:
-        valid = labels.notna()
-        x, y = features.loc[valid, FEATURE_COLUMNS], labels.loc[valid].astype(int)
+        x, y = align_supervised_data(features, labels)
         if len(x) < 130:
             raise ValueError("Histórico insuficiente para backtest walk-forward.")
         folds = temporal_folds(len(x))

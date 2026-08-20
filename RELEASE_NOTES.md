@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.3.2 — 20/08/2026
+
+Correção do botão **TREINAR IA**.
+
+### Correções
+
+- Eliminado o erro do pandas “Unalignable boolean Series provided as indexer”.
+- Features e rótulos agora são alinhados pelo horário do candle antes do treinamento e do backtest.
+- Índices duplicados são normalizados mantendo a observação mais recente.
+- A mensagem de falha não atribui automaticamente erros internos à internet ou às chaves de API.
+- Adicionado teste de regressão com uma linha extra no histórico de rótulos.
+
 ## 0.3.1 — 20/08/2026
 
 Atualização de APIs gratuitas e controle do usuário sobre bloqueios.

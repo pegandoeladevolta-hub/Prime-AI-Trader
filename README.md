@@ -1,8 +1,8 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.3.1 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.3.2 para Windows x64 configurado no GitHub Actions.
 
-Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.3.1 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
+Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.3.2 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
 ## O que funciona nesta versão
 
@@ -18,6 +18,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão
 - Sinal de três classes, pré-sinal, confirmação no fechamento, três sensibilidades e filtros de tendência/momentum.
 - Notícias GDELT e classificação local de risco/sentimento; calendário Finnhub para Forex quando a chave permite o endpoint.
 - Radar de mercado, backtest fora da amostra, acerto direcional sem misturar DRAW com LOSS, matriz de confusão, cobertura e aviso para contextos fracos.
+- Treinamento e backtest alinham features e rótulos pelo horário do candle, mesmo quando o histórico recebe uma linha extra durante a atualização.
 - SQLite para histórico, fechamento posterior do resultado e confiança calibrada somente após 30 exemplos do mesmo intervalo de score.
 - Voz pt-BR via Windows Speech, com limitação de repetição.
 - Chaves protegidas por Windows DPAPI; nenhuma chave fica no código-fonte.
@@ -90,7 +91,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - `models\` — modelos e relatórios separados por contexto;
 - `logs\app.log` — logs rotativos.
 
-## Limitações honestas da 0.3.1
+## Limitações honestas da 0.3.2
 
 - Não envia nem executa ordens.
 - Twelve Data precisa de chave. O plano gratuito informa 800 créditos por dia, por isso o app consulta Forex em ritmo econômico.

@@ -79,6 +79,21 @@ def temporal_folds(length: int, min_train: int = 300, test_size: int = 100, max_
     return folds
 
 
+def align_supervised_data(features: pd.DataFrame, labels: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
+    """Alinha features e labels pelo horário do candle antes de aplicar a máscara válida."""
+    aligned_features = features.reindex(columns=FEATURE_COLUMNS)
+    if not aligned_features.index.is_unique:
+        aligned_features = aligned_features.loc[~aligned_features.index.duplicated(keep="last")]
+    aligned_labels = labels
+    if not aligned_labels.index.is_unique:
+        aligned_labels = aligned_labels.loc[~aligned_labels.index.duplicated(keep="last")]
+    aligned_labels = aligned_labels.reindex(aligned_features.index)
+    valid_positions = aligned_labels.notna().to_numpy()
+    x = aligned_features.iloc[valid_positions]
+    y = aligned_labels.iloc[valid_positions].astype(int)
+    return x, y
+
+
 class ModelManager:
     def __init__(self, model_dir: Path | None = None) -> None:
         self.model_dir = model_dir or app_data_dir() / "models"
@@ -93,9 +108,7 @@ class ModelManager:
         return self.model is not None and self.report is not None
 
     def train(self, features: pd.DataFrame, labels: pd.Series, context: dict[str, str | int] | None = None) -> TrainingReport:
-        valid = labels.notna()
-        x = features.loc[valid, FEATURE_COLUMNS]
-        y = labels.loc[valid].astype(int)
+        x, y = align_supervised_data(features, labels)
         if len(x) < 130:
             raise ValueError("São necessários pelo menos 130 candles válidos para treinar a IA.")
         if y.nunique() < 2:
