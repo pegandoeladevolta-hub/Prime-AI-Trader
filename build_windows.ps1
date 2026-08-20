@@ -22,8 +22,9 @@ Copy-Item "dist\PrimeAITrader.exe" "release\PrimeAITrader.exe" -Force
 
 Write-Host "[5/6] Localizando Inno Setup"
 $InnoCandidates = @(
-    "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:ChocolateyInstall\bin\ISCC.exe"
 )
 $Iscc = $InnoCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $Iscc) {
@@ -34,4 +35,3 @@ Write-Host "[6/6] Gerando PrimeAITrader-Setup-x64.exe"
 & $Iscc "installer\PrimeAITrader.iss"
 
 Write-Host "Build concluído em $ProjectRoot\release"
-
