@@ -26,34 +26,59 @@ class CandleChart(tk.Canvas):
         self.offset = 0
         self.drag_x: int | None = None
         self.on_ohlc = on_ohlc
-        self.bind("<Configure>", lambda _: self.redraw())
+        self._context_key = ""
+        self._redraw_job: str | None = None
+        self.bind("<Configure>", lambda _: self.schedule_redraw(60))
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", lambda e: self._zoom_linux(e, 1))
         self.bind("<Button-5>", lambda e: self._zoom_linux(e, -1))
         self.bind("<ButtonPress-1>", self._drag_start)
         self.bind("<B1-Motion>", self._drag_move)
         self.bind("<Motion>", self._crosshair)
-        self.bind("<Leave>", lambda _: self.redraw())
+        self.bind("<Leave>", self._crosshair_leave)
 
     def set_data(self, candles: list[Candle], indicators: pd.DataFrame, zones: list[Zone], fibonacci: FibonacciResult | None,
-                 structure: MarketStructure | None = None, signal: Signal | None = None) -> None:
+                 structure: MarketStructure | None = None, signal: Signal | None = None,
+                 context_key: str = "") -> None:
+        context_changed = bool(context_key and context_key != self._context_key)
         self.candles, self.indicators, self.zones, self.fibonacci = candles, indicators, zones, fibonacci
         self.structure, self.signal = structure, signal
-        self.offset = 0
-        self.redraw()
+        if context_changed:
+            self.offset = 0
+        self._context_key = context_key or self._context_key
+        self.schedule_redraw()
+
+    def update_last_candle(self, candle: Candle) -> None:
+        """Atualiza somente o preço visual; indicadores pesados são recalculados em outro ritmo."""
+        if not self.candles:
+            return
+        if self.candles[-1].open_time == candle.open_time:
+            self.candles[-1] = candle
+        elif candle.open_time > self.candles[-1].open_time:
+            self.candles.append(candle)
+            self.candles = self.candles[-500:]
+        self.schedule_redraw(80)
+
+    def schedule_redraw(self, delay_ms: int = 16) -> None:
+        if self._redraw_job is not None:
+            try:
+                self.after_cancel(self._redraw_job)
+            except tk.TclError:
+                pass
+        self._redraw_job = self.after(delay_ms, self.redraw)
 
     def set_overlay(self, name: str, value: bool) -> None:
         self.overlays[name] = value
-        self.redraw()
+        self.schedule_redraw()
 
     def fit(self) -> None:
         self.visible_count = min(max(len(self.candles), 30), 180)
         self.offset = 0
-        self.redraw()
+        self.schedule_redraw()
 
     def _zoom_linux(self, event, direction: int) -> None:
         self.visible_count = max(25, min(len(self.candles) or 200, self.visible_count - direction * 8))
-        self.redraw()
+        self.schedule_redraw()
 
     def _zoom(self, event) -> None:
         self._zoom_linux(event, 1 if event.delta > 0 else -1)
@@ -70,7 +95,7 @@ class CandleChart(tk.Canvas):
         if shift:
             self.offset = max(0, min(max(len(self.candles) - self.visible_count, 0), self.offset + shift))
             self.drag_x = event.x
-            self.redraw()
+            self.schedule_redraw()
 
     def _slice(self) -> tuple[list[Candle], int]:
         end = len(self.candles) - self.offset
@@ -83,6 +108,7 @@ class CandleChart(tk.Canvas):
         return low - margin, high + margin
 
     def redraw(self) -> None:
+        self._redraw_job = None
         self.delete("all")
         width, height = self.winfo_width(), self.winfo_height()
         if width < 120 or height < 100:
@@ -172,7 +198,7 @@ class CandleChart(tk.Canvas):
             if pd.notna(value):
                 points.extend([left + (index + 0.5) * step, y(float(value))])
         if len(points) >= 4:
-            self.create_line(*points, fill=color, width=1.5, smooth=True)
+            self.create_line(*points, fill=color, width=1.5)
 
     def _crosshair(self, event) -> None:
         visible, _ = self._slice()
@@ -184,8 +210,11 @@ class CandleChart(tk.Canvas):
             return
         index = min(max(int((event.x - left) / max((right - left) / len(visible), 1)), 0), len(visible) - 1)
         candle = visible[index]
-        self.redraw()
+        self.delete("crosshair")
         self.create_line(event.x, 16, event.x, height - 70, fill=COLORS["muted"], dash=(2, 3), tags="crosshair")
         self.create_line(left, event.y, right, event.y, fill=COLORS["muted"], dash=(2, 3), tags="crosshair")
         if self.on_ohlc:
             self.on_ohlc(f"{candle.open_time.astimezone().strftime('%d/%m %H:%M')}   O {candle.open:,.4f}   H {candle.high:,.4f}   L {candle.low:,.4f}   C {candle.close:,.4f}   V {candle.volume:,.2f}")
+
+    def _crosshair_leave(self, _event) -> None:
+        self.delete("crosshair")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,8 @@ from unittest.mock import patch
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
 from prime_ai_trader.forex.twelve_data import TwelveDataProvider
 from prime_ai_trader.market.base import ProviderError
+from prime_ai_trader.news.provider import GdeltNewsProvider
+from prime_ai_trader.ui.chart import CandleChart
 
 
 class ProviderUiContractTests(unittest.TestCase):
@@ -21,6 +24,40 @@ class ProviderUiContractTests(unittest.TestCase):
     def test_forex_requires_key_with_clear_error(self) -> None:
         with self.assertRaisesRegex(ProviderError, "Configure a chave"):
             TwelveDataProvider("").fetch_candles("EUR/USD", "5m")
+
+    @patch("prime_ai_trader.forex.twelve_data.get_json")
+    def test_forex_parses_twelve_data_candles(self, mocked) -> None:
+        mocked.return_value = {
+            "values": [
+                {"datetime": "2026-08-20 12:01:00", "open": "1.10", "high": "1.12", "low": "1.09", "close": "1.11"},
+                {"datetime": "2026-08-20 12:00:00", "open": "1.09", "high": "1.11", "low": "1.08", "close": "1.10"},
+            ]
+        }
+        candles = TwelveDataProvider("test-key").fetch_candles("EUR/USD", "1m", 2)
+        self.assertEqual(len(candles), 2)
+        self.assertAlmostEqual(candles[-1].close, 1.11)
+
+    @patch("prime_ai_trader.news.provider.get_json")
+    def test_news_success_is_cached(self, mocked) -> None:
+        mocked.return_value = {"articles": [{"title": "Bitcoin rally", "url": "https://example.test", "seendate": "20260820T120000", "domain": "example.test"}]}
+        provider = GdeltNewsProvider(cache_seconds=60)
+        self.assertEqual(len(provider.fetch("bitcoin", 1)), 1)
+        self.assertEqual(len(provider.fetch("bitcoin", 1)), 1)
+        mocked.assert_called_once()
+
+    @patch("prime_ai_trader.news.provider.get_json", side_effect=ProviderError("offline"))
+    def test_news_failure_uses_fast_cooldown(self, mocked) -> None:
+        provider = GdeltNewsProvider(failure_cooldown_seconds=60)
+        with self.assertRaisesRegex(ProviderError, "offline"):
+            provider.fetch("bitcoin", 1)
+        with self.assertRaisesRegex(ProviderError, "offline"):
+            provider.fetch("ethereum", 1)
+        mocked.assert_called_once()
+
+    def test_crosshair_does_not_redraw_entire_chart(self) -> None:
+        source = inspect.getsource(CandleChart._crosshair)
+        self.assertNotIn("self.redraw()", source)
+        self.assertIn('self.delete("crosshair")', source)
 
     def test_every_visible_button_declares_a_command(self) -> None:
         ui_dir = Path(__file__).parents[1] / "prime_ai_trader" / "ui"
@@ -36,4 +73,3 @@ class ProviderUiContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

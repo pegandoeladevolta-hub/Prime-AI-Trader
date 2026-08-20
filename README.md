@@ -2,7 +2,7 @@
 
 Build automático para Windows x64 configurado no GitHub Actions.
 
-Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.1.0 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
+Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão 0.2.0 gera sinais de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
 ## O que funciona nesta versão
 
@@ -10,6 +10,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. A versão
 - Binance Spot REST para histórico, ativos USDT e book ticker; WebSocket para candle em tempo real com reconexão exponencial.
 - Forex por Twelve Data, com arquitetura `MarketDataProvider` substituível.
 - Gráfico próprio de candles e volume com zoom, arraste, crosshair, OHLC, EMAs, Bollinger, S/R e Fibonacci.
+- Atualização visual rápida do candle separada dos cálculos pesados, com troca segura de ativo e cache curto.
 - EMA 9/21/50, RSI 14, MACD 12/26/9, Bollinger, Stochastic 14/3, ADX/+DI/-DI, ATR, VWAP, OBV, CCI, Williams %R, volume relativo e volatilidade histórica.
 - Pivôs, HH/HL/LH/LL, zonas agrupadas, rompimento, falso rompimento, reteste e Fibonacci automático.
 - IA local leve: Logistic Regression, HistGradientBoosting, Random Forest pequeno e Gradient Boosting pequeno.
@@ -42,7 +43,7 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Criptomoedas públicas da Binance funcionam sem chave. Para Forex e calendário econômico, abra **APIs** no aplicativo e informe as chaves dos provedores. As chaves são salvas fora da pasta de instalação.
+Criptomoedas públicas da Binance funcionam sem chave. Para ativar Forex, abra **APIs** no aplicativo e informe a chave da Twelve Data. A chave Finnhub é opcional e serve para o calendário econômico quando o plano permite. As chaves são salvas fora da pasta de instalação.
 
 ## Gerar o EXE e o instalador
 
@@ -78,12 +79,12 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - `models\` — modelo ativo e relatório;
 - `logs\app.log` — logs rotativos.
 
-## Limitações honestas da 0.1.0
+## Limitações honestas da 0.2.0
 
 - Não envia nem executa ordens.
 - Twelve Data precisa de chave e os limites dependem do plano contratado.
 - O calendário econômico Finnhub pode exigir plano com acesso ao endpoint.
-- O feed Forex usa atualização periódica; o streaming implementado nesta versão é o da Binance.
+- O feed Forex usa atualização periódica de 15 segundos; o streaming contínuo implementado nesta versão é o da Binance.
 - A voz depende de PowerShell e das vozes instaladas no Windows.
 - “Score do modelo” não significa “chance de ganhar”. A taxa observada só aparece após amostra real suficiente.
 - Backtest não é garantia de desempenho futuro.

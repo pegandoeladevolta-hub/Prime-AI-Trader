@@ -61,6 +61,7 @@ class TradingController:
         self.news_provider = GdeltNewsProvider()
         self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.snapshot: AnalysisSnapshot | None = None
+        self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
         self._last_saved_signature: tuple | None = None
         self.websocket_online = False
 
@@ -91,6 +92,13 @@ class TradingController:
             "horizon_minutes": self.settings.horizon_minutes,
         }
 
+    def cached_snapshot(self, max_age_seconds: float = 120.0) -> AnalysisSnapshot | None:
+        key = (self.settings.market, self.symbol(), self.settings.timeframe)
+        cached = self._snapshot_cache.get(key)
+        if not cached or time.monotonic() - cached[0] > max_age_seconds:
+            return None
+        return cached[1]
+
     def refresh_symbols(self) -> list[str]:
         symbols = self.provider().list_symbols()
         return symbols or self.symbols()
@@ -100,9 +108,17 @@ class TradingController:
         return None if value is None or not math.isfinite(float(value)) else float(value)
 
     def analyze(self, limit: int = 500) -> AnalysisSnapshot:
-        provider, symbol = self.provider(), self.symbol()
-        self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", self.settings.market, symbol, self.settings.timeframe)
-        candles = provider.fetch_candles(symbol, self.settings.timeframe, limit=limit)
+        market = self.settings.market
+        timeframe = self.settings.timeframe
+        horizon_minutes = self.settings.horizon_minutes
+        sensitivity = self.settings.sensitivity
+        mode = self.settings.mode
+        high_impact_block_minutes = self.settings.high_impact_block_minutes
+        symbol = self.settings.crypto_symbol if market == Market.CRYPTO.value else self.settings.forex_symbol
+        provider = self.binance if market == Market.CRYPTO.value else self.forex
+        context = {"market": market, "symbol": symbol, "timeframe": timeframe, "horizon_minutes": horizon_minutes}
+        self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
+        candles = provider.fetch_candles(symbol, timeframe, limit=limit)
         if len(candles) < 80:
             raise ValueError("A API retornou poucos candles. São necessários pelo menos 80.")
         frame = candles_frame(candles)
@@ -115,7 +131,7 @@ class TradingController:
         calendar_events: list[EconomicEvent] = []
         blockers: list[str] = []
         try:
-            query = symbol.split("/")[0] if self.settings.market == Market.CRYPTO.value else " OR ".join(symbol.split("/"))
+            query = symbol.split("/")[0] if market == Market.CRYPTO.value else " OR ".join(symbol.split("/"))
             news = self.news_provider.fetch(query, limit=12)
             recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
             risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
@@ -123,12 +139,12 @@ class TradingController:
                 blockers.append(f"Notícia de alto risco: {risky[0].title[:90]}")
         except Exception as exc:
             self.logger.warning("Notícias indisponíveis: %s", exc)
-        if self.settings.market == Market.FOREX.value and self.secrets.get("finnhub_key"):
+        if market == Market.FOREX.value and self.secrets.get("finnhub_key"):
             try:
                 today = datetime.now(timezone.utc).date()
                 calendar_events = self.calendar_provider.fetch(today, today + timedelta(days=1))
                 event = self.calendar_provider.blocking_event(
-                    calendar_events, datetime.now(timezone.utc), self.settings.high_impact_block_minutes,
+                    calendar_events, datetime.now(timezone.utc), high_impact_block_minutes,
                     tuple(symbol.split("/")),
                 )
                 if event:
@@ -136,26 +152,27 @@ class TradingController:
             except Exception as exc:
                 self.logger.warning("Calendário econômico indisponível: %s", exc)
         signal = self.signal_engine.generate(
-            indicators, features, structure, fibonacci, self.settings.horizon_minutes,
-            self.settings.sensitivity, candles[-1].closed, blockers, self.settings.mode, self.model_context(),
+            indicators, features, structure, fibonacci, horizon_minutes,
+            sensitivity, candles[-1].closed, blockers, mode, context,
         )
         calibrated, samples = self.repository.calibration(signal.score)
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
         snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal, news, calendar_events,
-                                    symbol, self.settings.timeframe, self.settings.market, datetime.now(timezone.utc))
+                                    symbol, timeframe, market, datetime.now(timezone.utc))
         self.snapshot = snapshot
+        self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
         if signal.state == SignalState.CONFIRMED and signal.direction != Direction.WAIT:
-            signature = (symbol, self.settings.timeframe, candles[-1].open_time, signal.direction.value)
+            signature = (symbol, timeframe, candles[-1].open_time, signal.direction.value)
             if signature != self._last_saved_signature:
                 last = indicators.iloc[-1]
                 values = {key: self._value(last.get(key)) for key in (
                     "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di", "atr_14",
                     "vwap", "obv", "cci_20", "williams_r", "volume_relative",
                 )}
-                self.repository.save_signal(signal, self.settings.market, symbol, self.settings.timeframe, values, self.settings.mode)
+                self.repository.save_signal(signal, market, symbol, timeframe, values, mode)
                 self._last_saved_signature = signature
                 self.logger.info("Sinal salvo | %s %s score=%s", symbol, signal.direction.value, signal.score)
-        self._settle_pending(symbol, self.settings.timeframe, float(indicators["close"].iloc[-1]))
+        self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]))
         return snapshot
 
     def _settle_pending(self, symbol: str, timeframe: str, current_price: float) -> None:
@@ -173,7 +190,12 @@ class TradingController:
     def merge_live_candle(self, candle: Candle) -> AnalysisSnapshot | None:
         if not self.snapshot:
             return None
-        candles = self.snapshot.candles.copy()
+        snapshot = self.snapshot
+        current_key = (self.settings.market, self.symbol(), self.settings.timeframe)
+        snapshot_key = (snapshot.market, snapshot.symbol, snapshot.timeframe)
+        if current_key != snapshot_key:
+            return None
+        candles = snapshot.candles.copy()
         if candles and candles[-1].open_time == candle.open_time:
             candles[-1] = candle
         else:
@@ -186,11 +208,13 @@ class TradingController:
         fibonacci = automatic_fibonacci(indicators)
         feature_frame = frame.iloc[-180:] if len(frame) > 180 else frame
         features = build_features(feature_frame)
+        blockers = list(snapshot.signal.blockers)
         signal = self.signal_engine.generate(indicators, features, structure, fibonacci,
-            self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, [], self.settings.mode, self.model_context())
+            self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, blockers, self.settings.mode, self.model_context())
         signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(signal.score)
         self.snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal,
-            self.snapshot.news, self.snapshot.calendar_events, self.symbol(), self.settings.timeframe, self.settings.market, datetime.now(timezone.utc))
+            snapshot.news, snapshot.calendar_events, snapshot.symbol, snapshot.timeframe, snapshot.market, datetime.now(timezone.utc))
+        self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
         return self.snapshot
 
     def train(self) -> TrainingReport:

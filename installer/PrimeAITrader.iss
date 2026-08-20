@@ -1,5 +1,5 @@
 #define MyAppName "PRIME AI TRADER"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "PRIME"
 #define MyAppExeName "PrimeAITrader.exe"
 
@@ -53,4 +53,3 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME AI TRADER"; Flags: 
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
-

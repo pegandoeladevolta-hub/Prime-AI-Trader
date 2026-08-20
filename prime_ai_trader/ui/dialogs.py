@@ -21,21 +21,23 @@ def centered_window(parent, title: str, size: str) -> tk.Toplevel:
 
 class ApiSettingsDialog:
     FIELDS = [
-        ("twelve_data_key", "Twelve Data API Key"), ("finnhub_key", "Finnhub API Key"),
+        ("twelve_data_key", "Twelve Data API Key", "Obrigatória para ativar preços e candles de Forex."),
+        ("finnhub_key", "Finnhub API Key", "Opcional: calendário econômico; o endpoint pode exigir plano Premium."),
     ]
 
     def __init__(self, parent, values: dict[str, str], on_save) -> None:
-        self.window = centered_window(parent, "Configurações de APIs", "590x360")
+        self.window = centered_window(parent, "Configurações de APIs", "620x430")
         panel = ttk.Frame(self.window, style="Panel.TFrame", padding=22)
         panel.pack(fill="both", expand=True, padx=14, pady=14)
         ttk.Label(panel, text="CHAVES DE API", style="Panel.TLabel", font=("Segoe UI Semibold", 14)).pack(anchor="w")
         ttk.Label(panel, text="As chaves são protegidas pelo Windows DPAPI e nunca ficam no código-fonte.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(4, 18))
         self.variables = {}
-        for key, label in self.FIELDS:
+        for key, label, help_text in self.FIELDS:
             ttk.Label(panel, text=label, style="Panel.TLabel").pack(anchor="w", pady=(7, 3))
             variable = tk.StringVar(value=values.get(key, ""))
             entry = ttk.Entry(panel, textvariable=variable, show="•", width=64)
             entry.pack(fill="x")
+            ttk.Label(panel, text=help_text, style="Muted.TLabel", wraplength=535).pack(anchor="w", pady=(3, 4))
             self.variables[key] = variable
         buttons = ttk.Frame(panel, style="Panel.TFrame")
         buttons.pack(fill="x", pady=(20, 0))
