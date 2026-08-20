@@ -1,9 +1,5 @@
-﻿{
-    "status":  "success",
-    "run_id":  32402570771,
-    "commit_sha":  "0d97ae14ed614d5b03f2916b00969d74d0b3b149",
-    "artifact_id":  9419105670,
-    "artifact_name":  "PRIME-AI-TRADER-Windows-x64",
-    "artifact_url":  "https://github.com/pegandoeladevolta-hub/primezap/actions/runs/32402570771/artifacts/9419105670",
-    "artifact_digest":  "af6a9d24214040b85c8a0565db4445318a8501c9f8570b1966468f75658ef9f6"
+{
+  "status": "preparing",
+  "version": "0.3.2",
+  "message": "Corrigindo alinhamento de dados no treinamento da IA."
 }
