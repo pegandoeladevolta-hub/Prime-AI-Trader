@@ -139,7 +139,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.8.0 possui 168 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo 37 cenários de sincronização segura com a VEX, cronômetro, divergências, OTC, confluências independentes e montagem real da interface em Windows.
+A versão 0.8.0 possui 174 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo 37 cenários de sincronização segura com a VEX, seis verificações de confiabilidade Windows, cronômetro, divergências, OTC, confluências independentes e montagem real da interface em Windows.
 
 ## Dados locais
 

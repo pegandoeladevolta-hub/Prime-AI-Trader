@@ -18,7 +18,9 @@
 - Fechamento contrário da vela é explicado; rejeições profissionais válidas continuam permitidas.
 - Força técnica sem IA treinada deixa de ser apresentada como probabilidade calibrada.
 - Layout aprovado, cartão de voz reduzido, Binance, Forex público, notícias, APIs e comportamento do modo rápido preservados.
-- 168 testes automatizados, incluindo 37 novos cenários dedicados à integração e à coerência dos sinais.
+- Conexões SQLite agora são efetivamente fechadas, evitando arquivos bloqueados e falhas de limpeza no Windows.
+- O empacotamento interrompe obrigatoriamente se ícone, testes ou instalador apresentarem erro.
+- 174 testes automatizados, incluindo 37 cenários dedicados à integração e seis verificações extras de confiabilidade Windows.
 
 ## 0.7.2 — 21/08/2026
 

@@ -25,12 +25,14 @@ Data: 21/08/2026
 | Calendário | Eventos econômicos públicos com cache de uma hora e Finnhub opcional. |
 | Gráfico | Redesenho parcial da última vela, crosshair sem redesenho integral, precisão cambial e atalhos de timeframe. |
 | Últimos sinais | Leitura real do banco em thread dedicada; sem operações inventadas e sem bloquear o Tkinter. |
+| SQLite / Windows | Conexões fechadas após cada operação, arquivos liberados e diretório temporário de testes corretamente isolado. |
+| Build seguro | Pillow instalado para o ícone e verificação obrigatória do código de saída após dependências, ícone, testes e empacotamento. |
 | Limpeza | Cache/modelos antigos removíveis pelo app, instalador e arquivo externo, sem excluir chaves/configurações/banco. |
 
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **167 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **173 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -48,4 +50,4 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 Identificador do candidato validado: `0.8.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 168 testes, incluindo a montagem completa da interface, a proporção compacta do cartão de voz e a sincronização local segura da VEX, antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 174 testes, incluindo a montagem completa da interface, a proporção compacta do cartão de voz, a sincronização local segura da VEX e a liberação real das conexões SQLite, antes da publicação.

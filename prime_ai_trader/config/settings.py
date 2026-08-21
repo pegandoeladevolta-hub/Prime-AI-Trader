@@ -12,10 +12,13 @@ from typing import Any
 
 
 def app_data_dir() -> Path:
-    if os.name == "nt":
+    explicit_root = os.environ.get("PRIME_AI_TRADER_DATA_HOME") or os.environ.get("XDG_DATA_HOME")
+    if explicit_root:
+        root = Path(explicit_root)
+    elif os.name == "nt":
         root = Path(os.environ.get("APPDATA", Path.home()))
     else:
-        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        root = Path.home() / ".local" / "share"
     path = root / "PrimeAITrader"
     path.mkdir(parents=True, exist_ok=True)
     return path
