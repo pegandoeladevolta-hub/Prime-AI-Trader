@@ -17,8 +17,8 @@ from tests.helpers import synthetic_candles
 
 class SignalDatabaseTests(unittest.TestCase):
     def test_stable_signal_profile_keeps_useful_coverage(self) -> None:
-        self.assertEqual(THRESHOLDS, {"CONSERVADOR": 84, "EQUILIBRADO": 76, "RÁPIDO": 68})
-        self.assertEqual(PROBABILITY_FLOORS, {"CONSERVADOR": 0.68, "EQUILIBRADO": 0.62, "RÁPIDO": 0.56})
+        self.assertEqual(THRESHOLDS, {"CONSERVADOR": 86, "EQUILIBRADO": 73, "RÁPIDO": 57})
+        self.assertEqual(PROBABILITY_FLOORS, {"CONSERVADOR": 0.70, "EQUILIBRADO": 0.60, "RÁPIDO": 0.54})
 
     def test_blocker_forces_wait(self) -> None:
         frame = candles_frame(synthetic_candles(180))

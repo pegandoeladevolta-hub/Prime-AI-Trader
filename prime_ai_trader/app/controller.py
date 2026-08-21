@@ -31,7 +31,7 @@ from ..ml.models import ModelManager, TrainingReport, purge_size_from_context
 from ..news.provider import CompositeNewsProvider, NewsItem, market_news_query
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
-from ..signals.engine import PROBABILITY_EDGES, PROBABILITY_FLOORS, SignalEngine
+from ..signals.engine import SignalEngine, sensitivity_profile
 
 
 @dataclass(slots=True)
@@ -346,8 +346,10 @@ class TradingController:
         threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
         sensitivity = self.settings.sensitivity.upper()
-        confidence = PROBABILITY_FLOORS.get(sensitivity, 0.64)
-        probability_edge = PROBABILITY_EDGES.get(sensitivity, 0.16)
+        profile = sensitivity_profile(sensitivity)
+        break_even = 1 / (1 + self.settings.payout_percent / 100)
+        confidence = max(profile.probability_floor, break_even + profile.payout_margin)
+        probability_edge = profile.probability_edge
         compatible_model = self.model_manager.is_compatible(self.model_context())
         model_name = self.model_manager.report.selected_model if compatible_model and self.model_manager.report else "Logistic Regression"
         features = self.snapshot.features

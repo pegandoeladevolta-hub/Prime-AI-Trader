@@ -9,6 +9,7 @@ from sklearn.base import clone
 from sklearn.metrics import confusion_matrix
 
 from ..ml.models import align_supervised_data, candidate_models, temporal_folds
+from ..signals.engine import sensitivity_profile
 
 
 @dataclass(slots=True)
@@ -51,12 +52,12 @@ def _directional_confluence(row: pd.Series, prediction: int,
     """Filtra previsões isoladas que contradizem tendência e momentum."""
     if prediction not in {-1, 1}:
         return False
+    profile = sensitivity_profile(sensitivity)
     adx = row.get("adx_14")
-    min_adx = {"RÁPIDO": 14, "EQUILIBRADO": 17, "CONSERVADOR": 20}.get(sensitivity.upper(), 17)
-    if pd.isna(adx) or float(adx) < min_adx:
+    if pd.isna(adx) or float(adx) < profile.minimum_adx:
         return False
     atr_regime = row.get("atr_regime")
-    if pd.notna(atr_regime) and not 0.35 <= float(atr_regime) <= 3.20:
+    if pd.notna(atr_regime) and not profile.volatility_minimum <= float(atr_regime) <= profile.volatility_maximum:
         return False
     sign = float(prediction)
     votes = (
@@ -66,7 +67,7 @@ def _directional_confluence(row: pd.Series, prediction: int,
         sign * (float(row.get("plus_di", 0) or 0) - float(row.get("minus_di", 0) or 0)) > 0,
         sign * float(row.get("trend_code", 0) or 0) >= 0,
     )
-    minimum = 2 if sensitivity.upper() == "RÁPIDO" else 3
+    minimum = {"RÁPIDO": 2, "EQUILIBRADO": 3, "CONSERVADOR": 4}[profile.name]
     return sum(votes) >= minimum
 
 

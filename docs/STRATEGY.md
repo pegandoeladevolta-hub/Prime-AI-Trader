@@ -16,6 +16,18 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 8. **Probabilidade e payout** — a decisão considera o ponto de equilíbrio `1 / (1 + payout)`, a probabilidade estimada e a expectativa matemática; payout de 80% exige mais de 55,56% de acerto para expectativa positiva.
 9. **Confiança do modelo** — regras e modelo são combinados sem apagar uma confluência técnica legítima quando o histórico ainda está em formação.
 
+## Calibração por perfil
+
+| Perfil | Objetivo | Score | Confluências | Momentum | ADX |
+|---|---|---:|---:|---:|---:|
+| CONSERVADOR | Alta confirmação e menor frequência. | 86 | 5 | 3 | 20 |
+| EQUILIBRADO | Compromisso entre confirmação e frequência. | 73 | 4 | 2 | 15 |
+| RÁPIDO | Direção ágil com leitura antecipada. | 57 | 2 | 1 | 10 |
+
+Os perfis também possuem faixas próprias de volatilidade, distância máxima da EMA 21, peso da IA, vantagem sobre a direção oposta e margem acima do ponto de equilíbrio do payout. O perfil rápido pode anunciar uma leitura durante a vela atual; essa leitura é apresentada honestamente como **em formação**, e somente o fechamento da vela produz um sinal confirmado.
+
+Notícias e eventos permanecem informativos quando o bloqueio automático está desligado. Nessa situação, não devem interromper a análise nem gerar alertas de voz repetidos.
+
 ## Treinamento sem atalhos
 
 - Features usam somente dados presentes e passados.

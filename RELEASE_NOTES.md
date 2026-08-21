@@ -1,5 +1,28 @@
 # Release notes
 
+## 0.6.0 — 21/08/2026
+
+### Perfis calibrados por categoria
+
+- CONSERVADOR: alta confirmação, score mínimo 86, cinco confluências e ADX mínimo 20.
+- EQUILIBRADO: exigência intermediária, score mínimo 73, quatro confluências e ADX mínimo 15.
+- RÁPIDO: leitura imediata, score mínimo 57, duas confluências, ADX mínimo 10 e peso reduzido da IA.
+- Momentum, vantagem direcional, extensão do preço, volatilidade, payout e peso da IA agora são configurados separadamente por perfil.
+- O backtest utiliza o mesmo ADX, regime de volatilidade, ponto de equilíbrio do payout e exigência direcional do perfil ativo.
+- Em 80 cenários sintéticos idênticos: rápido emitiu 74 sinais, equilibrado 66 e conservador 44; esses números validam a separação dos perfis e não representam taxa de acerto.
+
+### Áudio e alertas de risco
+
+- Avisos de notícia/evento não bloqueantes permanecem visíveis, mas não disparam mais a mensagem repetitiva de risco.
+- A voz somente anuncia risco quando existe um bloqueio real e a opção de bloqueio automático está ligada.
+- Alertas bloqueantes iguais têm intervalo mínimo de cinco minutos, mesmo que outros sinais de voz aconteçam entre eles.
+- Sinais confirmados são priorizados; no perfil rápido, uma leitura direcional durante a vela é anunciada como "em formação", sem fingir confirmação.
+- Novas notícias e mudanças de aviso não repetem um sinal já anunciado.
+
+### Validação
+
+- 103 testes automatizados aprovados, incluindo 18 novos testes para perfis, áudio, alerta, payout, cooldown e consistência do backtest.
+
 ## 0.5.0 — 20/08/2026
 
 ### Fontes públicas e ativos da plataforma

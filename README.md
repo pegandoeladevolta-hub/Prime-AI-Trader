@@ -1,11 +1,16 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.5.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.6.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.5.0
+## Destaques da versão 0.6.0
 
+- Perfis calibrados de verdade: conservador exige alta confirmação; equilibrado mantém seletividade intermediária; rápido prioriza leitura imediata com duas confirmações.
+- Score mínimo por perfil: conservador 86, equilibrado 73 e rápido 57; ADX, momentum, volatilidade, vantagem direcional e peso da IA também são independentes.
+- O perfil rápido avisa a direção ainda durante a formação da vela, deixando claro que a confirmação final depende do fechamento.
+- Com bloqueio automático desligado, notícias e eventos aparecem somente na tela: o robô não repete mais o aviso genérico de risco no áudio.
+- Eventos realmente bloqueantes possuem intervalo de cinco minutos entre avisos iguais; sinais confirmados sempre têm prioridade.
 - As 10 criptomoedas identificadas na plataforma aparecem primeiro: BTC, LTC, ADA, BNB, XRP, ETH, SOL, DOGE, SUI e XLM/Stellar.
 - Binance com hosts públicos oficiais alternativos e fallback automático para Coinbase Exchange e Kraken.
 - Forex público sem chave, com Twelve Data e Alpha Vantage opcionais; Frankfurter fornece referência diária sem simular candles intraday.
@@ -65,7 +70,17 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 | Calendário econômico público | Eventos de alto impacto | Não | Nenhum |
 | Finnhub | Calendário extra | Opcional | Nenhum |
 
-Por padrão, notícias, eventos e backtest fraco aparecem como avisos. O bloqueio automático de notícia/evento pode ser ativado no painel esquerdo.
+Por padrão, notícias, eventos e backtest fraco aparecem como avisos silenciosos na tela. O bloqueio automático de notícia/evento pode ser ativado no painel esquerdo; apenas um bloqueio realmente ativo pode gerar alerta de voz.
+
+## Perfis de análise
+
+| Perfil | Score mínimo | Confirmações | ADX mínimo | Comportamento |
+|---|---:|---:|---:|---|
+| CONSERVADOR | 86 | 5 | 20 | Alta confirmação e menos operações. |
+| EQUILIBRADO | 73 | 4 | 15 | Frequência e confirmação intermediárias. |
+| RÁPIDO | 57 | 2 | 10 | Leitura imediata, mais sinais e aviso antecipado durante a vela. |
+
+Uma leitura rápida em formação não é apresentada como sinal já confirmado. Nenhum perfil promete taxa fixa de acerto.
 
 ## Executar pelo código-fonte
 
@@ -96,7 +111,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.5.0 possui 85 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, sinais, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões.
+A versão 0.6.0 possui 103 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões.
 
 ## Dados locais
 

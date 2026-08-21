@@ -17,6 +17,7 @@ import pandas as pd
 from ..app.controller import AnalysisSnapshot, TradingController
 from ..audio.voice import VoiceService
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
+from ..signals.engine import sensitivity_profile
 from .chart import CandleChart
 from .dialogs import ApiSettingsDialog, BacktestDialog, HealthDialog, PerformanceDialog, RadarDialog
 from .theme import COLORS, configure_style
@@ -31,6 +32,23 @@ INDICATOR_LAYOUT = [
 
 LIVE_ANALYSIS_INTERVAL_SECONDS = 30
 FOREX_POLL_INTERVAL_MS = 125_000
+
+
+def voice_message_for_signal(signal, symbol: str, sensitivity: str, *,
+                             strict_risk_blocks: bool, voice_confirmed: bool,
+                             voice_pre_signal: bool, voice_alerts: bool) -> tuple[str, float] | None:
+    """Prioriza sinais; avisos informativos não interrompem a leitura do mercado."""
+    if signal.state == SignalState.CONFIRMED and voice_confirmed:
+        return f"Sinal de {signal.direction.value.lower()} confirmado em {symbol}.", 8.0
+    if signal.state == SignalState.FORMING and signal.direction != Direction.WAIT:
+        fast_reading = sensitivity_profile(sensitivity).early_reading and voice_confirmed
+        if fast_reading:
+            return f"Leitura rápida de {signal.direction.value.lower()} em {symbol}. Sinal em formação.", 20.0
+        if voice_pre_signal:
+            return f"Possível sinal de {signal.direction.value.lower()} em {symbol}.", 20.0
+    if signal.blockers and strict_risk_blocks and voice_alerts:
+        return "Atenção. Evento de alto impacto. Operações temporariamente bloqueadas.", 300.0
+    return None
 
 
 class PrimeAITraderApp(tk.Tk):
@@ -77,6 +95,7 @@ class PrimeAITraderApp(tk.Tk):
         self.horizon_var = tk.StringVar(value=str(settings.horizon_minutes))
         self.payout_var = tk.StringVar(value=str(settings.payout_percent))
         self.sensitivity_var = tk.StringVar(value=settings.sensitivity)
+        self.profile_hint_var = tk.StringVar(value=sensitivity_profile(settings.sensitivity).description)
         self.mode_var = tk.StringVar(value=settings.mode)
         self.audio_var = tk.BooleanVar(value=settings.audio_enabled)
         self.audio_volume_var = tk.IntVar(value=settings.audio_volume)
@@ -115,7 +134,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.5.0  •  MULTIFONTE E PROFISSIONAL", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.6.0  •  PERFIS CALIBRADOS", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -148,7 +167,7 @@ class PrimeAITraderApp(tk.Tk):
         self._combo(panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
         self._combo(panel, "Sensibilidade", self.sensitivity_var, ["CONSERVADOR", "EQUILIBRADO", "RÁPIDO"], self._save_form)
         self._combo(panel, "Modo", self.mode_var, ["CONFIRMAÇÃO", "PRICE ACTION", "QUANTITATIVO"], self._save_form)
-        ttk.Label(panel, text="RÁPIDO gera mais sinais e pode aumentar falsos positivos.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 10))
+        ttk.Label(panel, textvariable=self.profile_hint_var, style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 10))
         ttk.Button(panel, text="▶  INICIAR ANÁLISE", style="Accent.TButton", command=self.start_analysis).pack(fill="x", pady=(3, 4))
         ttk.Button(panel, text="↻  ATUALIZAR GRÁFICO AGORA", style="Secondary.TButton", command=self.refresh_analysis).pack(fill="x", pady=3)
         ttk.Button(panel, text="Ⅱ  PAUSAR", style="Danger.TButton", command=self.pause_analysis).pack(fill="x", pady=3)
@@ -163,7 +182,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Checkbutton(panel, text="Voz brasileira", variable=self.audio_var, command=self._save_form).pack(anchor="w")
         ttk.Checkbutton(panel, text="Pré-sinal", variable=self.pre_voice_var, command=self._save_form).pack(anchor="w")
         ttk.Checkbutton(panel, text="Sinal confirmado", variable=self.confirmed_voice_var, command=self._save_form).pack(anchor="w")
-        ttk.Checkbutton(panel, text="Alertas de risco", variable=self.alert_voice_var, command=self._save_form).pack(anchor="w")
+        ttk.Checkbutton(panel, text="Áudio de risco bloqueante", variable=self.alert_voice_var, command=self._save_form).pack(anchor="w")
         ttk.Label(panel, text="Volume da voz", style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
         ttk.Scale(panel, from_=0, to=100, variable=self.audio_volume_var, command=lambda _: self._save_form()).pack(fill="x")
         self._combo(panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
@@ -171,7 +190,7 @@ class PrimeAITraderApp(tk.Tk):
             panel, text="Bloquear automaticamente por notícia/evento",
             variable=self.strict_risk_blocks_var, command=self._save_form,
         ).pack(anchor="w", pady=(4, 0))
-        ttk.Label(panel, text="Desligado: mostra aviso, mas não impede o sinal.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 3))
+        ttk.Label(panel, text="Desligado: avisos ficam apenas na tela e não interrompem os sinais.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 3))
         tools = ttk.Frame(panel, style="Panel.TFrame")
         tools.pack(fill="x", pady=(12, 4))
         ttk.Button(tools, text="APIs", command=self.open_api_settings).pack(side="left", fill="x", expand=True, padx=(0, 3))
@@ -315,6 +334,7 @@ class PrimeAITraderApp(tk.Tk):
         settings.horizon_minutes = int(self.horizon_var.get())
         settings.payout_percent = int(self.payout_var.get())
         settings.sensitivity = self.sensitivity_var.get()
+        self.profile_hint_var.set(sensitivity_profile(settings.sensitivity).description)
         settings.mode = self.mode_var.get()
         settings.audio_enabled = self.audio_var.get()
         settings.audio_volume = self.audio_volume_var.get()
@@ -804,19 +824,20 @@ class PrimeAITraderApp(tk.Tk):
             snapshot.candles[-1].open_time if snapshot.candles else snapshot.generated_at,
             signal.state.value,
             signal.direction.value,
-            tuple(signal.blockers),
-            tuple(signal.warnings),
+            tuple(signal.blockers) if self.controller.settings.strict_risk_blocks else (),
         )
         should_speak = voice_signature != self._last_voice_signature
         if self.audio_var.get() and should_speak:
-            if signal.state == SignalState.CONFIRMED and self.confirmed_voice_var.get():
-                self.voice.speak(f"Sinal de {signal.direction.value.lower()} confirmado em {snapshot.symbol}.", self.controller.settings.audio_volume)
-            elif signal.state == SignalState.FORMING and self.pre_voice_var.get():
-                self.voice.speak(f"Possível sinal de {signal.direction.value.lower()} em {snapshot.symbol}.", self.controller.settings.audio_volume)
-            elif signal.blockers and self.alert_voice_var.get():
-                self.voice.speak("Atenção. Notícia de alto impacto. Operações temporariamente bloqueadas.", self.controller.settings.audio_volume)
-            elif signal.warnings and self.alert_voice_var.get():
-                self.voice.speak("Atenção. Existe um aviso de risco para esta análise.", self.controller.settings.audio_volume)
+            spoken = voice_message_for_signal(
+                signal, snapshot.symbol, self.controller.settings.sensitivity,
+                strict_risk_blocks=self.controller.settings.strict_risk_blocks,
+                voice_confirmed=self.confirmed_voice_var.get(),
+                voice_pre_signal=self.pre_voice_var.get(),
+                voice_alerts=self.alert_voice_var.get(),
+            )
+            if spoken:
+                message, interval = spoken
+                self.voice.speak(message, self.controller.settings.audio_volume, min_interval=interval)
         self._last_voice_signature = voice_signature
 
     def _start_countdown(self, snapshot: AnalysisSnapshot) -> None:

@@ -50,7 +50,7 @@ class ProfessionalSignalTests(unittest.TestCase):
         _, indicators, features, structure, fib = self._inputs(2)
         with tempfile.TemporaryDirectory() as temp:
             signal = SignalEngine(ModelManager(Path(temp))).generate(
-                indicators, features, structure, fib, 1, "RÁPIDO", True,
+                indicators, features, structure, fib, 1, "EQUILIBRADO", True,
             )
         self.assertEqual(signal.direction, Direction.WAIT)
         self.assertTrue(signal.waiting_reasons)

@@ -10,14 +10,29 @@ class VoiceService:
     def __init__(self) -> None:
         self._last_message = ""
         self._last_at = 0.0
+        self._last_messages: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def _reserve_message(self, message: str, min_interval: float, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else now
+        with self._lock:
+            previous = self._last_messages.get(message)
+            if previous is not None and current - previous < min_interval:
+                return False
+            self._last_messages[message] = current
+            if len(self._last_messages) > 64:
+                self._last_messages = {
+                    text: moment for text, moment in self._last_messages.items()
+                    if current - moment < 600
+                }
+            self._last_message, self._last_at = message, current
+            return True
 
     def speak(self, message: str, volume: int = 70, min_interval: float = 8.0) -> bool:
         if os.name != "nt" or not message:
             return False
-        now = time.monotonic()
-        if message == self._last_message and now - self._last_at < min_interval:
+        if not self._reserve_message(message, min_interval):
             return False
-        self._last_message, self._last_at = message, now
         safe = message.replace("'", "''")
         script = (
             "Add-Type -AssemblyName System.Speech; "
@@ -31,4 +46,3 @@ class VoiceService:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), capture_output=True, timeout=30,
         ), daemon=True).start()
         return True
-

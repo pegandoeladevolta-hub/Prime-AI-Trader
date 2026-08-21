@@ -11,11 +11,50 @@ from ..ml.models import ModelManager
 from ..priceaction.structure import MarketStructure
 
 
-THRESHOLDS = {"CONSERVADOR": 84, "EQUILIBRADO": 76, "RÁPIDO": 68}
-PROBABILITY_FLOORS = {"CONSERVADOR": 0.68, "EQUILIBRADO": 0.62, "RÁPIDO": 0.56}
-PROBABILITY_EDGES = {"CONSERVADOR": 0.16, "EQUILIBRADO": 0.14, "RÁPIDO": 0.10}
-CONFLUENCE_MINIMUMS = {"CONSERVADOR": 5, "EQUILIBRADO": 4, "RÁPIDO": 3}
-MOMENTUM_MINIMUMS = {"CONSERVADOR": 3, "EQUILIBRADO": 3, "RÁPIDO": 2}
+@dataclass(frozen=True, slots=True)
+class SensitivityProfile:
+    name: str
+    description: str
+    score: int
+    probability_floor: float
+    probability_edge: float
+    confluences: int
+    momentum: int
+    minimum_adx: int
+    direction_gap: int
+    maximum_extension_atr: float
+    volatility_minimum: float
+    volatility_maximum: float
+    payout_margin: float
+    model_weight_factor: float
+    early_reading: bool = False
+
+
+SENSITIVITY_PROFILES = {
+    "CONSERVADOR": SensitivityProfile(
+        "CONSERVADOR", "ALTA CONFIRMAÇÃO • menos sinais e maior exigência",
+        86, 0.70, 0.18, 5, 3, 20, 16, 2.0, 0.45, 2.8, 0.05, 1.10,
+    ),
+    "EQUILIBRADO": SensitivityProfile(
+        "EQUILIBRADO", "EQUILIBRADO • confirmação e frequência moderadas",
+        73, 0.60, 0.12, 4, 2, 15, 10, 2.5, 0.35, 3.3, 0.02, 1.0,
+    ),
+    "RÁPIDO": SensitivityProfile(
+        "RÁPIDO", "LEITURA RÁPIDA • direção imediata e mais oportunidades",
+        57, 0.54, 0.06, 2, 1, 10, 5, 3.3, 0.22, 4.2, 0.002, 0.60, True,
+    ),
+}
+
+
+def sensitivity_profile(name: str) -> SensitivityProfile:
+    return SENSITIVITY_PROFILES.get(str(name or "").upper(), SENSITIVITY_PROFILES["EQUILIBRADO"])
+
+
+THRESHOLDS = {name: profile.score for name, profile in SENSITIVITY_PROFILES.items()}
+PROBABILITY_FLOORS = {name: profile.probability_floor for name, profile in SENSITIVITY_PROFILES.items()}
+PROBABILITY_EDGES = {name: profile.probability_edge for name, profile in SENSITIVITY_PROFILES.items()}
+CONFLUENCE_MINIMUMS = {name: profile.confluences for name, profile in SENSITIVITY_PROFILES.items()}
+MOMENTUM_MINIMUMS = {name: profile.momentum for name, profile in SENSITIVITY_PROFILES.items()}
 
 
 @dataclass(slots=True)
@@ -227,6 +266,7 @@ class SignalEngine:
                  payout_percent: int = 80) -> Signal:
         payout = min(max(int(payout_percent or 80), 1), 200)
         break_even = 1 / (1 + payout / 100)
+        profile = sensitivity_profile(sensitivity)
         blockers = blockers or []
         if blockers:
             return Signal(
@@ -246,8 +286,9 @@ class SignalEngine:
                 "COMPRA": raw.get(1, 0.0), "VENDA": raw.get(-1, 0.0),
                 "AGUARDAR": raw.get(0, 0.0),
             }
-            model_weight = {"PRICE ACTION": 0.30, "CONFIRMAÇÃO": 0.45,
-                            "QUANTITATIVO": 0.65}.get(mode, 0.45)
+            base_model_weight = {"PRICE ACTION": 0.30, "CONFIRMAÇÃO": 0.45,
+                                 "QUANTITATIVO": 0.65}.get(mode, 0.45)
+            model_weight = min(0.85, max(0.12, base_model_weight * profile.model_weight_factor))
             buy_agreement = 7 if probabilities["COMPRA"] > probabilities["VENDA"] and technical_buy >= 60 else 0
             sell_agreement = 7 if probabilities["VENDA"] > probabilities["COMPRA"] and technical_sell >= 60 else 0
             buy_score = min(100, round(model_weight * probabilities["COMPRA"] * 100 +
@@ -265,8 +306,8 @@ class SignalEngine:
             }
             model_version = "rules-professional-v2"
 
-        sensitivity_key = sensitivity.upper()
-        threshold = THRESHOLDS.get(sensitivity_key, 76)
+        sensitivity_key = profile.name
+        threshold = profile.score
         if buy_score >= sell_score:
             direction, score, confluences = Direction.BUY, buy_score, rules.buy_reasons
             technical_score, setup_name = technical_buy, rules.buy_setup
@@ -283,28 +324,27 @@ class SignalEngine:
             structure.trend != ("BAIXA" if direction == Direction.BUY else "ALTA"),
         )
         adx = _number(last.get("adx_14"))
-        min_adx = {"RÁPIDO": 14, "EQUILIBRADO": 17, "CONSERVADOR": 20}.get(sensitivity_key, 17)
-        weak_regime = adx > 0 and adx < min_adx and not structure.breakout
+        weak_regime = adx > 0 and adx < profile.minimum_adx and not structure.breakout
         atr_value = _number(last.get("atr_14"))
         close_value = _number(last.get("close"))
         ema_21 = _number(last.get("ema_21"), close_value)
-        extension_limit = {"RÁPIDO": 2.8, "EQUILIBRADO": 2.35,
-                           "CONSERVADOR": 2.0}.get(sensitivity_key, 2.35)
-        overextended = atr_value > 0 and abs(close_value - ema_21) > extension_limit * atr_value
+        overextended = (
+            atr_value > 0 and
+            abs(close_value - ema_21) > profile.maximum_extension_atr * atr_value
+        )
         feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
         atr_regime = feature_row.get("atr_regime")
-        volatility_ok = pd.isna(atr_regime) or 0.35 <= _number(atr_regime) <= 3.2
-        required_confluences = CONFLUENCE_MINIMUMS.get(sensitivity_key, 4)
-        required_momentum = MOMENTUM_MINIMUMS.get(sensitivity_key, 3)
-        required_gap = {"RÁPIDO": 8, "EQUILIBRADO": 12,
-                        "CONSERVADOR": 16}.get(sensitivity_key, 12)
+        volatility_ok = (
+            pd.isna(atr_regime) or
+            profile.volatility_minimum <= _number(atr_regime) <= profile.volatility_maximum
+        )
+        required_confluences = profile.confluences
+        required_momentum = profile.momentum
+        required_gap = profile.direction_gap
 
         chosen = probabilities.get(direction.value, 0.0)
         opposite = probabilities.get(Direction.SELL.value if direction == Direction.BUY else Direction.BUY.value, 0.0)
-        payout_margin = {"RÁPIDO": 0.005, "EQUILIBRADO": 0.025,
-                         "CONSERVADOR": 0.05}.get(sensitivity_key, 0.025)
-        probability_floor = max(PROBABILITY_FLOORS.get(sensitivity_key, 0.62),
-                                break_even + payout_margin)
+        probability_floor = max(profile.probability_floor, break_even + profile.payout_margin)
         expected_value = chosen * payout / 100 - (1 - chosen)
 
         waiting: list[str] = []
@@ -328,7 +368,7 @@ class SignalEngine:
                     f"IA indica {chosen * 100:.1f}%; mínimo {probability_floor * 100:.1f}% "
                     f"para payout de {payout}%"
                 )
-            if chosen - opposite < PROBABILITY_EDGES.get(sensitivity_key, 0.14):
+            if chosen - opposite < profile.probability_edge:
                 waiting.append("A previsão ainda não tem vantagem suficiente sobre o lado oposto")
 
         kwargs = {
