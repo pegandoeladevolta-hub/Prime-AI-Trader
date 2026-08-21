@@ -1,11 +1,17 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.6.1 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.7.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.6.1
+## Destaques da versão 0.7.0
 
+- Nova interface PRIME AI TRADER baseada no painel premium solicitado: fundo preto profundo, cabeçalho com status, ações coloridas e três colunas organizadas.
+- Gráfico ampliado com atalhos de timeframe, cards compactos de indicadores e preservação integral das ferramentas de desenho/análise.
+- Painel de sinal com direção destacada, confiança, barra de score, entrada, expiração, cronômetro e motivos reais da análise.
+- Faixa inferior com explicação contextual da IA, últimos sinais reais do banco de dados e status visual dos alertas de voz.
+- Configurações avançadas recolhíveis preservam pagamento, controle de risco, APIs, radar, backtest, treinamento, limpeza e monitor de saúde.
+- Provedores, estratégias, sinais, análise, notícias, áudio e atualização Forex da versão anterior permanecem inalterados.
 - Forex com cotação pública real consultada a cada 10 segundos e atualização incremental da última vela, sem consumir créditos do Twelve Data ou da Alpha Vantage.
 - O histórico Forex continua sendo reconciliado automaticamente; fontes atrasadas são identificadas honestamente e não geram ticks ou volume inventados.
 - Gráfico Forex com cinco casas decimais, três para pares em JPY, escala ampliada e remoção da área de volume quando a fonte não fornece volume real.
@@ -114,7 +120,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.6.1 possui 116 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo atualização incremental e precisão cambial.
+A versão 0.7.0 possui 129 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo atualização incremental, precisão cambial e montagem real da nova interface em Windows.
 
 ## Dados locais
 

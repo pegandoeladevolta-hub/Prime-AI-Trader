@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.6.0
+# Relatório de validação — PRIME AI TRADER 0.7.0
 
 Data: 21/08/2026
 
@@ -6,7 +6,8 @@ Data: 21/08/2026
 
 | Área | Verificação |
 |---|---|
-| Interface | Todos os botões visíveis possuem comando/handler válido; workers usam fila segura e não chamam Tkinter diretamente. |
+| Interface | Layout premium inspirado na referência, três colunas, indicadores compactos, painel de sinal e cartões inferiores; todos os botões possuem comando/handler válido. |
+| Smoke test Windows | A interface completa é instanciada em Windows, os indicadores são conferidos e controles avançados/timeframes são acionados. |
 | IA | Contexto completo, persistência por ativo e seleção por desempenho seletivo fora da amostra. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
 | Sinais | Tendência, pullback, rompimento/reteste, liquidez/rejeição, engolfo, timeframe superior e motivo explícito para aguardar. |
@@ -15,16 +16,17 @@ Data: 21/08/2026
 | Backtest | Walk-forward, payout configurável, ponto de equilíbrio, expectativa e intervalo de confiança de Wilson. |
 | Estatísticas | DRAW excluído do acerto direcional; sinais WebSocket registrados e liquidados no vencimento. |
 | Cripto | Binance pública com espelhos oficiais; fallback Coinbase/Kraken; ativos da plataforma incluindo XLM. |
-| Forex | Fonte pública sem chave, Twelve Data/Alpha Vantage opcionais, referência Frankfurter diária e 28 pares. |
+| Forex | Fonte pública sem chave, cotação incremental aproximadamente a cada dez segundos, Twelve Data/Alpha Vantage opcionais, referência Frankfurter diária e 28 pares. |
 | Notícias | GDELT, Google Notícias, Cointelegraph, CoinDesk, FXStreet e ForexLive; painel visível e atualização automática. |
 | Calendário | Eventos econômicos públicos com cache de uma hora e Finnhub opcional. |
-| Gráfico | Redesenho parcial da última vela e crosshair sem redesenho integral. |
+| Gráfico | Redesenho parcial da última vela, crosshair sem redesenho integral, precisão cambial e atalhos de timeframe. |
+| Últimos sinais | Leitura real do banco em thread dedicada; sem operações inventadas e sem bloquear o Tkinter. |
 | Limpeza | Cache/modelos antigos removíveis pelo app, instalador e arquivo externo, sem excluir chaves/configurações/banco. |
 
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **103 testes aprovados, 0 falhas**.
+- Resultado local: **128 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -40,6 +42,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `0.6.0`.
+Identificador do candidato validado: `0.7.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 103 testes antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 129 testes, incluindo a montagem completa da interface, antes da publicação.

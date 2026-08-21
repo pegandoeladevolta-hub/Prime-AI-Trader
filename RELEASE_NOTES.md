@@ -1,5 +1,24 @@
 # Release notes
 
+## 0.7.0 — 21/08/2026
+
+### Interface premium, mesmo motor operacional
+
+- Visual redesenhado conforme a referência fornecida: fundo escuro, cabeçalho moderno, status de conexão e distribuição em três colunas.
+- Painel lateral com mercado, ativo, gráfico, expiração, sensibilidade, modo, iniciar, pausar, backtest, treinar IA e radar.
+- Gráfico maior, timeframes selecionáveis diretamente e cards horizontais para todos os 15 indicadores originais.
+- Sinal da IA em destaque com direção, confiança, cenários, calibração, entrada, pagamento, cronômetro e motivos da análise.
+- Novos cards de explicação contextual, últimos sinais reais do banco de dados e alertas de voz.
+- Ajustes avançados preservam payout, bloqueio por notícias/eventos, atualização de ativos, APIs, logs, desempenho, saúde e limpeza.
+- Nenhuma mudança nas estratégias, nos modelos, nas APIs, no Forex, nas notícias ou na lógica dos sinais.
+- 129 testes, incluindo smoke test da interface completa no Windows.
+
+## 0.6.1 — 21/08/2026
+
+- Cotação pública de Forex consultada a cada dez segundos, sem usar créditos das APIs opcionais.
+- Atualização parcial da vela, precisão apropriada para pares cambiais e remoção de volume inexistente.
+- 116 testes automatizados aprovados.
+
 ## 0.6.0 — 21/08/2026
 
 ### Perfis calibrados por categoria

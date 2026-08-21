@@ -1,5 +1,5 @@
 #define MyAppName "PRIME AI TRADER"
-#define MyAppVersion "0.6.1"
+#define MyAppVersion "0.7.0"
 #define MyAppPublisher "PRIME"
 #define MyAppExeName "PrimeAITrader.exe"
 
