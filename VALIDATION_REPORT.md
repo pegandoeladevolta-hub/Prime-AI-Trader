@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.7.0
+# Relatório de validação — PRIME AI TRADER 0.7.1
 
 Data: 21/08/2026
 
@@ -6,8 +6,8 @@ Data: 21/08/2026
 
 | Área | Verificação |
 |---|---|
-| Interface | Layout premium inspirado na referência, três colunas, indicadores compactos, painel de sinal e cartões inferiores; todos os botões possuem comando/handler válido. |
-| Smoke test Windows | A interface completa é instanciada em Windows, os indicadores são conferidos e controles avançados/timeframes são acionados. |
+| Interface | Reprodução da composição de referência com três colunas, painel de voz independente, cinco seletores, quatro botões e cartões inferiores abrangendo gráfico e sinal; todos os botões possuem comando/handler válido. |
+| Smoke test Windows | A interface completa é instanciada em Windows; geometria do painel de voz e dos cartões inferiores, controles avançados, indicadores e timeframes são conferidos. |
 | IA | Contexto completo, persistência por ativo e seleção por desempenho seletivo fora da amostra. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
 | Sinais | Tendência, pullback, rompimento/reteste, liquidez/rejeição, engolfo, timeframe superior e motivo explícito para aguardar. |
@@ -26,7 +26,7 @@ Data: 21/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **128 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **134 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -42,6 +42,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `0.7.0`.
+Identificador do candidato validado: `0.7.1`.
 
-O candidato Windows deve repetir obrigatoriamente os 129 testes, incluindo a montagem completa da interface, antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 135 testes, incluindo a montagem completa e a geometria da interface, antes da publicação.

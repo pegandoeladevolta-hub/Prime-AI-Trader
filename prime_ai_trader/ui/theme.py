@@ -4,10 +4,11 @@ from tkinter import ttk
 
 
 COLORS = {
-    "bg": "#03070C", "panel": "#070D14", "card": "#0B121B", "card_alt": "#060B12",
-    "border": "#1D2937", "border_soft": "#141D28", "text": "#EEF1F5", "muted": "#8B96A5",
-    "accent": "#2887F4", "accent2": "#55A8FF", "green": "#45C747", "green_dark": "#10391A",
-    "red": "#F14357", "amber": "#E7AA44", "grid": "#14202B", "purple": "#A36EFF",
+    "bg": "#00050B", "panel": "#070F17", "card": "#0B131C", "card_alt": "#050B12",
+    "input": "#171E27", "border": "#24303C", "border_soft": "#17222D", "text": "#ECEDF0",
+    "muted": "#969CA5", "accent": "#388FFF", "accent2": "#55A4FF", "green": "#40BF42",
+    "green_dark": "#123719", "red": "#E94055", "amber": "#E6AE42", "grid": "#14202A",
+    "purple": "#A36DFF",
 }
 
 
@@ -61,8 +62,10 @@ def configure_style(root) -> ttk.Style:
     style.map("Train.TButton", background=[("active", "#21142F")])
     style.configure("Score.Horizontal.TProgressbar", troughcolor=COLORS["card_alt"], background=COLORS["green"], bordercolor=COLORS["card_alt"], lightcolor=COLORS["green"], darkcolor=COLORS["green"])
     style.configure("Horizontal.TProgressbar", troughcolor=COLORS["card_alt"], background=COLORS["accent"], bordercolor=COLORS["panel"])
-    style.configure("TCombobox", fieldbackground=COLORS["card"], background=COLORS["card"], foreground=COLORS["text"], arrowcolor=COLORS["muted"], bordercolor=COLORS["border"], lightcolor=COLORS["border"], darkcolor=COLORS["border"], padding=(8, 6), font=("Segoe UI", 10))
-    style.map("TCombobox", fieldbackground=[("readonly", COLORS["card"])], foreground=[("readonly", COLORS["text"])], selectbackground=[("readonly", COLORS["card"])], selectforeground=[("readonly", COLORS["text"])])
+    style.configure("TCombobox", fieldbackground=COLORS["input"], background=COLORS["input"], foreground=COLORS["text"], arrowcolor=COLORS["muted"], bordercolor=COLORS["border"], lightcolor=COLORS["border"], darkcolor=COLORS["border"], padding=(8, 6), font=("Segoe UI", 10))
+    style.map("TCombobox", fieldbackground=[("readonly", COLORS["input"])], foreground=[("readonly", COLORS["text"])], selectbackground=[("readonly", COLORS["input"])], selectforeground=[("readonly", COLORS["text"])])
+    style.configure("Flat.TCombobox", fieldbackground=COLORS["input"], background=COLORS["input"], foreground=COLORS["text"], arrowcolor=COLORS["muted"], borderwidth=0, bordercolor=COLORS["input"], lightcolor=COLORS["input"], darkcolor=COLORS["input"], padding=(4, 5))
+    style.map("Flat.TCombobox", fieldbackground=[("readonly", COLORS["input"])], foreground=[("readonly", COLORS["text"])], selectbackground=[("readonly", COLORS["input"])], selectforeground=[("readonly", COLORS["text"])])
     style.configure("TCheckbutton", background=COLORS["panel"], foreground=COLORS["text"], font=("Segoe UI", 9))
     style.map("TCheckbutton", background=[("active", COLORS["panel"])])
     style.configure("Horizontal.TScrollbar", background=COLORS["card"], troughcolor=COLORS["panel"], bordercolor=COLORS["panel"], arrowcolor=COLORS["muted"])

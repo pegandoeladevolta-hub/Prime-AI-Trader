@@ -34,6 +34,15 @@ INDICATOR_LAYOUT = [
 LIVE_ANALYSIS_INTERVAL_SECONDS = 30
 FOREX_POLL_INTERVAL_MS = 125_000
 FOREX_QUOTE_RETRY_MS = 30_000
+TIMEFRAME_LABELS = {
+    "1m": "1 minuto", "3m": "3 minutos", "5m": "5 minutos", "15m": "15 minutos",
+    "30m": "30 minutos", "1h": "1 hora", "4h": "4 horas",
+}
+MODE_LABELS = {
+    "CONFIRMAÇÃO": "Entrada manual VEX",
+    "PRICE ACTION": "Price Action",
+    "QUANTITATIVO": "Quantitativo",
+}
 
 
 def voice_message_for_signal(signal, symbol: str, sensitivity: str, *,
@@ -72,8 +81,8 @@ class PrimeAITraderApp(tk.Tk):
         self.controller = controller
         self.voice = VoiceService()
         self.title("PRIME AI TRADER")
-        self.geometry("1660x960")
-        self.minsize(1220, 760)
+        self.geometry("1672x941")
+        self.minsize(1240, 740)
         self.configure(bg=COLORS["bg"])
         configure_style(self)
         self._apply_window_icon()
@@ -109,13 +118,17 @@ class PrimeAITraderApp(tk.Tk):
     def _build_variables(self) -> None:
         settings = self.controller.settings
         self.market_var = tk.StringVar(value=settings.market)
+        self.market_display_var = tk.StringVar(value="Cripto" if settings.market == Market.CRYPTO.value else "Forex")
         self.symbol_var = tk.StringVar(value=self.controller.symbol())
         self.timeframe_var = tk.StringVar(value=settings.timeframe)
+        self.timeframe_display_var = tk.StringVar(value=TIMEFRAME_LABELS.get(settings.timeframe, settings.timeframe))
         self.horizon_var = tk.StringVar(value=str(settings.horizon_minutes))
+        self.horizon_display_var = tk.StringVar(value=f"{settings.horizon_minutes} minuto" + ("s" if settings.horizon_minutes != 1 else ""))
         self.payout_var = tk.StringVar(value=str(settings.payout_percent))
         self.sensitivity_var = tk.StringVar(value=settings.sensitivity)
         self.profile_hint_var = tk.StringVar(value=sensitivity_profile(settings.sensitivity).description)
         self.mode_var = tk.StringVar(value=settings.mode)
+        self.mode_display_var = tk.StringVar(value=MODE_LABELS.get(settings.mode, settings.mode))
         self.audio_var = tk.BooleanVar(value=settings.audio_enabled)
         self.audio_volume_var = tk.IntVar(value=settings.audio_volume)
         self.pre_voice_var = tk.BooleanVar(value=settings.voice_pre_signal)
@@ -134,139 +147,244 @@ class PrimeAITraderApp(tk.Tk):
         self.grid_columnconfigure(0, weight=1)
         self._build_header()
         content = ttk.Frame(self)
-        content.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 8))
+        content.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 7))
         content.grid_rowconfigure(0, weight=1)
+        content.grid_rowconfigure(1, minsize=171)
         content.grid_columnconfigure(1, weight=1)
         self._build_left(content)
         self._build_center(content)
         self._build_right(content)
+        self._build_voice_panel(content)
+        self._build_insights(content)
         footer = tk.Frame(self, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
-        footer.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 9))
+        footer.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 10))
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 0.7.0", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="Versão 0.7.1", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
     def _build_header(self) -> None:
-        header = ttk.Frame(self, style="Header.TFrame", padding=(16, 8))
+        header = ttk.Frame(self, style="Header.TFrame", padding=(18, 4))
         header.grid(row=0, column=0, sticky="ew")
         brand = ttk.Frame(header, style="Header.TFrame")
         brand.pack(side="left")
-        ttk.Label(brand, text="◈", style="Title.TLabel", foreground=COLORS["accent2"], font=("Segoe UI", 27, "bold")).pack(side="left", padx=(0, 7))
+        logo = tk.Canvas(brand, width=47, height=45, bg=COLORS["bg"], highlightthickness=0)
+        logo.pack(side="left", padx=(0, 7))
+        self._draw_brand_icon(logo)
         ttk.Label(brand, text="PRIME", style="Title.TLabel").pack(side="left")
         ttk.Label(brand, text="AI", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
-        ttk.Label(brand, text="TRADER", style="Title.TLabel").pack(side="left")
+        ttk.Label(brand, text=" TRADER", style="Title.TLabel").pack(side="left")
         self.health_labels = {}
-        for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
+        for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "BINANCE"):
             label = ttk.Label(header, text=f"{name} ●", style="Status.TLabel", foreground=COLORS["muted"], font=("Segoe UI", 9))
-            label.pack(side="right", padx=8)
+            label.pack(side="right", padx=15)
             self.health_labels[name] = label
+        for name in ("WEBSOCKET", "FOREX"):
+            self.health_labels[name] = ttk.Label(header, text=f"{name} ●", style="Status.TLabel", foreground=COLORS["muted"])
+
+    def _draw_brand_icon(self, canvas: tk.Canvas) -> None:
+        color = COLORS["accent2"]
+        canvas.create_line(21, 6, 15, 5, 11, 9, 11, 13, 7, 15, 7, 21, 4, 23, 7, 27, 7, 34,
+                           12, 37, 16, 36, 19, 40, 23, 38, 23, 9, 21, 6, fill=color, width=1.6, smooth=True)
+        canvas.create_line(27, 6, 33, 5, 37, 9, 37, 14, 41, 16, 41, 22, 44, 25, 41, 29,
+                           40, 35, 36, 38, 32, 37, 28, 40, 25, 38, 25, 9, 27, 6, fill=color, width=1.6, smooth=True)
+        for points in ((12, 13, 18, 13, 18, 18, 22, 18), (8, 24, 16, 24, 16, 20),
+                       (12, 32, 18, 32, 18, 27, 22, 27), (26, 18, 31, 18, 31, 12, 36, 12),
+                       (27, 25, 33, 25, 33, 21, 39, 21), (26, 31, 32, 31, 32, 35, 36, 35)):
+            canvas.create_line(*points, fill=color, width=1.2)
+        for x, y in ((12, 13), (8, 24), (12, 32), (36, 12), (39, 21), (36, 35)):
+            canvas.create_oval(x - 1.7, y - 1.7, x + 1.7, y + 1.7, fill=color, outline="")
 
     def _build_left(self, parent) -> None:
-        outer = tk.Frame(parent, bg=COLORS["panel"], width=286, highlightbackground=COLORS["border"], highlightthickness=1)
-        outer.grid(row=0, column=0, sticky="nsw", padx=(0, 10))
+        outer = tk.Frame(parent, bg=COLORS["panel"], width=298, highlightbackground=COLORS["border"], highlightthickness=1)
+        outer.grid(row=0, column=0, sticky="nsew", padx=(0, 13), pady=(0, 8))
         outer.grid_propagate(False)
-        canvas = tk.Canvas(outer, bg=COLORS["panel"], highlightthickness=0, width=269, bd=0)
-        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-        panel = ttk.Frame(canvas, style="Panel.TFrame", padding=(12, 9))
+        self.left_card = outer
+        canvas = tk.Canvas(outer, bg=COLORS["panel"], highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True)
+        self.left_canvas = canvas
+        panel = ttk.Frame(canvas, style="Panel.TFrame", padding=(14, 9))
         window_id = canvas.create_window((0, 0), window=panel, anchor="nw")
         panel.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
         canvas.bind("<Enter>", lambda _: canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units")))
         canvas.bind("<Leave>", lambda _: canvas.unbind_all("<MouseWheel>"))
-        self.market_combo = self._combo(panel, "Mercado", self.market_var, [Market.CRYPTO.value, Market.FOREX.value], self._market_changed)
-        self.symbol_combo = self._combo(panel, "Ativo", self.symbol_var, CRYPTO_DEFAULTS, self._selection_changed)
-        self._combo(panel, "Gráfico", self.timeframe_var, TIMEFRAMES, self._selection_changed)
-        self._combo(panel, "Expiração", self.horizon_var, ["1", "2", "3", "5", "10", "15", "30", "60", "240"], self._save_form)
-        self._combo(panel, "Sensibilidade", self.sensitivity_var, ["CONSERVADOR", "EQUILIBRADO", "RÁPIDO"], self._save_form)
-        self._combo(panel, "Modo", self.mode_var, ["CONFIRMAÇÃO", "PRICE ACTION", "QUANTITATIVO"], self._save_form)
-        ttk.Button(panel, text="▶   INICIAR ANÁLISE", style="Accent.TButton", command=self.start_analysis).pack(fill="x", pady=(11, 4))
-        ttk.Button(panel, text="Ⅱ   PAUSAR", style="Danger.TButton", command=self.pause_analysis).pack(fill="x", pady=3)
-        ttk.Button(panel, text="▧   BACKTEST", style="Backtest.TButton", command=self.run_backtest).pack(fill="x", pady=3)
-        ttk.Button(panel, text="◈   TREINAR IA", style="Train.TButton", command=self.train_ai).pack(fill="x", pady=3)
-        quick = ttk.Frame(panel, style="Panel.TFrame")
-        quick.pack(fill="x", pady=(4, 4))
-        ttk.Button(quick, text="↻ GRÁFICO", style="Secondary.TButton", command=self.refresh_analysis).pack(side="left", fill="x", expand=True, padx=(0, 3))
-        ttk.Button(quick, text="◎ RADAR", style="Secondary.TButton", command=self.run_radar).pack(side="left", fill="x", expand=True, padx=(3, 0))
-        self._advanced_button = ttk.Button(panel, text="AJUSTES AVANÇADOS  ▾", style="Tool.TButton", command=self._toggle_advanced)
-        self._advanced_button.pack(fill="x", pady=(4, 4))
+        self.market_combo = self._combo(panel, "Mercado", self.market_display_var, ["Cripto", "Forex"], self._market_display_changed, icon="♧", gap=8)
+        self.symbol_combo = self._combo(panel, "Ativo", self.symbol_var, CRYPTO_DEFAULTS, self._selection_changed, icon="₿", icon_color="#F29818", gap=8)
+        self._combo(panel, "Gráfico", self.timeframe_display_var, list(TIMEFRAME_LABELS.values()), self._timeframe_display_changed, icon="∿", gap=8)
+        horizons = [f"{value} minuto" + ("s" if value != 1 else "") for value in (1, 2, 3, 5, 10, 15, 30, 60, 240)]
+        self._combo(panel, "Expiração", self.horizon_display_var, horizons, self._horizon_display_changed, icon="◷", gap=8)
+        self._combo(panel, "Modo", self.mode_display_var, list(MODE_LABELS.values()), self._mode_display_changed, icon="♟", gap=5)
+        ttk.Button(panel, text="▶   INICIAR ANÁLISE", style="Accent.TButton", command=self.start_analysis).pack(fill="x", pady=(10, 5))
+        ttk.Button(panel, text="Ⅱ   PAUSAR", style="Danger.TButton", command=self.pause_analysis).pack(fill="x", pady=(2, 5))
+        ttk.Button(panel, text="▧   BACKTEST", style="Backtest.TButton", command=self.run_backtest).pack(fill="x", pady=(2, 5))
+        self.train_button = ttk.Button(panel, text="◈   TREINAR IA", style="Train.TButton", command=self.train_ai)
+        self.train_button.pack(fill="x", pady=(2, 3))
+
         self.advanced_panel = ttk.Frame(panel, style="Panel.TFrame")
-        self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
-        self._combo(self.advanced_panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
-        ttk.Button(self.advanced_panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(3, 6))
+        self._combo(self.advanced_panel, "Sensibilidade", self.sensitivity_var, ["CONSERVADOR", "EQUILIBRADO", "RÁPIDO"], self._save_form, icon="◈")
+        self._combo(self.advanced_panel, "Modo técnico", self.mode_var, ["CONFIRMAÇÃO", "PRICE ACTION", "QUANTITATIVO"], self._core_mode_changed, icon="≋")
+        self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form, icon="%")
+        self._combo(self.advanced_panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form, icon="◷")
         ttk.Checkbutton(self.advanced_panel, text="Bloquear automaticamente por notícia/evento", variable=self.strict_risk_blocks_var, command=self._save_form).pack(anchor="w", pady=(2, 4))
         ttk.Label(self.advanced_panel, textvariable=self.profile_hint_var, style="Muted.TLabel", wraplength=238).pack(anchor="w", pady=(2, 7))
-        ttk.Separator(panel).pack(fill="x", pady=(6, 8))
-        audio_heading = ttk.Frame(panel, style="Panel.TFrame")
-        audio_heading.pack(fill="x")
-        ttk.Label(audio_heading, text="Alertas de voz", style="Section.TLabel").pack(side="left")
-        ttk.Checkbutton(audio_heading, text="●", variable=self.audio_var, command=self._save_form).pack(side="right")
-        ttk.Label(panel, text="◉  Português Brasil", style="Panel.TLabel", foreground=COLORS["green"], font=("Segoe UI", 10)).pack(anchor="w", pady=(7, 6))
-        ttk.Checkbutton(panel, text="Pré-sinal", variable=self.pre_voice_var, command=self._save_form).pack(anchor="w")
-        ttk.Checkbutton(panel, text="Sinal confirmado", variable=self.confirmed_voice_var, command=self._save_form).pack(anchor="w")
-        ttk.Checkbutton(panel, text="Áudio de risco bloqueante", variable=self.alert_voice_var, command=self._save_form).pack(anchor="w")
-        ttk.Label(panel, text="Volume da voz", style="Muted.TLabel").pack(anchor="w", pady=(6, 1))
-        ttk.Scale(panel, from_=0, to=100, variable=self.audio_volume_var, command=lambda _: self._save_form()).pack(fill="x")
-        tools = ttk.Frame(panel, style="Panel.TFrame")
-        tools.pack(fill="x", pady=(10, 3))
-        ttk.Button(tools, text="APIs", style="Tool.TButton", command=self.open_api_settings).pack(side="left", fill="x", expand=True)
-        ttk.Button(tools, text="LOGS", style="Tool.TButton", command=self.open_logs).pack(side="left", fill="x", expand=True)
-        ttk.Button(tools, text="RESULTADOS", style="Tool.TButton", command=self.open_performance).pack(side="left", fill="x", expand=True)
-        ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self.open_health).pack(fill="x", pady=(2, 3))
-        ttk.Button(panel, text="LIMPAR CACHE / MODELOS ANTIGOS", style="Tool.TButton", command=self.clean_cache).pack(fill="x", pady=(2, 0))
+        ttk.Checkbutton(self.advanced_panel, text="Voz brasileira", variable=self.audio_var, command=self._save_form).pack(anchor="w")
+        ttk.Checkbutton(self.advanced_panel, text="Pré-sinal", variable=self.pre_voice_var, command=self._save_form).pack(anchor="w")
+        ttk.Checkbutton(self.advanced_panel, text="Sinal confirmado", variable=self.confirmed_voice_var, command=self._save_form).pack(anchor="w")
+        ttk.Checkbutton(self.advanced_panel, text="Áudio de risco bloqueante", variable=self.alert_voice_var, command=self._save_form).pack(anchor="w")
+        ttk.Label(self.advanced_panel, text="Volume da voz", style="Muted.TLabel").pack(anchor="w", pady=(5, 1))
+        ttk.Scale(self.advanced_panel, from_=0, to=100, variable=self.audio_volume_var, command=lambda _: self._save_form()).pack(fill="x")
+        ttk.Button(self.advanced_panel, text="ATUALIZAR GRÁFICO", style="Tool.TButton", command=self.refresh_analysis).pack(fill="x", pady=(10, 3))
+        ttk.Button(self.advanced_panel, text="RADAR DE MERCADO", style="Tool.TButton", command=self.run_radar).pack(fill="x", pady=(2, 3))
+        ttk.Button(self.advanced_panel, text="CONFIGURAR APIs", style="Tool.TButton", command=self.open_api_settings).pack(fill="x", pady=(2, 3))
+
+        self.tools_menu = tk.Menu(self, tearoff=False, bg=COLORS["card"], fg=COLORS["text"],
+                                  activebackground=COLORS["border"], activeforeground=COLORS["text"],
+                                  relief="flat", bd=0, font=("Segoe UI", 10))
+        self.tools_menu.add_command(label="AJUSTES AVANÇADOS E SENSIBILIDADE", command=self._toggle_advanced)
+        self.tools_menu.add_separator()
+        self.tools_menu.add_command(label="Atualizar gráfico agora", command=self.refresh_analysis)
+        self.tools_menu.add_command(label="Carregar ativos disponíveis", command=self.refresh_symbols)
+        self.tools_menu.add_command(label="Abrir radar de mercado", command=self.run_radar)
+        self.tools_menu.add_separator()
+        self.tools_menu.add_command(label="Chaves e configurações de APIs", command=self.open_api_settings)
+        self.tools_menu.add_command(label="Desempenho observado", command=self.open_performance)
+        self.tools_menu.add_command(label="Monitor de saúde", command=self.open_health)
+        self.tools_menu.add_command(label="Abrir logs", command=self.open_logs)
+        self.tools_menu.add_command(label="Limpar cache e modelos antigos", command=self.clean_cache)
+
+    def _build_voice_panel(self, parent) -> None:
+        card = tk.Frame(parent, bg=COLORS["panel"], width=298, highlightbackground=COLORS["border"], highlightthickness=1)
+        card.grid(row=1, column=0, sticky="nsew", padx=(0, 13))
+        card.grid_propagate(False)
+        self.voice_card = card
+        inner = ttk.Frame(card, style="Panel.TFrame", padding=(14, 10))
+        inner.pack(fill="both", expand=True)
+        heading = ttk.Frame(inner, style="Panel.TFrame")
+        heading.pack(fill="x")
+        ttk.Label(heading, text="Alertas de voz", style="Section.TLabel", font=("Segoe UI Semibold", 12)).pack(side="left")
+        self.voice_switch = tk.Canvas(heading, width=44, height=24, bg=COLORS["panel"], highlightthickness=0)
+        self.voice_switch.pack(side="right")
+        self.voice_switch.bind("<Button-1>", lambda _event: self._toggle_voice())
+        self._draw_voice_switch()
+        language_shell = tk.Frame(inner, bg=COLORS["input"], highlightbackground=COLORS["border"], highlightthickness=1)
+        language_shell.pack(fill="x", pady=(11, 0))
+        tk.Label(language_shell, text="◉", bg=COLORS["input"], fg=COLORS["green"], font=("Segoe UI", 13)).pack(side="left", padx=(9, 4))
+        tk.Label(language_shell, text="Português Brasil", bg=COLORS["input"], fg=COLORS["text"], font=("Segoe UI", 10)).pack(side="left", pady=8)
+        tk.Label(language_shell, text="⌄", bg=COLORS["input"], fg=COLORS["muted"], font=("Segoe UI", 12)).pack(side="right", padx=9)
+
+    def _toggle_voice(self) -> None:
+        self.audio_var.set(not self.audio_var.get())
+        self._draw_voice_switch()
+        self._save_form()
+
+    def _draw_voice_switch(self) -> None:
+        if not hasattr(self, "voice_switch"):
+            return
+        canvas = self.voice_switch
+        canvas.delete("switch")
+        enabled = self.audio_var.get()
+        fill = COLORS["green"] if enabled else COLORS["border"]
+        canvas.create_oval(2, 3, 20, 21, fill=fill, outline=fill, tags="switch")
+        canvas.create_oval(23, 3, 41, 21, fill=fill, outline=fill, tags="switch")
+        canvas.create_rectangle(11, 3, 32, 21, fill=fill, outline=fill, tags="switch")
+        x = 31 if enabled else 11
+        canvas.create_oval(x - 7, 5, x + 7, 19, fill="#DCE8DC", outline="", tags="switch")
+
+    def _open_tools_menu(self) -> None:
+        try:
+            self.tools_menu.tk_popup(self._advanced_button.winfo_rootx(), self._advanced_button.winfo_rooty() + self._advanced_button.winfo_height())
+        finally:
+            self.tools_menu.grab_release()
 
     def _toggle_advanced(self) -> None:
         self._advanced_visible = not self._advanced_visible
         if self._advanced_visible:
-            self.advanced_panel.pack(fill="x", after=self._advanced_button, pady=(2, 6))
-            self._advanced_button.configure(text="AJUSTES AVANÇADOS  ▴")
+            self.advanced_panel.pack(fill="x", after=self.train_button, pady=(10, 6))
+            self.left_canvas.after(30, lambda: self.left_canvas.yview_moveto(0.48))
         else:
             self.advanced_panel.pack_forget()
-            self._advanced_button.configure(text="AJUSTES AVANÇADOS  ▾")
+            self.left_canvas.yview_moveto(0)
 
-    def _combo(self, parent, label: str, variable, values, callback) -> ttk.Combobox:
-        ttk.Label(parent, text=label, style="Field.TLabel").pack(anchor="w", pady=(4, 3))
-        combo = ttk.Combobox(parent, textvariable=variable, values=values, state="readonly", font=("Segoe UI", 10))
-        combo.pack(fill="x", pady=(0, 5))
+    def _combo(self, parent, label: str, variable, values, callback, *, icon: str = "", icon_color: str | None = None, gap: int = 3) -> ttk.Combobox:
+        ttk.Label(parent, text=label, style="Field.TLabel").pack(anchor="w", pady=(4, 4))
+        shell = tk.Frame(parent, bg=COLORS["input"], highlightbackground=COLORS["border"], highlightthickness=1)
+        shell.pack(fill="x", pady=(0, gap))
+        if icon:
+            tk.Label(shell, text=icon, bg=COLORS["input"], fg=icon_color or COLORS["accent2"], font=("Segoe UI", 12)).pack(side="left", padx=(8, 3))
+        combo = ttk.Combobox(shell, textvariable=variable, values=values, state="readonly", style="Flat.TCombobox", font=("Segoe UI", 10))
+        combo.pack(side="left", fill="x", expand=True, padx=(0, 2), pady=1)
         combo.bind("<<ComboboxSelected>>", lambda _: callback())
         return combo
 
+    def _market_display_changed(self) -> None:
+        self.market_var.set(Market.CRYPTO.value if self.market_display_var.get() == "Cripto" else Market.FOREX.value)
+        self._market_changed()
+
+    def _timeframe_display_changed(self) -> None:
+        selected = self.timeframe_display_var.get()
+        value = next((timeframe for timeframe, label in TIMEFRAME_LABELS.items() if label == selected), self.timeframe_var.get())
+        self.timeframe_var.set(value)
+        self._selection_changed()
+
+    def _horizon_display_changed(self) -> None:
+        self.horizon_var.set(self.horizon_display_var.get().split(" ", 1)[0])
+        self._save_form()
+
+    def _mode_display_changed(self) -> None:
+        selected = self.mode_display_var.get()
+        self.mode_var.set(next((mode for mode, label in MODE_LABELS.items() if label == selected), self.mode_var.get()))
+        self._save_form()
+
+    def _core_mode_changed(self) -> None:
+        self.mode_display_var.set(MODE_LABELS.get(self.mode_var.get(), self.mode_var.get()))
+        self._save_form()
+
     def _build_center(self, parent) -> None:
-        center = tk.Frame(parent, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
-        center.grid(row=0, column=1, sticky="nsew", padx=(0, 10))
-        center.grid_rowconfigure(2, weight=1)
+        center = tk.Frame(parent, bg=COLORS["bg"], highlightthickness=0)
+        center.grid(row=0, column=1, sticky="nsew", padx=(0, 13), pady=(0, 8))
+        center.grid_rowconfigure(0, weight=1)
         center.grid_columnconfigure(0, weight=1)
-        toolbar = ttk.Frame(center, style="Toolbar.TFrame", padding=(7, 5))
-        toolbar.grid(row=0, column=0, sticky="ew", padx=5, pady=(4, 0))
+        shell = tk.Frame(center, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
+        shell.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        shell.grid_rowconfigure(2, weight=1)
+        shell.grid_columnconfigure(0, weight=1)
+        self.chart_shell = shell
+        toolbar = ttk.Frame(shell, style="Toolbar.TFrame", padding=(8, 5))
+        toolbar.grid(row=0, column=0, sticky="ew", padx=3, pady=(3, 0))
         self.timeframe_buttons = {}
-        for timeframe in ("1m", "3m", "5m", "15m", "30m", "1h", "4h"):
+        for timeframe in ("1m", "5m", "15m", "1h", "4h"):
             button = ttk.Button(toolbar, text=timeframe, style="Timeframe.TButton", width=3,
                                 command=lambda value=timeframe: self._set_timeframe(value))
-            button.pack(side="left", padx=(0, 1))
+            button.pack(side="left", padx=(0, 5))
             self.timeframe_buttons[timeframe] = button
         self._refresh_timeframe_buttons()
-        ttk.Button(toolbar, text="IND", style="Tool.TButton", width=4, command=self._toggle_indicators).pack(side="right", padx=1)
-        for text, name in (("S/R", "sr"), ("FIB", "fibonacci"), ("EMA", "ema"), ("BB", "bollinger"), ("TOPOS", "swings"), ("TEND", "trend"), ("SINAIS", "signals")):
-            ttk.Button(toolbar, text=text, style="Tool.TButton", width=4 if len(text) <= 4 else 5,
-                       command=lambda n=name: self._toggle_overlay(n)).pack(side="right", padx=1)
-        ttk.Button(toolbar, text="FIT", style="Tool.TButton", width=3, command=lambda: self.chart.fit()).pack(side="right", padx=1)
-        summary = ttk.Frame(center, style="Panel.TFrame", padding=(12, 5))
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8, pady=4)
+        overlay_buttons = (
+            ("▥", "signals"), ("ƒ", "fibonacci"), ("⌁", "trend"), ("╱", "sr"),
+            ("≋", "ema"), ("◫", "bollinger"), ("⌃", "swings"),
+        )
+        for text, name in overlay_buttons:
+            ttk.Button(toolbar, text=text, style="Tool.TButton", width=3, command=lambda n=name: self._toggle_overlay(n)).pack(side="left", padx=2)
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6, pady=4)
+        self._advanced_button = ttk.Button(toolbar, text="⚙", style="Tool.TButton", width=3, command=self._open_tools_menu)
+        self._advanced_button.pack(side="left", padx=2)
+        ttk.Button(toolbar, text="⛶", style="Tool.TButton", width=3, command=lambda: self.chart.fit()).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="IND", style="Tool.TButton", width=4, command=self._toggle_indicators).pack(side="right", padx=2)
+        summary = ttk.Frame(shell, style="Panel.TFrame", padding=(12, 5))
         summary.grid(row=1, column=0, sticky="ew")
         ttk.Label(summary, textvariable=self.context_var, style="Section.TLabel", font=("Segoe UI Semibold", 9)).pack(side="left")
         ttk.Label(summary, textvariable=self.ohlc_var, style="Muted.TLabel", font=("Segoe UI", 8)).pack(side="left", padx=(10, 0))
         ttk.Label(summary, textvariable=self.updated_var, style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 8)).pack(side="right")
-        self.chart = CandleChart(center, on_ohlc=self.ohlc_var.set)
+        self.chart = CandleChart(shell, on_ohlc=self.ohlc_var.set)
         self.chart.grid(row=2, column=0, sticky="nsew", padx=6, pady=(0, 3))
         self._build_indicator_strip(center)
-        self._build_insights(center)
 
     def _set_timeframe(self, timeframe: str) -> None:
         self.timeframe_var.set(timeframe)
+        self.timeframe_display_var.set(TIMEFRAME_LABELS.get(timeframe, timeframe))
         self._refresh_timeframe_buttons()
         self._selection_changed()
 
@@ -276,21 +394,22 @@ class PrimeAITraderApp(tk.Tk):
             button.configure(style="ActiveTimeframe.TButton" if timeframe == current else "Timeframe.TButton")
 
     def _build_indicator_strip(self, parent) -> None:
-        self.indicator_holder = ttk.Frame(parent, style="Panel.TFrame", height=89)
-        self.indicator_holder.grid(row=3, column=0, sticky="ew", padx=4, pady=(2, 4))
+        self.indicator_holder = tk.Frame(parent, bg=COLORS["panel"], height=76, highlightbackground=COLORS["border"], highlightthickness=1)
+        self.indicator_holder.grid(row=1, column=0, sticky="ew")
         self.indicator_holder.grid_propagate(False)
         canvas = tk.Canvas(self.indicator_holder, bg=COLORS["panel"], highlightthickness=0, height=70)
-        scrollbar = ttk.Scrollbar(self.indicator_holder, orient="horizontal", command=canvas.xview)
-        canvas.configure(xscrollcommand=scrollbar.set)
         canvas.pack(fill="both", expand=True)
-        scrollbar.pack(fill="x")
+        canvas.bind("<Shift-MouseWheel>", lambda event: canvas.xview_scroll(int(-event.delta / 120), "units"))
         inner = ttk.Frame(canvas, style="Panel.TFrame")
         canvas.create_window((0, 0), window=inner, anchor="nw")
         inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         self.indicator_values = {}
         icons = {"ema": "◈", "rsi": "↗", "macd": "≋", "bb": "≋", "stoch": "∿", "adx": "△", "atr": "↕", "vwap": "≡", "obv": "▥", "cci": "◉", "williams": "%", "fib": "ƒ", "volume": "▥", "price_action": "⌇", "news": "◎"}
-        for index, (title, key) in enumerate(INDICATOR_LAYOUT):
-            card = ttk.Frame(inner, style="Card.TFrame", padding=(8, 5), width=152, height=63)
+        priority = {"ema": 0, "rsi": 1, "macd": 2, "volume": 3, "price_action": 4, "news": 5}
+        positions = {key: index for index, (_title, key) in enumerate(INDICATOR_LAYOUT)}
+        visible_order = sorted(INDICATOR_LAYOUT, key=lambda item: priority.get(item[1], 20 + positions[item[1]]))
+        for index, (title, key) in enumerate(visible_order):
+            card = ttk.Frame(inner, style="Card.TFrame", padding=(8, 5), width=145, height=63)
             card.grid(row=0, column=index, padx=3, pady=3, sticky="nsew")
             card.grid_propagate(False)
             heading = ttk.Frame(card, style="Card.TFrame")
@@ -303,27 +422,28 @@ class PrimeAITraderApp(tk.Tk):
             self.indicator_values[key] = value
 
     def _build_insights(self, parent) -> None:
-        holder = ttk.Frame(parent, style="Panel.TFrame", height=161)
-        holder.grid(row=4, column=0, sticky="ew", padx=6, pady=(3, 6))
+        holder = ttk.Frame(parent, style="TFrame", height=171)
+        holder.grid(row=1, column=1, columnspan=2, sticky="nsew")
         holder.grid_propagate(False)
         holder.grid_rowconfigure(0, weight=1)
         holder.grid_columnconfigure(0, weight=5)
-        holder.grid_columnconfigure(1, weight=3)
-        holder.grid_columnconfigure(2, weight=4)
+        holder.grid_columnconfigure(1, weight=4)
+        holder.grid_columnconfigure(2, weight=5)
+        self.insights_holder = holder
 
         explanation = ttk.Frame(holder, style="Card.TFrame", padding=(11, 9))
-        explanation.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        explanation.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         heading = ttk.Frame(explanation, style="Card.TFrame")
         heading.pack(fill="x")
         ttk.Label(heading, text="◈", style="Card.TLabel", foreground=COLORS["accent2"], font=("Segoe UI", 15)).pack(side="left", padx=(0, 5))
         ttk.Label(heading, text="Explicação da IA", style="InsightTitle.TLabel").pack(side="left")
         ttk.Separator(explanation).pack(fill="x", pady=(5, 7))
-        self.ai_explanation_label = ttk.Label(explanation, text="Inicie uma análise para visualizar as confluências, a estratégia e o contexto das notícias.", style="Card.TLabel", wraplength=325, justify="left", font=("Segoe UI", 9))
+        self.ai_explanation_label = ttk.Label(explanation, text="Inicie uma análise para visualizar as confluências, a estratégia e o contexto das notícias.", style="Card.TLabel", wraplength=420, justify="left", font=("Segoe UI", 10))
         self.ai_explanation_label.pack(anchor="w", fill="x")
         explanation.bind("<Configure>", lambda event: self.ai_explanation_label.configure(wraplength=max(120, event.width - 26)))
 
         recent = ttk.Frame(holder, style="Card.TFrame", padding=(10, 9))
-        recent.grid(row=0, column=1, sticky="nsew", padx=(0, 5))
+        recent.grid(row=0, column=1, sticky="nsew", padx=(0, 10))
         ttk.Label(recent, text="Últimos sinais", style="InsightTitle.TLabel").pack(anchor="w")
         ttk.Separator(recent).pack(fill="x", pady=(5, 4))
         self.recent_signal_labels = []
@@ -344,18 +464,19 @@ class PrimeAITraderApp(tk.Tk):
         audio.grid(row=0, column=2, sticky="nsew")
         audio.grid_rowconfigure(1, weight=1)
         audio.grid_columnconfigure(1, weight=1)
-        icon = tk.Canvas(audio, width=62, height=62, bg=COLORS["card"], highlightthickness=0)
-        icon.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 7))
-        icon.create_oval(3, 3, 59, 59, outline=COLORS["green"], width=2, fill=COLORS["green_dark"])
-        icon.create_polygon(16, 26, 24, 26, 34, 18, 34, 44, 24, 36, 16, 36, fill=COLORS["green"])
-        icon.create_arc(31, 18, 48, 45, start=290, extent=140, outline=COLORS["green"], style="arc", width=2)
+        icon = tk.Canvas(audio, width=112, height=112, bg=COLORS["card"], highlightthickness=0)
+        icon.grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 12))
+        icon.create_oval(3, 3, 109, 109, outline=COLORS["green"], width=2, fill=COLORS["green_dark"])
+        icon.create_polygon(26, 44, 43, 44, 62, 31, 62, 81, 43, 68, 26, 68, fill=COLORS["green"])
+        icon.create_arc(56, 31, 83, 81, start=292, extent=136, outline=COLORS["green"], style="arc", width=3)
+        icon.create_arc(61, 24, 94, 88, start=300, extent=120, outline=COLORS["green"], style="arc", width=2)
         text_holder = ttk.Frame(audio, style="Card.TFrame")
         text_holder.grid(row=0, column=1, sticky="w")
-        self.audio_title_label = ttk.Label(text_holder, text="Alertas de voz ativos", style="Card.TLabel", font=("Segoe UI Semibold", 10))
+        self.audio_title_label = ttk.Label(text_holder, text="Alertas de voz ativos", style="Card.TLabel", font=("Segoe UI Semibold", 11))
         self.audio_title_label.pack(anchor="w")
         self.audio_detail_label = ttk.Label(text_holder, text="Aguardando próximo sinal", style="CardMuted.TLabel", wraplength=200, justify="left")
         self.audio_detail_label.pack(anchor="w")
-        self.audio_wave = tk.Canvas(audio, height=30, bg=COLORS["card"], highlightthickness=0)
+        self.audio_wave = tk.Canvas(audio, height=42, bg=COLORS["card"], highlightthickness=0)
         self.audio_wave.grid(row=1, column=1, sticky="ew")
         self.audio_wave.bind("<Configure>", lambda _: self._draw_audio_wave())
 
@@ -372,18 +493,18 @@ class PrimeAITraderApp(tk.Tk):
                                fill=color or COLORS["green"], width=1, tags="wave")
 
     def _build_right(self, parent) -> None:
-        outer = tk.Frame(parent, bg=COLORS["panel"], width=338, highlightbackground=COLORS["border"], highlightthickness=1)
-        outer.grid(row=0, column=2, sticky="nse")
+        outer = tk.Frame(parent, bg=COLORS["panel"], width=340, highlightbackground=COLORS["border"], highlightthickness=1)
+        outer.grid(row=0, column=2, sticky="nsew", pady=(0, 8))
         outer.grid_propagate(False)
+        self.signal_card = outer
         canvas = tk.Canvas(outer, bg=COLORS["panel"], highlightthickness=0, width=320, bd=0)
-        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        canvas.pack(fill="both", expand=True)
         panel = ttk.Frame(canvas, style="Panel.TFrame", padding=(11, 11))
         window_id = canvas.create_window((0, 0), window=panel, anchor="nw")
         panel.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
+        canvas.bind("<Enter>", lambda _: canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units")))
+        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<MouseWheel>"))
 
         title = ttk.Frame(panel, style="Panel.TFrame")
         title.pack(fill="x", pady=(1, 9))
@@ -466,16 +587,20 @@ class PrimeAITraderApp(tk.Tk):
     def _save_form(self) -> None:
         settings = self.controller.settings
         settings.market = self.market_var.get()
+        self.market_display_var.set("Cripto" if settings.market == Market.CRYPTO.value else "Forex")
         if settings.market == Market.CRYPTO.value:
             settings.crypto_symbol = self.symbol_var.get()
         else:
             settings.forex_symbol = self.symbol_var.get()
         settings.timeframe = self.timeframe_var.get()
+        self.timeframe_display_var.set(TIMEFRAME_LABELS.get(settings.timeframe, settings.timeframe))
         settings.horizon_minutes = int(self.horizon_var.get())
+        self.horizon_display_var.set(f"{settings.horizon_minutes} minuto" + ("s" if settings.horizon_minutes != 1 else ""))
         settings.payout_percent = int(self.payout_var.get())
         settings.sensitivity = self.sensitivity_var.get()
         self.profile_hint_var.set(sensitivity_profile(settings.sensitivity).description)
         settings.mode = self.mode_var.get()
+        self.mode_display_var.set(MODE_LABELS.get(settings.mode, settings.mode))
         settings.audio_enabled = self.audio_var.get()
         settings.audio_volume = self.audio_volume_var.get()
         settings.voice_pre_signal = self.pre_voice_var.get()
@@ -484,6 +609,7 @@ class PrimeAITraderApp(tk.Tk):
         settings.high_impact_block_minutes = int(self.impact_block_var.get())
         settings.strict_risk_blocks = self.strict_risk_blocks_var.get()
         self.controller.save_settings()
+        self._draw_voice_switch()
 
     def _market_changed(self) -> None:
         values = CRYPTO_DEFAULTS if self.market_var.get() == Market.CRYPTO.value else FOREX_DEFAULTS
@@ -948,7 +1074,15 @@ class PrimeAITraderApp(tk.Tk):
         context_key = f"{snapshot.market}|{snapshot.symbol}|{snapshot.timeframe}"
         self.chart.set_data(snapshot.candles, snapshot.indicators, zones, snapshot.fibonacci,
                             snapshot.structure, snapshot.signal, context_key=context_key)
-        self.context_var.set(f"{snapshot.symbol}   •   {snapshot.market.upper()}   •   {snapshot.timeframe}")
+        source_name = "BINANCE" if snapshot.market == Market.CRYPTO.value else "FOREX"
+        self.context_var.set(f"{snapshot.symbol} · {snapshot.timeframe} · {source_name}")
+        if snapshot.candles:
+            candle = snapshot.candles[-1]
+            digits = market_price_decimals(context_key, candle.close)
+            self.ohlc_var.set(
+                f"Abr {candle.open:,.{digits}f}   Máx {candle.high:,.{digits}f}   "
+                f"Mín {candle.low:,.{digits}f}   Fch {candle.close:,.{digits}f}"
+            )
         self.updated_var.set(f"ATUALIZADO {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         self._render_indicators(snapshot)
         self._render_signal(snapshot)
