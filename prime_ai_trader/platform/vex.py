@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from ..core.models import CRYPTO_NAMES, FOREX_DEFAULTS, Market
+from ..core.models import CRYPTO_NAMES, FOREX_DEFAULTS, TIMEFRAME_MINUTES, Candle, Market
 
 
 VEX_TRADEROOM_URL = "https://vexinvest.com/traderoom"
@@ -232,6 +232,33 @@ def compare_platform_market(snapshot: VexPlatformSnapshot | None, market: str, s
         if distance > limit:
             reasons.append(f"Preço da VEX diverge {distance * 100:.2f}% da fonte pública")
     return reasons
+
+
+def merge_vex_quote(candle: Candle, snapshot: VexPlatformSnapshot,
+                    timeframe: str) -> Candle | None:
+    """Aplica somente o preço visível real da VEX; nunca inventa histórico ou volume."""
+    minutes = TIMEFRAME_MINUTES.get(timeframe)
+    if (minutes is None or not snapshot.authenticated or snapshot.otc
+            or snapshot.price is None or not math.isfinite(snapshot.price)
+            or snapshot.price <= 0 or not snapshot.fresh(max_age_seconds=8)):
+        return None
+    observed = snapshot.observed_at.astimezone(timezone.utc)
+    period = minutes * 60
+    opened = datetime.fromtimestamp(int(observed.timestamp()) // period * period,
+                                    tz=timezone.utc)
+    current = candle.open_time.astimezone(timezone.utc)
+    if opened < current:
+        return None
+    if opened == current:
+        return Candle(
+            candle.open_time, candle.open, max(candle.high, snapshot.price),
+            min(candle.low, snapshot.price), snapshot.price, candle.volume,
+            close_time=candle.close_time, quote_volume=candle.quote_volume,
+            trades=candle.trades, taker_buy_volume=candle.taker_buy_volume,
+            closed=False,
+        )
+    return Candle(opened, snapshot.price, snapshot.price, snapshot.price,
+                  snapshot.price, 0.0, closed=False)
 
 
 def _is_loopback_endpoint(url: str, port: int) -> bool:

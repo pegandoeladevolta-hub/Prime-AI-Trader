@@ -1,11 +1,18 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.8.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.9.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.8.0
+## Destaques da versão 0.9.0
 
+- Motor estrutural profissional reconhece continuidade de tendência (BOS), mudança de caráter/tendência (CHOCH), pullback confirmado, correções profundas, exaustão e lateralização.
+- Divergências regulares e ocultas de RSI/MACD, rejeições, varreduras de liquidez e distância real até suporte/resistência qualificam os sinais.
+- Leitura estrutural disponível em rápido, equilibrado e conservador; modos price action, confirmação e quantitativo; gráficos 1m, 3m, 5m, 15m, 30m, 1h e 4h.
+- Quando o preço real da VEX está visível, ele atualiza a vela atual do gráfico sem inventar candles antigos, volume, preço OTC ou confirmação de fechamento.
+- Reanálise incremental ajustada ao timeframe e à sensibilidade, evitando espera fixa desnecessária e mantendo a interface responsiva.
+- Doze features causais de pullback, rompimento, divergência, compressão, liquidez e reversão alimentam os modelos; após atualizar, clique em **TREINAR IA** no ativo/timeframe escolhido.
+- Backtest reforçado contra preço esticado, tendência oposta, compressão sem rompimento e pressão contrária de reversão, preservando a validação walk-forward.
 - Novo botão **CONECTAR VEX INVEST**: abre o traderoom em perfil dedicado do Chrome/Edge; o usuário entra diretamente no navegador e não informa senha ao robô.
 - Sincroniza automaticamente ativo, mercado, payout, expiração e tempo restante quando esses campos estão visíveis no traderoom da VEX.
 - Compara o preço visível da VEX com a fonte pública e explica divergências reais; ativos OTC não são tratados como se fossem cotações públicas.
@@ -98,7 +105,9 @@ Por padrão, notícias, eventos e backtest fraco aparecem como avisos silencioso
 4. Selecione o ativo e a operação na VEX; o robô identifica os campos visíveis e atualiza payout, mercado, ativo, expiração e cronômetro.
 5. Clique em **INICIAR ANÁLISE** e mantenha a janela dedicada da VEX aberta.
 
-A integração não usa senha digitada no robô, não lê cookies, saldo ou campos privados, não envia ordens e não representa uma API oficial da plataforma. Se um campo não estiver visível, ele não é inventado.
+A integração não usa senha digitada no robô, não lê cookies, saldo ou campos privados, não envia ordens e não representa uma API oficial da plataforma. Se um campo não estiver visível, ele não é inventado. O histórico anterior dos candles continua vindo das APIs públicas; quando disponível, somente o preço real visível da VEX atualiza a vela em formação.
+
+Após instalar uma versão com novo motor de análise, selecione o ativo, timeframe e expiração desejados e clique em **TREINAR IA**. Os modelos são separados por contexto e os modelos de versões anteriores não são apresentados incorretamente como compatíveis.
 
 ## Perfis de análise
 

@@ -60,6 +60,21 @@ def _directional_confluence(row: pd.Series, prediction: int,
     if pd.notna(atr_regime) and not profile.volatility_minimum <= float(atr_regime) <= profile.volatility_maximum:
         return False
     sign = float(prediction)
+    extension = row.get("ema21_distance_atr")
+    if pd.notna(extension) and abs(float(extension)) > profile.maximum_extension_atr:
+        return False
+    efficiency = row.get("trend_efficiency")
+    if pd.notna(efficiency) and sign * float(efficiency) < -0.28:
+        return False
+    compression = row.get("compression_ratio")
+    breakout = row.get("breakout_strength_atr")
+    if pd.notna(compression) and float(compression) < 0.53 and (
+        pd.isna(breakout) or sign * float(breakout) <= 0
+    ):
+        return False
+    reversal = row.get("reversal_pressure")
+    if pd.notna(reversal) and sign * float(reversal) < -0.32:
+        return False
     votes = (
         sign * float(row.get("ema_distance_9_21", 0) or 0) > 0,
         sign * float(row.get("ema_distance_21_50", 0) or 0) > 0,

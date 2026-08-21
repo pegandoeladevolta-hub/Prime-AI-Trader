@@ -17,9 +17,13 @@ FEATURE_COLUMNS = [
     "macd_acceleration", "rsi_slope", "stoch_spread", "ema21_distance_atr",
     "bollinger_width", "volume_impulse", "candle_rejection", "breakout_20",
     "higher_trend_proxy", "london_new_york_session",
+    "ema_9_slope", "ema_21_slope", "pullback_depth_atr", "impulse_strength_atr",
+    "swing_position_20", "rsi_divergence_proxy", "macd_divergence_proxy",
+    "compression_ratio", "breakout_strength_atr", "liquidity_sweep_code",
+    "candle_sequence_4", "reversal_pressure",
 ]
 
-FEATURE_SCHEMA_VERSION = 4
+FEATURE_SCHEMA_VERSION = 5
 
 
 def build_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -54,6 +58,49 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
         [1.0, -1.0], default=0.0,
     )
     output["higher_trend_proxy"] = data["ema_50"].pct_change(10)
+    atr_safe = data["atr_14"].replace(0, np.nan)
+    output["ema_9_slope"] = data["ema_9"].pct_change(3)
+    output["ema_21_slope"] = data["ema_21"].pct_change(3)
+    bullish_alignment = data["ema_9"] >= data["ema_21"]
+    output["pullback_depth_atr"] = np.where(
+        bullish_alignment,
+        (data["ema_9"] - data["low"]) / atr_safe,
+        (data["high"] - data["ema_9"]) / atr_safe,
+    )
+    output["impulse_strength_atr"] = (data["close"] - data["open"]) / atr_safe
+    range_low = data["low"].shift(1).rolling(20, min_periods=10).min()
+    range_high = data["high"].shift(1).rolling(20, min_periods=10).max()
+    output["swing_position_20"] = (data["close"] - range_low) / (range_high - range_low).replace(0, np.nan)
+    price_change_atr = (data["close"] - data["close"].shift(8)) / atr_safe
+    rsi_change = data["rsi_14"] - data["rsi_14"].shift(8)
+    macd_change = data["macd_hist"] - data["macd_hist"].shift(8)
+    output["rsi_divergence_proxy"] = np.where(
+        price_change_atr * rsi_change < 0,
+        -np.sign(price_change_atr) * rsi_change.abs() / 100,
+        0.0,
+    )
+    output["macd_divergence_proxy"] = np.where(
+        price_change_atr * macd_change < 0,
+        -np.sign(price_change_atr) * macd_change.abs() / atr_safe,
+        0.0,
+    )
+    width_median = output["bollinger_width"].rolling(60, min_periods=20).median().replace(0, np.nan)
+    output["compression_ratio"] = output["bollinger_width"] / width_median
+    output["breakout_strength_atr"] = np.select(
+        [data["close"] > previous_high, data["close"] < previous_low],
+        [(data["close"] - previous_high) / atr_safe,
+         -(previous_low - data["close"]) / atr_safe],
+        default=0.0,
+    )
+    bullish_sweep = (data["low"] < previous_low) & (data["close"] > previous_low)
+    bearish_sweep = (data["high"] > previous_high) & (data["close"] < previous_high)
+    output["liquidity_sweep_code"] = np.select([bullish_sweep, bearish_sweep], [1.0, -1.0], default=0.0)
+    output["candle_sequence_4"] = np.sign(data["close"] - data["open"]).rolling(4, min_periods=2).mean()
+    output["reversal_pressure"] = (
+        output["rsi_divergence_proxy"].fillna(0) * 2
+        + output["macd_divergence_proxy"].fillna(0)
+        + output["liquidity_sweep_code"].fillna(0) * 0.25
+    )
     output["bb_position"] = (data["close"] - data["bb_lower"]) / (data["bb_upper"] - data["bb_lower"]).replace(0, np.nan)
     output["vwap_distance"] = (data["close"] - data["vwap"]) / close
     output["obv_change"] = data["obv"].pct_change().replace([np.inf, -np.inf], np.nan)

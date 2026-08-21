@@ -1,5 +1,26 @@
 # Release notes
 
+## 0.9.0 — 21/08/2026
+
+### Leitura estrutural profissional em todos os perfis
+
+- Identificação de regime: tendência de alta/baixa, transição, lateralização, compressão e exaustão com base em EMAs, ADX, eficiência, ATR, RSI e MACD.
+- BOS confirma continuação de estrutura; CHOCH identifica mudança de direção somente após fechamento e deslocamento mínimo em ATR.
+- Pullback comprador/vendedor verifica impulso anterior, retração, EMA 21/50, Fibonacci, zona estrutural, rejeição e retomada de momentum.
+- Correções profundas, falsos rompimentos, resistência/suporte próximos e divergência regular contrária deixam de ser tratados como entradas equivalentes.
+- Divergências regulares e ocultas de RSI/MACD utilizam pivôs já confirmados; nenhuma informação futura participa da decisão.
+- Perfis rápido, equilibrado e conservador preservados; regras estruturais aplicadas aos modos price action, confirmação e quantitativo e a todos os sete timeframes.
+- Doze novas features causais qualificam o treinamento; schema atualizado para exigir retreinamento honesto do ativo e timeframe após a instalação.
+- Backtest rejeita extensão excessiva, tendência contraditória, compressão sem rompimento e pressão oposta de reversão.
+
+### Gráfico VEX e desempenho
+
+- Preço real visível no traderoom da VEX atualiza a vela atual sem inventar histórico, ticks, volume ou cotação de ativos OTC.
+- Fechamento de vela vindo da Binance continua autêntico; o preço VEX em formação não gera confirmação fictícia.
+- Atualização/reanálise calibrada pelo timeframe e pela sensibilidade, mantendo o desenho incremental e reduzindo atraso perceptível.
+- Mantidos layout aprovado, cartão de voz compacto, sincronização de ativo/payout/tempo, APIs públicas, notícias e limpeza segura de versões antigas.
+- Validação expandida para 231 testes automatizados, com 57 novos cenários de estrutura, pullback, reversão, regime, features causais e cotação VEX.
+
 ## 0.8.0 — 21/08/2026
 
 ### Sincronização local com a VEX Invest

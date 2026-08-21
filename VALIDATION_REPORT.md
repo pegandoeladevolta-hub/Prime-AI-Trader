@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.8.0
+# Relatório de validação — PRIME AI TRADER 0.9.0
 
 Data: 21/08/2026
 
@@ -11,13 +11,17 @@ Data: 21/08/2026
 | VEX Invest | Navegador dedicado, perfil separado, endpoint loopback e leitura somente de ativo, payout, preço, expiração e tempo visíveis. |
 | Privacidade | Sem leitura de senha, cookies, armazenamento local, saldo, campos digitados ou execução de ordens. |
 | Alinhamento | Divergência de ativo, mercado, preço público e ativos OTC recebe motivo explícito antes de qualquer sinal. |
+| Preço VEX | Somente o preço realmente visível atualiza a vela corrente; histórico público, volume real e fechamento confirmado são preservados. |
 | Cronômetro | Usa relógio real visível na VEX ou criação original do sinal; atualizar gráfico/notícias não reinicia o vencimento. |
 | IA | Contexto completo, persistência por ativo e seleção por desempenho seletivo fora da amostra. |
+| Schema profissional | Doze features causais de pullback, estrutura, impulso, divergência, compressão, liquidez e reversão; schema 5 exige novo treinamento do contexto. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
-| Sinais | Tendência, pullback, rompimento/reteste, liquidez/rejeição, engolfo, timeframe superior, fechamento coerente e famílias independentes de confirmação. |
+| Sinais | BOS, CHOCH, pullback comprador/vendedor, divergências regulares/ocultas, rompimento/reteste, liquidez/rejeição, engolfo e confirmação independente. |
+| Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
+| Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
 | Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; momentum, IA e volatilidade independentes. |
 | Áudio | Avisos não bloqueantes ficam silenciosos; leitura rápida em formação e sinais confirmados têm prioridade; bloqueios reais têm cooldown de 300 segundos. |
-| Backtest | Walk-forward, payout configurável, ponto de equilíbrio, expectativa e intervalo de confiança de Wilson. |
+| Backtest | Walk-forward, filtros de extensão/eficiência/compressão/reversão, payout configurável, ponto de equilíbrio, expectativa e intervalo de Wilson. |
 | Estatísticas | DRAW excluído do acerto direcional; sinais WebSocket registrados e liquidados no vencimento. |
 | Cripto | Binance pública com espelhos oficiais; fallback Coinbase/Kraken; ativos da plataforma incluindo XLM. |
 | Forex | Fonte pública sem chave, cotação incremental aproximadamente a cada dez segundos, Twelve Data/Alpha Vantage opcionais, referência Frankfurter diária e 28 pares. |
@@ -32,11 +36,11 @@ Data: 21/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **173 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **230 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
-Os testes cobrem indicadores, estrutura, Fibonacci, schema/invariância temporal das features, labels, purga dos folds, treino, probabilidade, contexto do modelo, backtest, banco, calibração, perfis independentes, leitura antecipada, prioridade de voz, cooldown, risco, providers, cache, WebSocket, gráfico e comandos da interface.
+Os testes cobrem indicadores, estrutura, BOS/CHOCH, pullbacks compradores/vendedores, divergências regulares/ocultas, regimes, exaustão, todos os timeframes/perfis/modos, Fibonacci, schema/invariância temporal das features, labels, purga dos folds, treino, probabilidade, contexto do modelo, backtest, banco, calibração, prioridade de voz, risco, providers, cache, WebSocket, gráfico, cotação real visível da VEX e comandos da interface.
 
 Em 80 cenários sintéticos compartilhados, o perfil rápido produziu 74 leituras, o equilibrado 66 e o conservador 44. Trata-se de uma verificação de frequência relativa, não de uma promessa de lucro ou acerto.
 
@@ -48,6 +52,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `0.8.0`.
+Identificador do candidato validado: `0.9.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 174 testes, incluindo a montagem completa da interface, a proporção compacta do cartão de voz, a sincronização local segura da VEX e a liberação real das conexões SQLite, antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 231 testes, incluindo 57 cenários estruturais novos, a montagem completa da interface, o cartão de voz compacto, a sincronização local segura da VEX e a liberação real das conexões SQLite, antes da publicação.

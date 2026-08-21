@@ -19,7 +19,8 @@ from ..audio.voice import VoiceService
 from ..config.settings import app_data_dir
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
 from ..forex.public import merge_forex_quote
-from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market
+from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market, merge_vex_quote
+from ..priceaction.professional import live_refresh_interval
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
 from .dialogs import ApiSettingsDialog, BacktestDialog, HealthDialog, PerformanceDialog, RadarDialog
@@ -153,7 +154,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 0.8.0", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 0.9.0", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -605,6 +606,19 @@ class PrimeAITraderApp(tk.Tk):
                 self._render_signal(current)
             else:
                 self._start_countdown(current)
+                if self._analysis_active and snapshot.price is not None and self.chart.candles:
+                    candle = merge_vex_quote(self.chart.candles[-1], snapshot, current.timeframe)
+                    if candle is not None:
+                        self._queue_live_chart(candle, self._analysis_token)
+                        self.updated_var.set(
+                            f"VEX • PREÇO VISÍVEL AO VIVO {snapshot.observed_at.astimezone().strftime('%H:%M:%S')}"
+                        )
+                        now = time.monotonic()
+                        interval = live_refresh_interval(current.timeframe, settings.sensitivity)
+                        if now - self._last_live_analysis >= interval and not self._task_running:
+                            self._last_live_analysis = now
+                            context = (current.market, current.symbol, current.timeframe)
+                            self._process_live(candle, self._analysis_token, context)
 
     def _restart_for_vex_change(self) -> None:
         self._platform_change_job = None
@@ -772,8 +786,13 @@ class PrimeAITraderApp(tk.Tk):
                 return
             self.controller.websocket_online = True
             now = time.monotonic()
+            platform = self._platform_snapshot
+            if (not candle.closed and platform and platform.price is not None and platform.fresh()
+                    and not compare_platform_market(platform, Market.CRYPTO.value, symbol, candle.close)):
+                candle = merge_vex_quote(candle, platform, timeframe) or candle
             self._post_ui(self._queue_live_chart, candle, token)
-            if candle.closed or now - self._last_live_analysis >= LIVE_ANALYSIS_INTERVAL_SECONDS:
+            interval = live_refresh_interval(timeframe, self.controller.settings.sensitivity)
+            if candle.closed or now - self._last_live_analysis >= interval:
                 self._last_live_analysis = now
                 self._post_ui(self._process_live, candle, token, context)
         async def run() -> None:
@@ -795,7 +814,10 @@ class PrimeAITraderApp(tk.Tk):
         candle = self._pending_live_candle
         self._pending_live_candle = None
         self.chart.update_last_candle(candle)
-        if self.market_var.get() == Market.FOREX.value:
+        platform = self._platform_snapshot
+        if platform and platform.fresh() and platform.price is not None and platform.asset == self.symbol_var.get():
+            self.updated_var.set(f"VEX • PREÇO VISÍVEL AO VIVO {datetime.now().strftime('%H:%M:%S')}")
+        elif self.market_var.get() == Market.FOREX.value:
             if "FONTE COM ATRASO" not in self.updated_var.get():
                 self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {datetime.now().strftime('%H:%M:%S')}")
         else:
@@ -870,7 +892,8 @@ class PrimeAITraderApp(tk.Tk):
         if candle is not None:
             self._queue_live_chart(candle, token)
             now = time.monotonic()
-            if now - self._last_live_analysis >= LIVE_ANALYSIS_INTERVAL_SECONDS:
+            interval = live_refresh_interval(snapshot.timeframe, self.controller.settings.sensitivity)
+            if now - self._last_live_analysis >= interval:
                 self._last_live_analysis = now
                 self._process_live(candle, token, context)
         observed = quote.observed_at.astimezone().strftime("%H:%M:%S")
@@ -1177,7 +1200,8 @@ class PrimeAITraderApp(tk.Tk):
         else:
             self.calibration_label.configure(text=f"Histórico real em coleta: {signal.calibrated_samples}/30 • não bloqueia")
         self.validation_label.configure(text=signal.validation_note)
-        self.setup_label.configure(text=f"Estratégia: {signal.setup_name}")
+        regime = f" • {signal.market_regime}" if signal.market_regime else ""
+        self.setup_label.configure(text=f"Estratégia: {signal.setup_name}{regime}")
         digits = market_price_decimals(f"{snapshot.market}|{snapshot.symbol}")
         self.entry_label.configure(text=f"Entrada: {signal.entry:,.{digits}f}" if signal.entry else "Entrada: —")
         self.horizon_label.configure(text=f"Expiração: {signal.horizon_minutes} minuto(s)")

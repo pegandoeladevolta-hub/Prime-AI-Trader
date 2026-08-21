@@ -92,6 +92,10 @@ class Signal:
     payout_percent: int = 80
     break_even_rate: float = 1 / 1.8
     expected_value: float | None = None
+    market_regime: str = "ANALISANDO ESTRUTURA"
+    structure_event: str = ""
+    pullback_state: str = ""
+    timeframe_context: str = ""
 
 
 @dataclass(slots=True)

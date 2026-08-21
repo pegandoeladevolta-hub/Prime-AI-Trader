@@ -8,6 +8,7 @@ import pandas as pd
 from ..core.models import Direction, Signal, SignalState
 from ..fibonacci.auto import FibonacciResult
 from ..ml.models import ModelManager
+from ..priceaction.professional import ProfessionalAssessment, assess_professional_market
 from ..priceaction.structure import MarketStructure
 
 
@@ -66,6 +67,7 @@ class RuleAssessment:
     buy_setup: str = "ANÁLISE EM FORMAÇÃO"
     sell_setup: str = "ANÁLISE EM FORMAÇÃO"
     higher_timeframe_bias: str = "INDEFINIDA"
+    professional: ProfessionalAssessment | None = None
 
 
 def _number(value, default: float = 0.0) -> float:
@@ -109,7 +111,9 @@ class SignalEngine:
 
     @staticmethod
     def assess_rules(indicators: pd.DataFrame, structure: MarketStructure,
-                     fib: FibonacciResult | None) -> RuleAssessment:
+                     fib: FibonacciResult | None,
+                     professional: ProfessionalAssessment | None = None,
+                     mode: str = "CONFIRMAÇÃO") -> RuleAssessment:
         last = indicators.iloc[-1]
         previous = indicators.iloc[-2] if len(indicators) >= 2 else last
         buy = sell = 0
@@ -246,9 +250,39 @@ class SignalEngine:
             else:
                 sell += 8; sell_reasons.append(f"Retração Fibonacci {fib.nearest_ratio * 100:.1f}%")
 
+        if professional:
+            action_factor = {"PRICE ACTION": 1.20, "CONFIRMAÇÃO": 1.0,
+                             "QUANTITATIVO": 0.82}.get(mode, 1.0)
+            if professional.event:
+                points = round((18 if professional.event.kind == "CHOCH" else 13) * action_factor)
+                if professional.event.direction == Direction.BUY:
+                    buy += points
+                else:
+                    sell += points
+            if professional.pullback and professional.pullback.confirmed:
+                points = round(14 * action_factor)
+                if professional.pullback.direction == Direction.BUY:
+                    buy += points
+                else:
+                    sell += points
+            strongest_buy = max((item.strength for item in professional.divergences
+                                 if item.direction == Direction.BUY), default=0.0)
+            strongest_sell = max((item.strength for item in professional.divergences
+                                  if item.direction == Direction.SELL), default=0.0)
+            buy += round(strongest_buy * 9)
+            sell += round(strongest_sell * 9)
+            if professional.regime.direction == Direction.BUY and not professional.regime.exhausted:
+                buy += 5
+            elif professional.regime.direction == Direction.SELL and not professional.regime.exhausted:
+                sell += 5
+            buy_reasons = list(dict.fromkeys((*professional.buy_reasons, *buy_reasons)))
+            sell_reasons = list(dict.fromkeys((*professional.sell_reasons, *sell_reasons)))
+            buy_setup = professional.buy_setup or buy_setup
+            sell_setup = professional.sell_setup or sell_setup
+
         return RuleAssessment(
             min(buy, 100), min(sell, 100), buy_reasons, sell_reasons,
-            buy_setup, sell_setup, higher_bias,
+            buy_setup, sell_setup, higher_bias, professional,
         )
 
     @staticmethod
@@ -263,11 +297,11 @@ class SignalEngine:
         categories: set[str] = set()
         for reason in reasons:
             text = reason.lower()
-            if any(word in text for word in ("ema", "estrutura", "hh/hl", "lh/ll", "vwap")):
+            if any(word in text for word in ("ema", "estrutura", "hh/hl", "lh/ll", "vwap", "bos", "choch", "regime")):
                 categories.add("tendência")
-            if any(word in text for word in ("rsi", "macd", "momentum", "adx", "di", "estocástico")):
+            if any(word in text for word in ("rsi", "macd", "momentum", "adx", "+di", "-di", "estocástico", "divergência")):
                 categories.add("momentum")
-            if any(word in text for word in ("rompimento", "reteste", "pullback", "liquidez", "rejeição", "engolfo", "fibonacci")):
+            if any(word in text for word in ("rompimento", "reteste", "pullback", "liquidez", "rejeição", "engolfo", "fibonacci", "retração", "vela")):
                 categories.add("price action")
             if "volume" in text:
                 categories.add("volume")
@@ -293,7 +327,9 @@ class SignalEngine:
                 payout_percent=payout, break_even_rate=break_even,
             )
 
-        rules = self.assess_rules(indicators, structure, fib)
+        context_timeframe = str(model_context.get("timeframe", "")) if model_context else ""
+        professional = assess_professional_market(indicators, structure, fib, context_timeframe)
+        rules = self.assess_rules(indicators, structure, fib, professional, mode)
         technical_buy = self._technical_score(rules.buy_points, rules.sell_points, len(rules.buy_reasons))
         technical_sell = self._technical_score(rules.sell_points, rules.buy_points, len(rules.sell_reasons))
         model_ready = self.model_manager.is_compatible(model_context)
@@ -379,16 +415,20 @@ class SignalEngine:
             waiting.append("Volatilidade fora da faixa operacional")
         if overextended:
             waiting.append("Preço esticado; aguarde pullback ou reteste")
-        if mode == "CONFIRMAÇÃO" and not profile.early_reading:
+        if not profile.early_reading:
             against_higher = (
                 direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
                 or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
             )
-            if against_higher:
+            reversal_event = bool(
+                professional.event and professional.event.direction == direction
+                and professional.event.kind == "CHOCH"
+            )
+            if against_higher and not reversal_event:
                 waiting.append("Direção contraria a tendência confirmada no timeframe superior")
             candle_delta = close_value - _number(last.get("open"), close_value)
             meaningful_candle = atr_value <= 0 or abs(candle_delta) >= atr_value * 0.03
-            reversal_setup = "LIQUIDEZ" in setup_name
+            reversal_setup = "LIQUIDEZ" in setup_name or reversal_event
             if meaningful_candle and direction_sign * candle_delta < 0 and not reversal_setup:
                 waiting.append("A última vela fechada não confirma a direção sugerida")
             independent = self._independent_confirmations(confluences)
@@ -398,6 +438,27 @@ class SignalEngine:
                     f"Confirmações independentes insuficientes: "
                     f"{len(independent)}/{minimum_independent}"
                 )
+        penalties = professional.buy_penalties if direction == Direction.BUY else professional.sell_penalties
+        same_direction_event = bool(professional.event and professional.event.direction == direction)
+        for reason in penalties:
+            if (reason.startswith("Pullback identificado") and profile.early_reading
+                    and professional.pullback is not None
+                    and professional.pullback.direction == direction
+                    and not professional.pullback.exhausted
+                    and len(professional.pullback.confirmations) >= 2):
+                continue
+            if reason.startswith("Resistência muito próxima") or reason.startswith("Suporte muito próximo"):
+                if same_direction_event:
+                    continue
+                room = professional.resistance_room_atr if direction == Direction.BUY else professional.support_room_atr
+                if profile.early_reading and room is not None and room >= professional.policy.minimum_room_atr * 0.55:
+                    continue
+            if "Compressão lateral" in reason and profile.early_reading and professional.regime.efficiency >= 0.12:
+                continue
+            if "DIVERGÊNCIA" in reason and profile.early_reading and same_direction_event:
+                continue
+            if reason not in waiting:
+                waiting.append(reason)
         if model_ready:
             if chosen < probability_floor:
                 waiting.append(
@@ -416,6 +477,10 @@ class SignalEngine:
             "payout_percent": payout,
             "break_even_rate": break_even,
             "expected_value": expected_value if model_ready else None,
+            "market_regime": professional.regime.name,
+            "structure_event": professional.event.label if professional.event else "",
+            "pullback_state": professional.pullback.label if professional.pullback else "",
+            "timeframe_context": professional.policy.timeframe,
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,
