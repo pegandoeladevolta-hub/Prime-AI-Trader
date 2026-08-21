@@ -481,6 +481,11 @@ class VexLiveGraphTests(unittest.TestCase):
         source = inspect.getsource(PrimeAITraderApp._start_crypto_stream)
         self.assertIn("live_refresh_interval(timeframe", source)
 
+    def test_windows_bundle_does_not_reference_removed_sklearn_component(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "PrimeAITrader.spec").read_text(encoding="utf-8")
+        self.assertNotIn("sklearn.neighbors._typedefs", source)
+        self.assertIn("sklearn.neighbors._quad_tree", source)
+
 
 if __name__ == "__main__":
     unittest.main()

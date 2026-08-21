@@ -8,7 +8,7 @@ a = Analysis(
     pathex=[str(root)],
     binaries=[],
     datas=[(str(root / "assets" / "icon.ico"), "assets")],
-    hiddenimports=["sklearn.utils._cython_blas", "sklearn.neighbors._typedefs", "sklearn.neighbors._quad_tree"],
+    hiddenimports=["sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree"],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=["matplotlib"], noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -23,4 +23,3 @@ exe = EXE(
     icon=str(root / "assets" / "icon.ico"),
     version=str(root / "version_info.txt"),
 )
-

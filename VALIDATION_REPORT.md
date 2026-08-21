@@ -36,7 +36,7 @@ Data: 21/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **230 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **231 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -54,4 +54,4 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 Identificador do candidato validado: `0.9.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 231 testes, incluindo 57 cenários estruturais novos, a montagem completa da interface, o cartão de voz compacto, a sincronização local segura da VEX e a liberação real das conexões SQLite, antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 232 testes, incluindo 58 cenários estruturais novos, a montagem completa da interface, o cartão de voz compacto, a sincronização local segura da VEX, a remoção do import obsoleto e a liberação real das conexões SQLite, antes da publicação.

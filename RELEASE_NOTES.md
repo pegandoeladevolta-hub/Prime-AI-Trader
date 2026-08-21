@@ -19,7 +19,8 @@
 - Fechamento de vela vindo da Binance continua autêntico; o preço VEX em formação não gera confirmação fictícia.
 - Atualização/reanálise calibrada pelo timeframe e pela sensibilidade, mantendo o desenho incremental e reduzindo atraso perceptível.
 - Mantidos layout aprovado, cartão de voz compacto, sincronização de ativo/payout/tempo, APIs públicas, notícias e limpeza segura de versões antigas.
-- Validação expandida para 231 testes automatizados, com 57 novos cenários de estrutura, pullback, reversão, regime, features causais e cotação VEX.
+- Empacotamento Windows atualizado para remover uma referência obsoleta do scikit-learn.
+- Validação expandida para 232 testes automatizados, com 58 novos cenários de estrutura, pullback, reversão, regime, features causais, cotação VEX e empacotamento.
 
 ## 0.8.0 — 21/08/2026
 
