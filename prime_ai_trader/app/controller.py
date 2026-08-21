@@ -29,6 +29,7 @@ from ..forex.public import ResilientForexProvider
 from ..indicators.technical import calculate_all, candles_frame
 from ..ml.models import ModelManager, TrainingReport, purge_size_from_context
 from ..news.provider import CompositeNewsProvider, NewsItem, market_news_query
+from ..platform.vex import VexPlatformSnapshot, compare_platform_market
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
 from ..signals.engine import SignalEngine, sensitivity_profile
@@ -79,6 +80,7 @@ class TradingController:
         self._radar_offset = 0
         self.last_radar_note = ""
         self.websocket_online = False
+        self.platform_snapshot: VexPlatformSnapshot | None = None
 
     def save_settings(self) -> None:
         self.settings_store.save(self.settings)
@@ -207,6 +209,7 @@ class TradingController:
         )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
+        signal = self._apply_platform_alignment(signal, market, symbol, float(indicators["close"].iloc[-1]))
         calibrated, samples = self.repository.calibration(
             signal.score, market, symbol, timeframe, horizon_minutes, mode,
         )
@@ -309,6 +312,9 @@ class TradingController:
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
         )
+        signal = self._apply_platform_alignment(
+            signal, snapshot.market, snapshot.symbol, float(indicators["close"].iloc[-1]),
+        )
         signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(
             signal.score, snapshot.market, snapshot.symbol, snapshot.timeframe,
             self.settings.horizon_minutes, self.settings.mode,
@@ -325,6 +331,20 @@ class TradingController:
         self._settle_pending(snapshot.symbol, snapshot.timeframe,
                              float(indicators["close"].iloc[-1]), candles)
         return self.snapshot
+
+    def _apply_platform_alignment(self, signal: Signal, market: str, symbol: str,
+                                  reference_price: float | None) -> Signal:
+        if not self.settings.platform_sync_enabled or not self.settings.platform_block_mismatch:
+            return signal
+        reasons = compare_platform_market(self.platform_snapshot, market, symbol, reference_price)
+        if not reasons:
+            return signal
+        signal.direction = Direction.WAIT
+        signal.state = SignalState.WAITING
+        signal.entry = None
+        signal.waiting_reasons = (reasons + signal.waiting_reasons)[:4]
+        signal.validation_note = "Análise pausada até a VEX e a fonte pública estarem alinhadas."
+        return signal
 
     def train(self) -> TrainingReport:
         if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1600:
@@ -415,7 +435,6 @@ class TradingController:
         items = self.news_provider.fetch(query, limit=12)
         if self.snapshot and self._snapshot_matches_settings():
             self.snapshot.news = items
-            self.snapshot.generated_at = datetime.now(timezone.utc)
             self._snapshot_cache[(self.settings.market, self.symbol(), self.settings.timeframe)] = (
                 time.monotonic(), self.snapshot,
             )

@@ -16,8 +16,10 @@ import pandas as pd
 
 from ..app.controller import AnalysisSnapshot, TradingController
 from ..audio.voice import VoiceService
+from ..config.settings import app_data_dir
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
 from ..forex.public import merge_forex_quote
+from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
 from .dialogs import ApiSettingsDialog, BacktestDialog, HealthDialog, PerformanceDialog, RadarDialog
@@ -94,6 +96,11 @@ class PrimeAITraderApp(tk.Tk):
         self._last_voice_signature = None
         self._forex_prompted = False
         self._countdown_job = None
+        self._countdown_signature = None
+        self._countdown_target: float | None = None
+        self._platform_bridge: VexBrowserBridge | None = None
+        self._platform_snapshot: VexPlatformSnapshot | None = None
+        self._platform_change_job = None
         self._news_refresh_job = None
         self._news_refresh_running = False
         self._history_refresh_running = False
@@ -128,6 +135,7 @@ class PrimeAITraderApp(tk.Tk):
         self.context_var = tk.StringVar(value="SELECIONE UM ATIVO")
         self.updated_var = tk.StringVar(value="Aguardando análise")
         self.score_var = tk.DoubleVar(value=0)
+        self.platform_status_var = tk.StringVar(value="VEX não conectada • pagamento manual")
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(1, weight=1)
@@ -145,7 +153,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 0.7.2", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 0.8.0", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -193,10 +201,13 @@ class PrimeAITraderApp(tk.Tk):
         quick.pack(fill="x", pady=(4, 4))
         ttk.Button(quick, text="↻ GRÁFICO", style="Secondary.TButton", command=self.refresh_analysis).pack(side="left", fill="x", expand=True, padx=(0, 3))
         ttk.Button(quick, text="◎ RADAR", style="Secondary.TButton", command=self.run_radar).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self.vex_button = ttk.Button(panel, text="◉   CONECTAR VEX INVEST", style="Secondary.TButton", command=self.connect_vex)
+        self.vex_button.pack(fill="x", pady=(4, 2))
+        ttk.Label(panel, textvariable=self.platform_status_var, style="Muted.TLabel", wraplength=238, justify="left").pack(anchor="w", pady=(0, 4))
         self._advanced_button = ttk.Button(panel, text="AJUSTES AVANÇADOS  ▾", style="Tool.TButton", command=self._toggle_advanced)
         self._advanced_button.pack(fill="x", pady=(4, 4))
         self.advanced_panel = ttk.Frame(panel, style="Panel.TFrame")
-        self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
+        self.payout_combo = self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
         self._combo(self.advanced_panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
         ttk.Button(self.advanced_panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(3, 6))
         ttk.Checkbutton(self.advanced_panel, text="Bloquear automaticamente por notícia/evento", variable=self.strict_risk_blocks_var, command=self._save_form).pack(anchor="w", pady=(2, 4))
@@ -501,6 +512,102 @@ class PrimeAITraderApp(tk.Tk):
         if hasattr(self, "timeframe_buttons"):
             self._refresh_timeframe_buttons()
         self._save_form()
+        if self._analysis_active:
+            self._schedule_analysis_restart()
+
+    def connect_vex(self) -> None:
+        if self._platform_bridge and self._platform_bridge.running:
+            self._platform_bridge.stop()
+            self._platform_snapshot = None
+            self.controller.platform_snapshot = None
+            self.controller.settings.platform_sync_enabled = False
+            self.controller.save_settings()
+            self.vex_button.configure(text="◉   CONECTAR VEX INVEST")
+            self.platform_status_var.set("VEX desconectada • pagamento manual")
+            self.status_var.set("Sincronização com a VEX desativada")
+            return
+        self._platform_bridge = VexBrowserBridge(
+            app_data_dir() / "vex-browser",
+            lambda snapshot: self._post_ui(self._vex_snapshot_ready, snapshot),
+            lambda status: self._post_ui(self._vex_status_ready, status),
+        )
+        try:
+            self._platform_bridge.start()
+        except Exception as exc:
+            self.platform_status_var.set("VEX não conectada")
+            messagebox.showerror("Conectar VEX Invest", str(exc), parent=self)
+            return
+        self.controller.settings.platform_sync_enabled = True
+        self.controller.save_settings()
+        self.vex_button.configure(text="◉   DESCONECTAR VEX")
+        self.platform_status_var.set("Abrindo VEX • entre na sua conta no navegador")
+        self.status_var.set("Entre na VEX pelo navegador dedicado; o robô não solicita sua senha")
+
+    def _vex_status_ready(self, status: str) -> None:
+        self.platform_status_var.set(status)
+
+    def _vex_snapshot_ready(self, snapshot: VexPlatformSnapshot) -> None:
+        if not self._platform_bridge or not self._platform_bridge.running:
+            return
+        self._platform_snapshot = snapshot
+        self.controller.platform_snapshot = snapshot
+        settings = self.controller.settings
+        changed = False
+        if settings.platform_auto_payout and snapshot.payout_percent is not None:
+            payout = str(snapshot.payout_percent)
+            if self.payout_var.get() != payout:
+                choices = list(self.payout_combo.cget("values"))
+                if payout not in choices:
+                    choices.append(payout)
+                    self.payout_combo.configure(values=sorted(choices, key=int))
+                self.payout_var.set(payout)
+                settings.payout_percent = snapshot.payout_percent
+                changed = True
+        if settings.platform_auto_asset and snapshot.asset and snapshot.market:
+            if self.market_var.get() != snapshot.market:
+                self.market_var.set(snapshot.market)
+                defaults = CRYPTO_DEFAULTS if snapshot.market == Market.CRYPTO.value else FOREX_DEFAULTS
+                self.symbol_combo.configure(values=defaults)
+                changed = True
+            if self.symbol_var.get() != snapshot.asset:
+                choices = list(self.symbol_combo.cget("values"))
+                if snapshot.asset not in choices:
+                    self.symbol_combo.configure(values=[snapshot.asset, *choices])
+                self.symbol_var.set(snapshot.asset)
+                changed = True
+        if settings.platform_auto_horizon and snapshot.horizon_minutes is not None:
+            horizon = str(snapshot.horizon_minutes)
+            if self.horizon_var.get() != horizon:
+                self.horizon_var.set(horizon)
+                changed = True
+        details = [snapshot.asset or "identificando ativo"]
+        if snapshot.payout_percent is not None:
+            details.append(f"payout {snapshot.payout_percent}%")
+        if snapshot.remaining_seconds is not None:
+            seconds = snapshot.remaining_seconds
+            details.append(f"{seconds // 60:02d}:{seconds % 60:02d}")
+        if snapshot.otc:
+            details.append("OTC não compatível")
+        self.platform_status_var.set("VEX ● " + " • ".join(details))
+        if changed:
+            self._save_form()
+            if self._analysis_active:
+                if self._platform_change_job is not None:
+                    self.after_cancel(self._platform_change_job)
+                self._platform_change_job = self.after(300, self._restart_for_vex_change)
+        current = self.controller.snapshot
+        if current and current.market == self.market_var.get() and current.symbol == self.symbol_var.get():
+            reasons = compare_platform_market(snapshot, current.market, current.symbol,
+                                              float(current.indicators["close"].iloc[-1]))
+            if reasons and settings.platform_block_mismatch:
+                self.controller._apply_platform_alignment(current.signal, current.market, current.symbol,
+                                                          float(current.indicators["close"].iloc[-1]))
+                self._render_signal(current)
+            else:
+                self._start_countdown(current)
+
+    def _restart_for_vex_change(self) -> None:
+        self._platform_change_job = None
         if self._analysis_active:
             self._schedule_analysis_restart()
 
@@ -1056,9 +1163,12 @@ class PrimeAITraderApp(tk.Tk):
         self.signal_score.configure(text=score_detail)
         self.score_var.set(signal.score)
         ordered = sorted(signal.probabilities.items(), key=lambda item: item[1], reverse=True)
-        if ordered:
+        if ordered and signal.model_score is not None:
             self.probability_high_label.configure(text=f"Cenário dominante: {ordered[0][0]} {ordered[0][1] * 100:.1f}%")
             self.probability_low_label.configure(text=f"Cenário secundário: {ordered[-1][0]} {ordered[-1][1] * 100:.1f}%")
+        elif ordered:
+            self.probability_high_label.configure(text=f"Força técnica dominante: {ordered[0][0]} • {signal.technical_score}/100")
+            self.probability_low_label.configure(text="IA probabilística: treine para este ativo e horizonte")
         else:
             self.probability_high_label.configure(text="Cenário dominante: —")
             self.probability_low_label.configure(text="Cenário secundário: —")
@@ -1071,8 +1181,9 @@ class PrimeAITraderApp(tk.Tk):
         digits = market_price_decimals(f"{snapshot.market}|{snapshot.symbol}")
         self.entry_label.configure(text=f"Entrada: {signal.entry:,.{digits}f}" if signal.entry else "Entrada: —")
         self.horizon_label.configure(text=f"Expiração: {signal.horizon_minutes} minuto(s)")
+        synced = self._platform_snapshot and self._platform_snapshot.fresh() and self._platform_snapshot.payout_percent == signal.payout_percent
         payout_text = (
-            f"Pagamento {signal.payout_percent}% • equilíbrio "
+            f"{'Payout VEX' if synced else 'Pagamento'} {signal.payout_percent}% • equilíbrio "
             f"{signal.break_even_rate * 100:.2f}%"
         )
         if signal.expected_value is not None:
@@ -1116,10 +1227,35 @@ class PrimeAITraderApp(tk.Tk):
     def _start_countdown(self, snapshot: AnalysisSnapshot) -> None:
         if self._countdown_job:
             self.after_cancel(self._countdown_job)
-        target = snapshot.generated_at.timestamp() + snapshot.signal.horizon_minutes * 60
+            self._countdown_job = None
+        platform = self._platform_snapshot
+        synchronized = bool(
+            platform and platform.fresh() and platform.expires_at is not None
+            and (not platform.asset or platform.asset == snapshot.symbol)
+        )
+        if synchronized:
+            target = platform.expires_at.timestamp()
+            self._countdown_signature = ("vex", snapshot.market, snapshot.symbol)
+            self._countdown_target = target
+        elif snapshot.signal.direction != Direction.WAIT:
+            candle_time = snapshot.candles[-1].open_time if snapshot.candles else None
+            signature = (snapshot.market, snapshot.symbol, snapshot.timeframe, candle_time,
+                         snapshot.signal.direction.value, snapshot.signal.horizon_minutes)
+            if signature != self._countdown_signature or self._countdown_target is None:
+                created = snapshot.signal.created_at
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                self._countdown_target = created.timestamp() + snapshot.signal.horizon_minutes * 60
+                self._countdown_signature = signature
+            target = self._countdown_target
+        else:
+            self._countdown_signature = None
+            self._countdown_target = None
+            self.countdown_label.configure(text="--:--")
+            return
         def tick() -> None:
             remaining = max(0, round(target - datetime.now(timezone.utc).timestamp()))
-            self.countdown_label.configure(text=f"{remaining // 60:02d}:{remaining % 60:02d}" if snapshot.signal.direction != Direction.WAIT else "--:--")
+            self.countdown_label.configure(text=f"{remaining // 60:02d}:{remaining % 60:02d}")
             if remaining > 0:
                 self._countdown_job = self.after(1000, tick)
         tick()
@@ -1182,6 +1318,11 @@ class PrimeAITraderApp(tk.Tk):
 
     def _close(self) -> None:
         self.pause_analysis(silent=True)
+        if self._platform_bridge is not None:
+            self._platform_bridge.stop()
+        if self._platform_change_job is not None:
+            self.after_cancel(self._platform_change_job)
+            self._platform_change_job = None
         if self._ui_events_job is not None:
             self.after_cancel(self._ui_events_job)
             self._ui_events_job = None

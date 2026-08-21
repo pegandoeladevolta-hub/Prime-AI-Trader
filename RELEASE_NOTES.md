@@ -1,5 +1,25 @@
 # Release notes
 
+## 0.8.0 — 21/08/2026
+
+### Sincronização local com a VEX Invest
+
+- Novo botão **CONECTAR VEX INVEST** abre o traderoom em Chrome/Edge com perfil exclusivo e conexão restrita ao próprio computador.
+- Login é feito diretamente no navegador; o aplicativo não coleta senha, cookies, saldo, campos digitados nem envia ordens.
+- Ativo, mercado, payout, expiração, preço e tempo restante são sincronizados somente quando aparecem visivelmente na plataforma.
+- As dez criptomoedas prioritárias e pares Forex são normalizados para os provedores públicos existentes.
+- Divergência de ativo/preço e mercados OTC são explicados antes de sugerir uma operação incompatível.
+
+### Cronômetro e qualidade da análise
+
+- Corrigido o relógio que reiniciava a cada atualização de candles ou notícias.
+- Quando conectada, a VEX fornece a contagem regressiva; sem conexão, o horário original do sinal é preservado.
+- Perfil equilibrado/confirmação e conservador recusam direção contrária ao timeframe superior e exigem confirmação independente de tendência/momentum/price action.
+- Fechamento contrário da vela é explicado; rejeições profissionais válidas continuam permitidas.
+- Força técnica sem IA treinada deixa de ser apresentada como probabilidade calibrada.
+- Layout aprovado, cartão de voz reduzido, Binance, Forex público, notícias, APIs e comportamento do modo rápido preservados.
+- 168 testes automatizados, incluindo 37 novos cenários dedicados à integração e à coerência dos sinais.
+
 ## 0.7.2 — 21/08/2026
 
 ### Ajuste pontual no cartão de voz da versão aprovada

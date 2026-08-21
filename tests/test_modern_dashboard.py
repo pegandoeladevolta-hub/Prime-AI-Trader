@@ -118,6 +118,7 @@ class ModernDashboardTests(unittest.TestCase):
             self.assertEqual(len(app.indicator_values), len(INDICATOR_LAYOUT))
             self.assertEqual(len(app.recent_signal_labels), 3)
             self.assertEqual(app.countdown_label.cget("text"), "--:--")
+            self.assertIn("CONECTAR VEX INVEST", app.vex_button.cget("text"))
             self.assertEqual(int(app.audio_icon.cget("width")), 42)
             self.assertEqual(int(app.audio_wave.cget("width")), 118)
             self.assertEqual(app.audio_card.master.grid_columnconfigure(2)["weight"], 2)

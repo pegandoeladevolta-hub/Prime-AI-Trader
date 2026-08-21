@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 0.7.2
+# Relatório de validação — PRIME AI TRADER 0.8.0
 
 Data: 21/08/2026
 
@@ -6,11 +6,15 @@ Data: 21/08/2026
 
 | Área | Verificação |
 |---|---|
-| Interface | Interface aprovada da versão 0.7.0 preservada, com redução exclusiva do cartão de alertas de voz para ampliar os demais cartões inferiores. |
-| Smoke test Windows | A interface completa é instanciada em Windows; alto-falante compacto, onda de áudio, indicadores, controles avançados e timeframes são conferidos. |
+| Interface | Interface aprovada da versão 0.7.0 preservada, incluindo cartão de voz compacto da 0.7.2 e botão opcional CONECTAR VEX INVEST. |
+| Smoke test Windows | A interface completa é instanciada em Windows; conexão VEX, alto-falante compacto, onda de áudio, indicadores, controles avançados e timeframes são conferidos. |
+| VEX Invest | Navegador dedicado, perfil separado, endpoint loopback e leitura somente de ativo, payout, preço, expiração e tempo visíveis. |
+| Privacidade | Sem leitura de senha, cookies, armazenamento local, saldo, campos digitados ou execução de ordens. |
+| Alinhamento | Divergência de ativo, mercado, preço público e ativos OTC recebe motivo explícito antes de qualquer sinal. |
+| Cronômetro | Usa relógio real visível na VEX ou criação original do sinal; atualizar gráfico/notícias não reinicia o vencimento. |
 | IA | Contexto completo, persistência por ativo e seleção por desempenho seletivo fora da amostra. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
-| Sinais | Tendência, pullback, rompimento/reteste, liquidez/rejeição, engolfo, timeframe superior e motivo explícito para aguardar. |
+| Sinais | Tendência, pullback, rompimento/reteste, liquidez/rejeição, engolfo, timeframe superior, fechamento coerente e famílias independentes de confirmação. |
 | Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; momentum, IA e volatilidade independentes. |
 | Áudio | Avisos não bloqueantes ficam silenciosos; leitura rápida em formação e sinais confirmados têm prioridade; bloqueios reais têm cooldown de 300 segundos. |
 | Backtest | Walk-forward, payout configurável, ponto de equilíbrio, expectativa e intervalo de confiança de Wilson. |
@@ -26,7 +30,7 @@ Data: 21/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **130 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **167 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -42,6 +46,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `0.7.2`.
+Identificador do candidato validado: `0.8.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 131 testes, incluindo a montagem completa da interface e a proporção compacta do cartão de voz, antes da publicação.
+O candidato Windows deve repetir obrigatoriamente os 168 testes, incluindo a montagem completa da interface, a proporção compacta do cartão de voz e a sincronização local segura da VEX, antes da publicação.

@@ -1,12 +1,18 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.7.2 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.8.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.7.2
+## Destaques da versão 0.8.0
 
-- Mantém exatamente a interface e o comportamento da versão 0.7.0 aprovada, alterando apenas o tamanho do cartão inferior de alertas de voz.
+- Novo botão **CONECTAR VEX INVEST**: abre o traderoom em perfil dedicado do Chrome/Edge; o usuário entra diretamente no navegador e não informa senha ao robô.
+- Sincroniza automaticamente ativo, mercado, payout, expiração e tempo restante quando esses campos estão visíveis no traderoom da VEX.
+- Compara o preço visível da VEX com a fonte pública e explica divergências reais; ativos OTC não são tratados como se fossem cotações públicas.
+- Corrige o cronômetro que reiniciava em atualizações do gráfico/notícias: usa o relógio visível da VEX ou o horário original do sinal.
+- Confirmações equilibradas/conservadoras verificam direção do timeframe superior, fechamento da vela e categorias independentes de confluência.
+- Sem modelo treinado, a interface mostra força técnica real em vez de apresentar pontuação de regras como probabilidade calibrada da IA.
+- Mantém a interface aprovada da versão 0.7.0, o cartão de voz compacto da 0.7.2 e os padrões equilibrado/confirmação.
 - Alto-falante e onda de áudio compactos liberam espaço para a explicação da IA e os últimos sinais; sensibilidade equilibrada e modo confirmação continuam intactos.
 - Nova interface PRIME AI TRADER baseada no painel premium solicitado: fundo preto profundo, cabeçalho com status, ações coloridas e três colunas organizadas.
 - Gráfico ampliado com atalhos de timeframe, cards compactos de indicadores e preservação integral das ferramentas de desenho/análise.
@@ -48,7 +54,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 
 ## Recursos
 
-- Interface nativa Tkinter, sem navegador ou servidor web local.
+- Interface nativa Tkinter; a conexão opcional com a VEX usa navegador local dedicado, perfil separado e comunicação restrita ao computador.
 - Binance Spot REST/WebSocket, Coinbase Exchange e Kraken para criptomoedas, sem chave.
 - Forex público sem chave, Twelve Data gratuita e Alpha Vantage gratuita opcional, com cache e controle de consumo.
 - GDELT e feeds RSS para notícias sem chave; calendário econômico público e Finnhub opcional.
@@ -64,6 +70,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Windows 10/11 x64.
 - 8 GB de RAM.
 - Internet para dados ao vivo.
+- Google Chrome ou Microsoft Edge para a sincronização opcional com a VEX Invest.
 - Python 3.11–3.13 somente para executar o código-fonte; o instalador final inclui o runtime.
 
 ## APIs
@@ -82,6 +89,16 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 | Finnhub | Calendário extra | Opcional | Nenhum |
 
 Por padrão, notícias, eventos e backtest fraco aparecem como avisos silenciosos na tela. O bloqueio automático de notícia/evento pode ser ativado no painel esquerdo; apenas um bloqueio realmente ativo pode gerar alerta de voz.
+
+## Sincronizar com a VEX Invest
+
+1. Abra o aplicativo e clique em **CONECTAR VEX INVEST**.
+2. O Chrome ou Edge abrirá `https://vexinvest.com/traderoom` em um perfil separado.
+3. Faça login normalmente somente nessa janela do navegador.
+4. Selecione o ativo e a operação na VEX; o robô identifica os campos visíveis e atualiza payout, mercado, ativo, expiração e cronômetro.
+5. Clique em **INICIAR ANÁLISE** e mantenha a janela dedicada da VEX aberta.
+
+A integração não usa senha digitada no robô, não lê cookies, saldo ou campos privados, não envia ordens e não representa uma API oficial da plataforma. Se um campo não estiver visível, ele não é inventado.
 
 ## Perfis de análise
 
@@ -122,7 +139,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.7.2 possui 131 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo atualização incremental, precisão cambial, proporção compacta do cartão de voz e montagem real da interface em Windows.
+A versão 0.8.0 possui 168 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo 37 cenários de sincronização segura com a VEX, cronômetro, divergências, OTC, confluências independentes e montagem real da interface em Windows.
 
 ## Dados locais
 
@@ -133,6 +150,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - `prime_ai_trader.db` — sinais e resultados;
 - `models\` — modelos e relatórios separados por contexto;
 - `logs\app.log` — logs rotativos.
+- `vex-browser\` — perfil opcional e separado do navegador usado para abrir a VEX.
 
 ## Limitações honestas
 
@@ -144,6 +162,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - O Forex é atualizado entre aproximadamente 60 e 120 segundos; o streaming contínuo é da Binance.
 - Coinbase/Kraken podem usar par USD como referência para o ativo USDT; compare o preço com o da plataforma.
 - Ativos OTC/sintéticos e preços internos de corretoras podem divergir das APIs públicas e não devem ser tratados como feeds equivalentes.
+- A sincronização VEX depende de login realizado pelo próprio usuário, Chrome/Edge aberto e textos efetivamente visíveis; alterações no site podem exigir ajuste de compatibilidade.
 - Backtest e desempenho passado não garantem resultado futuro.
 
 Consulte `docs/STRATEGY.md` para a lógica dos filtros e os limites da validação.

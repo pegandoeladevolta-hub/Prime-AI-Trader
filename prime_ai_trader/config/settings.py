@@ -38,6 +38,11 @@ class AppSettings:
     voice_alerts: bool = True
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
+    platform_sync_enabled: bool = False
+    platform_auto_asset: bool = True
+    platform_auto_payout: bool = True
+    platform_auto_horizon: bool = True
+    platform_block_mismatch: bool = True
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
         "swings": True, "trend": True, "signals": True,

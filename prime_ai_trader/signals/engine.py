@@ -258,6 +258,23 @@ class SignalEngine:
         dominance = points / max(points + opposite + 12, 1)
         return min(100, round(18 + points * 0.68 + min(reasons, 8) * 3 + dominance * 17))
 
+    @staticmethod
+    def _independent_confirmations(reasons: list[str]) -> set[str]:
+        categories: set[str] = set()
+        for reason in reasons:
+            text = reason.lower()
+            if any(word in text for word in ("ema", "estrutura", "hh/hl", "lh/ll", "vwap")):
+                categories.add("tendência")
+            if any(word in text for word in ("rsi", "macd", "momentum", "adx", "di", "estocástico")):
+                categories.add("momentum")
+            if any(word in text for word in ("rompimento", "reteste", "pullback", "liquidez", "rejeição", "engolfo", "fibonacci")):
+                categories.add("price action")
+            if "volume" in text:
+                categories.add("volume")
+            if "timeframe superior" in text:
+                categories.add("timeframe superior")
+        return categories
+
     def generate(self, indicators: pd.DataFrame, features: pd.DataFrame,
                  structure: MarketStructure, fib: FibonacciResult | None,
                  horizon_minutes: int, sensitivity: str, candle_closed: bool,
@@ -362,6 +379,25 @@ class SignalEngine:
             waiting.append("Volatilidade fora da faixa operacional")
         if overextended:
             waiting.append("Preço esticado; aguarde pullback ou reteste")
+        if mode == "CONFIRMAÇÃO" and not profile.early_reading:
+            against_higher = (
+                direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
+                or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
+            )
+            if against_higher:
+                waiting.append("Direção contraria a tendência confirmada no timeframe superior")
+            candle_delta = close_value - _number(last.get("open"), close_value)
+            meaningful_candle = atr_value <= 0 or abs(candle_delta) >= atr_value * 0.03
+            reversal_setup = "LIQUIDEZ" in setup_name
+            if meaningful_candle and direction_sign * candle_delta < 0 and not reversal_setup:
+                waiting.append("A última vela fechada não confirma a direção sugerida")
+            independent = self._independent_confirmations(confluences)
+            minimum_independent = 3 if profile.name == "CONSERVADOR" else 2
+            if len(independent) < minimum_independent:
+                waiting.append(
+                    f"Confirmações independentes insuficientes: "
+                    f"{len(independent)}/{minimum_independent}"
+                )
         if model_ready:
             if chosen < probability_floor:
                 waiting.append(
