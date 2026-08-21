@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import pandas as pd
 
@@ -10,11 +11,11 @@ from ..ml.models import ModelManager
 from ..priceaction.structure import MarketStructure
 
 
-# Perfil estável da v0.3.0. Mantém seleção suficiente para o backtest formar
-# uma amostra útil, sem abandonar a confirmação de tendência e probabilidade.
 THRESHOLDS = {"CONSERVADOR": 84, "EQUILIBRADO": 76, "RÁPIDO": 68}
 PROBABILITY_FLOORS = {"CONSERVADOR": 0.68, "EQUILIBRADO": 0.62, "RÁPIDO": 0.56}
-PROBABILITY_EDGES = {"CONSERVADOR": 0.16, "EQUILIBRADO": 0.14, "RÁPIDO": 0.12}
+PROBABILITY_EDGES = {"CONSERVADOR": 0.16, "EQUILIBRADO": 0.14, "RÁPIDO": 0.10}
+CONFLUENCE_MINIMUMS = {"CONSERVADOR": 5, "EQUILIBRADO": 4, "RÁPIDO": 3}
+MOMENTUM_MINIMUMS = {"CONSERVADOR": 3, "EQUILIBRADO": 3, "RÁPIDO": 2}
 
 
 @dataclass(slots=True)
@@ -23,6 +24,44 @@ class RuleAssessment:
     sell_points: int
     buy_reasons: list[str]
     sell_reasons: list[str]
+    buy_setup: str = "ANÁLISE EM FORMAÇÃO"
+    sell_setup: str = "ANÁLISE EM FORMAÇÃO"
+    higher_timeframe_bias: str = "INDEFINIDA"
+
+
+def _number(value, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _higher_timeframe_bias(indicators: pd.DataFrame) -> tuple[str, str]:
+    if len(indicators) < 80 or not isinstance(indicators.index, pd.DatetimeIndex):
+        return "INDEFINIDA", ""
+    spacing = indicators.index.to_series().diff().dropna().tail(80).median()
+    if pd.isna(spacing) or spacing.total_seconds() <= 0:
+        return "INDEFINIDA", ""
+    minutes = max(1, round(spacing.total_seconds() / 60))
+    target = {1: 5, 3: 15, 5: 15, 15: 60, 30: 120, 60: 240, 240: 1440}.get(minutes, minutes * 3)
+    frame = indicators[["open", "high", "low", "close", "volume"]].tail(600)
+    bars = frame.resample(f"{target}min").agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna()
+    bars = bars.iloc[:-1]
+    if len(bars) < 22:
+        return "INDEFINIDA", ""
+    fast = bars["close"].ewm(span=8, adjust=False).mean().iloc[-1]
+    slow = bars["close"].ewm(span=21, adjust=False).mean().iloc[-1]
+    close = float(bars["close"].iloc[-1])
+    label = f"{target // 60}h" if target >= 60 and target % 60 == 0 else f"{target}m"
+    if close > fast > slow:
+        return "ALTA", label
+    if close < fast < slow:
+        return "BAIXA", label
+    return "LATERAL", label
 
 
 class SignalEngine:
@@ -30,125 +69,281 @@ class SignalEngine:
         self.model_manager = model_manager
 
     @staticmethod
-    def assess_rules(indicators: pd.DataFrame, structure: MarketStructure, fib: FibonacciResult | None) -> RuleAssessment:
+    def assess_rules(indicators: pd.DataFrame, structure: MarketStructure,
+                     fib: FibonacciResult | None) -> RuleAssessment:
         last = indicators.iloc[-1]
-        buy, sell, buy_reasons, sell_reasons = 0, 0, [], []
-        if last["ema_9"] > last["ema_21"] > last["ema_50"]:
-            buy += 16; buy_reasons.append("EMAs 9/21/50 alinhadas para alta")
-        elif last["ema_9"] < last["ema_21"] < last["ema_50"]:
-            sell += 16; sell_reasons.append("EMAs 9/21/50 alinhadas para baixa")
-        if 52 <= last["rsi_14"] <= 68:
-            buy += 8; buy_reasons.append(f"RSI construtivo ({last['rsi_14']:.1f})")
-        elif 32 <= last["rsi_14"] <= 48:
-            sell += 8; sell_reasons.append(f"RSI enfraquecido ({last['rsi_14']:.1f})")
-        if last["macd_hist"] > 0:
-            buy += 6; buy_reasons.append("MACD acima da linha de sinal")
-            if len(indicators) >= 2 and last["macd_hist"] > indicators["macd_hist"].iloc[-2]:
-                buy += 4; buy_reasons.append("Momentum comprador acelerando")
-        elif last["macd_hist"] < 0:
-            sell += 6; sell_reasons.append("MACD abaixo da linha de sinal")
-            if len(indicators) >= 2 and last["macd_hist"] < indicators["macd_hist"].iloc[-2]:
-                sell += 4; sell_reasons.append("Momentum vendedor acelerando")
-        if pd.notna(last["adx_14"]) and last["adx_14"] >= 22:
-            if last["plus_di"] > last["minus_di"]:
-                buy += 12; buy_reasons.append(f"ADX confirma força compradora ({last['adx_14']:.1f})")
-            else:
-                sell += 12; sell_reasons.append(f"ADX confirma força vendedora ({last['adx_14']:.1f})")
-        if pd.notna(last["vwap"]):
-            if last["close"] > last["vwap"]:
+        previous = indicators.iloc[-2] if len(indicators) >= 2 else last
+        buy = sell = 0
+        buy_reasons: list[str] = []
+        sell_reasons: list[str] = []
+        buy_setup = sell_setup = "CONTINUIDADE DE TENDÊNCIA"
+        close = _number(last.get("close"))
+        opened = _number(last.get("open"))
+        ema_9 = _number(last.get("ema_9"), close)
+        ema_21 = _number(last.get("ema_21"), close)
+        ema_50 = _number(last.get("ema_50"), close)
+        atr = _number(last.get("atr_14"))
+        rsi = _number(last.get("rsi_14"), 50.0)
+        macd_hist = _number(last.get("macd_hist"))
+        previous_macd = _number(previous.get("macd_hist"))
+        adx = _number(last.get("adx_14"))
+        plus_di = _number(last.get("plus_di"))
+        minus_di = _number(last.get("minus_di"))
+        close_position = _number(last.get("close_position"), 0.5)
+        body = _number(last.get("body"), abs(close - opened))
+
+        if ema_9 > ema_21 > ema_50:
+            buy += 18; buy_reasons.append("EMAs 9/21/50 alinhadas para alta")
+        elif ema_9 < ema_21 < ema_50:
+            sell += 18; sell_reasons.append("EMAs 9/21/50 alinhadas para baixa")
+        elif ema_9 > ema_21:
+            buy += 8; buy_reasons.append("EMA 9 acima da EMA 21")
+        elif ema_9 < ema_21:
+            sell += 8; sell_reasons.append("EMA 9 abaixo da EMA 21")
+
+        if 51 <= rsi <= 72:
+            buy += 10; buy_reasons.append(f"RSI comprador sem excesso ({rsi:.1f})")
+        elif 28 <= rsi <= 49:
+            sell += 10; sell_reasons.append(f"RSI vendedor sem excesso ({rsi:.1f})")
+
+        if macd_hist > 0:
+            buy += 9; buy_reasons.append("MACD acima da linha de sinal")
+            if macd_hist > previous_macd:
+                buy += 6; buy_reasons.append("Momentum comprador acelerando")
+        elif macd_hist < 0:
+            sell += 9; sell_reasons.append("MACD abaixo da linha de sinal")
+            if macd_hist < previous_macd:
+                sell += 6; sell_reasons.append("Momentum vendedor acelerando")
+
+        if adx >= 18:
+            strength = 13 if adx >= 23 else 8
+            if plus_di > minus_di:
+                buy += strength; buy_reasons.append(f"ADX/+DI confirma força compradora ({adx:.1f})")
+            elif minus_di > plus_di:
+                sell += strength; sell_reasons.append(f"ADX/-DI confirma força vendedora ({adx:.1f})")
+
+        vwap = _number(last.get("vwap"))
+        if vwap > 0:
+            if close > vwap:
                 buy += 7; buy_reasons.append("Preço acima da VWAP")
-            else:
+            elif close < vwap:
                 sell += 7; sell_reasons.append("Preço abaixo da VWAP")
-        if pd.notna(last["volume_relative"]) and last["volume_relative"] >= 1.2:
-            if last["close"] >= last["open"]:
-                buy += 8; buy_reasons.append(f"Volume relativo {last['volume_relative']:.2f}x")
+
+        volume_relative = _number(last.get("volume_relative"))
+        if volume_relative >= 1.15:
+            if close >= opened:
+                buy += 9; buy_reasons.append(f"Volume comprador {volume_relative:.2f}x")
             else:
-                sell += 8; sell_reasons.append(f"Volume relativo {last['volume_relative']:.2f}x")
+                sell += 9; sell_reasons.append(f"Volume vendedor {volume_relative:.2f}x")
+
+        stoch_k = _number(last.get("stoch_k"), 50)
+        stoch_d = _number(last.get("stoch_d"), 50)
+        if 20 <= stoch_k <= 82 and stoch_k > stoch_d and ema_9 >= ema_21:
+            buy += 6; buy_reasons.append("Estocástico confirma continuação compradora")
+        elif 18 <= stoch_k <= 80 and stoch_k < stoch_d and ema_9 <= ema_21:
+            sell += 6; sell_reasons.append("Estocástico confirma continuação vendedora")
+
         if structure.trend == "ALTA":
-            buy += 15; buy_reasons.append("Estrutura HH/HL")
+            buy += 15; buy_reasons.append("Estrutura profissional HH/HL")
         elif structure.trend == "BAIXA":
-            sell += 15; sell_reasons.append("Estrutura LH/LL")
-        if structure.breakout == "ROMPIMENTO DE ALTA":
-            buy += 12; buy_reasons.append("Rompimento de resistência")
-        elif structure.breakout == "ROMPIMENTO DE BAIXA":
-            sell += 12; sell_reasons.append("Rompimento de suporte")
-        if structure.retest and structure.trend == "ALTA":
-            buy += 7; buy_reasons.append("Reteste confirmado na tendência de alta")
-        elif structure.retest and structure.trend == "BAIXA":
-            sell += 7; sell_reasons.append("Reteste confirmado na tendência de baixa")
+            sell += 15; sell_reasons.append("Estrutura profissional LH/LL")
+
+        higher_bias, higher_label = _higher_timeframe_bias(indicators)
+        if higher_bias == "ALTA":
+            buy += 10; buy_reasons.append(f"Timeframe superior {higher_label} alinhado para alta")
+        elif higher_bias == "BAIXA":
+            sell += 10; sell_reasons.append(f"Timeframe superior {higher_label} alinhado para baixa")
+
+        if structure.breakout == "ROMPIMENTO DE ALTA" and close_position >= 0.55:
+            buy += 14; buy_reasons.append("Rompimento de resistência com fechamento comprador")
+            buy_setup = "ROMPIMENTO + CONFIRMAÇÃO"
+        elif structure.breakout == "ROMPIMENTO DE BAIXA" and close_position <= 0.45:
+            sell += 14; sell_reasons.append("Rompimento de suporte com fechamento vendedor")
+            sell_setup = "ROMPIMENTO + CONFIRMAÇÃO"
+
+        if structure.retest and structure.trend == "ALTA" and close > opened:
+            buy += 12; buy_reasons.append("Reteste confirmado na tendência de alta")
+            buy_setup = "ROMPIMENTO + RETESTE"
+        elif structure.retest and structure.trend == "BAIXA" and close < opened:
+            sell += 12; sell_reasons.append("Reteste confirmado na tendência de baixa")
+            sell_setup = "ROMPIMENTO + RETESTE"
+
+        if atr > 0 and ema_9 >= ema_21 and _number(last.get("low")) <= ema_21 + atr * 0.40 and close > ema_21 and close > opened:
+            buy += 12; buy_reasons.append("Pullback na EMA 21 com rejeição compradora")
+            buy_setup = "PULLBACK DE TENDÊNCIA"
+        elif atr > 0 and ema_9 <= ema_21 and _number(last.get("high")) >= ema_21 - atr * 0.40 and close < ema_21 and close < opened:
+            sell += 12; sell_reasons.append("Pullback na EMA 21 com rejeição vendedora")
+            sell_setup = "PULLBACK DE TENDÊNCIA"
+
+        lower_wick = _number(last.get("lower_wick"))
+        upper_wick = _number(last.get("upper_wick"))
+        if structure.support_zones:
+            support = structure.support_zones[0]
+            if _number(last.get("low")) < support.low and close > support.midpoint and lower_wick > max(body * 1.2, atr * 0.18):
+                buy += 14; buy_reasons.append("Varredura de liquidez e rejeição no suporte")
+                buy_setup = "LIQUIDEZ + REJEIÇÃO"
+        if structure.resistance_zones:
+            resistance = structure.resistance_zones[0]
+            if _number(last.get("high")) > resistance.high and close < resistance.midpoint and upper_wick > max(body * 1.2, atr * 0.18):
+                sell += 14; sell_reasons.append("Varredura de liquidez e rejeição na resistência")
+                sell_setup = "LIQUIDEZ + REJEIÇÃO"
+
+        previous_open = _number(previous.get("open"))
+        previous_close = _number(previous.get("close"))
+        if previous_close < previous_open and close > opened and close >= previous_open and opened <= previous_close:
+            buy += 8; buy_reasons.append("Engolfo comprador confirmado")
+        elif previous_close > previous_open and close < opened and close <= previous_open and opened >= previous_close:
+            sell += 8; sell_reasons.append("Engolfo vendedor confirmado")
+
         if structure.false_breakout:
-            buy = max(0, buy - 8); sell = max(0, sell - 8)
+            if "LIQUIDEZ" not in buy_setup:
+                buy = max(0, buy - 7)
+            if "LIQUIDEZ" not in sell_setup:
+                sell = max(0, sell - 7)
+
         if fib and fib.distance_pct <= 0.35 and fib.nearest_ratio in {0.5, 0.618, 0.786}:
             if fib.direction == "IMPULSO DE ALTA":
-                buy += 7; buy_reasons.append(f"Confluência Fibonacci {fib.nearest_ratio * 100:.1f}%")
+                buy += 8; buy_reasons.append(f"Retração Fibonacci {fib.nearest_ratio * 100:.1f}%")
             else:
-                sell += 7; sell_reasons.append(f"Confluência Fibonacci {fib.nearest_ratio * 100:.1f}%")
-        return RuleAssessment(min(buy, 100), min(sell, 100), buy_reasons, sell_reasons)
+                sell += 8; sell_reasons.append(f"Retração Fibonacci {fib.nearest_ratio * 100:.1f}%")
 
-    def generate(self, indicators: pd.DataFrame, features: pd.DataFrame, structure: MarketStructure,
-                 fib: FibonacciResult | None, horizon_minutes: int, sensitivity: str,
-                 candle_closed: bool, blockers: list[str] | None = None, mode: str = "CONFIRMAÇÃO",
-                 model_context: dict[str, str | int] | None = None) -> Signal:
+        return RuleAssessment(
+            min(buy, 100), min(sell, 100), buy_reasons, sell_reasons,
+            buy_setup, sell_setup, higher_bias,
+        )
+
+    @staticmethod
+    def _technical_score(points: int, opposite: int, reasons: int) -> int:
+        if points <= 0:
+            return 0
+        dominance = points / max(points + opposite + 12, 1)
+        return min(100, round(18 + points * 0.68 + min(reasons, 8) * 3 + dominance * 17))
+
+    def generate(self, indicators: pd.DataFrame, features: pd.DataFrame,
+                 structure: MarketStructure, fib: FibonacciResult | None,
+                 horizon_minutes: int, sensitivity: str, candle_closed: bool,
+                 blockers: list[str] | None = None, mode: str = "CONFIRMAÇÃO",
+                 model_context: dict[str, str | int] | None = None,
+                 payout_percent: int = 80) -> Signal:
+        payout = min(max(int(payout_percent or 80), 1), 200)
+        break_even = 1 / (1 + payout / 100)
         blockers = blockers or []
         if blockers:
-            return Signal(Direction.WAIT, SignalState.BLOCKED, 0, {"COMPRA": 0, "VENDA": 0, "AGUARDAR": 1}, None, horizon_minutes, blockers=blockers)
+            return Signal(
+                Direction.WAIT, SignalState.BLOCKED, 0,
+                {"COMPRA": 0, "VENDA": 0, "AGUARDAR": 1}, None,
+                horizon_minutes, blockers=blockers,
+                payout_percent=payout, break_even_rate=break_even,
+            )
+
         rules = self.assess_rules(indicators, structure, fib)
-        probabilities = {"COMPRA": 0.0, "VENDA": 0.0, "AGUARDAR": 0.0}
+        technical_buy = self._technical_score(rules.buy_points, rules.sell_points, len(rules.buy_reasons))
+        technical_sell = self._technical_score(rules.sell_points, rules.buy_points, len(rules.sell_reasons))
         model_ready = self.model_manager.is_compatible(model_context)
         if model_ready:
             raw = self.model_manager.predict_proba(features)
-            probabilities = {"COMPRA": raw.get(1, 0.0), "VENDA": raw.get(-1, 0.0), "AGUARDAR": raw.get(0, 0.0)}
-            model_weight = {"PRICE ACTION": 0.40, "CONFIRMAÇÃO": 0.65, "QUANTITATIVO": 0.80}.get(mode, 0.65)
-            rule_weight = 1 - model_weight
-            buy_score = round(100 * (model_weight * probabilities["COMPRA"] + rule_weight * rules.buy_points / 100))
-            sell_score = round(100 * (model_weight * probabilities["VENDA"] + rule_weight * rules.sell_points / 100))
+            probabilities = {
+                "COMPRA": raw.get(1, 0.0), "VENDA": raw.get(-1, 0.0),
+                "AGUARDAR": raw.get(0, 0.0),
+            }
+            model_weight = {"PRICE ACTION": 0.30, "CONFIRMAÇÃO": 0.45,
+                            "QUANTITATIVO": 0.65}.get(mode, 0.45)
+            buy_agreement = 7 if probabilities["COMPRA"] > probabilities["VENDA"] and technical_buy >= 60 else 0
+            sell_agreement = 7 if probabilities["VENDA"] > probabilities["COMPRA"] and technical_sell >= 60 else 0
+            buy_score = min(100, round(model_weight * probabilities["COMPRA"] * 100 +
+                                      (1 - model_weight) * technical_buy + buy_agreement))
+            sell_score = min(100, round(model_weight * probabilities["VENDA"] * 100 +
+                                       (1 - model_weight) * technical_sell + sell_agreement))
             model_version = self.model_manager.report.version
         else:
-            buy_score, sell_score = rules.buy_points, rules.sell_points
-            total = max(buy_score + sell_score + 30, 1)
-            probabilities = {"COMPRA": buy_score / total, "VENDA": sell_score / total, "AGUARDAR": 30 / total}
-            model_version = "rules-v1"
+            buy_score, sell_score = technical_buy, technical_sell
+            total = max(rules.buy_points + rules.sell_points + 40, 1)
+            probabilities = {
+                "COMPRA": (rules.buy_points + 10) / total,
+                "VENDA": (rules.sell_points + 10) / total,
+                "AGUARDAR": 20 / total,
+            }
+            model_version = "rules-professional-v2"
+
         sensitivity_key = sensitivity.upper()
         threshold = THRESHOLDS.get(sensitivity_key, 76)
         if buy_score >= sell_score:
             direction, score, confluences = Direction.BUY, buy_score, rules.buy_reasons
+            technical_score, setup_name = technical_buy, rules.buy_setup
         else:
             direction, score, confluences = Direction.SELL, sell_score, rules.sell_reasons
+            technical_score, setup_name = technical_sell, rules.sell_setup
+
         last = indicators.iloc[-1]
-        score_gap = abs(buy_score - sell_score)
         direction_sign = 1 if direction == Direction.BUY else -1
         momentum_votes = (
-            direction_sign * float(last.get("ema_9", 0) - last.get("ema_21", 0)) > 0,
-            direction_sign * float(last.get("macd_hist", 0) or 0) > 0,
-            direction_sign * float((last.get("plus_di", 0) or 0) - (last.get("minus_di", 0) or 0)) > 0,
+            direction_sign * (_number(last.get("ema_9")) - _number(last.get("ema_21"))) > 0,
+            direction_sign * _number(last.get("macd_hist")) > 0,
+            direction_sign * (_number(last.get("plus_di")) - _number(last.get("minus_di"))) > 0,
             structure.trend != ("BAIXA" if direction == Direction.BUY else "ALTA"),
         )
-        weak_regime = pd.notna(last.get("adx_14")) and float(last["adx_14"]) < 18 and not structure.breakout
-        atr_value = float(last.get("atr_14")) if pd.notna(last.get("atr_14")) else 0.0
-        close_value = float(last.get("close"))
-        ema_21 = float(last.get("ema_21")) if pd.notna(last.get("ema_21")) else close_value
-        overextended = atr_value > 0 and abs(close_value - ema_21) > 2.2 * atr_value
+        adx = _number(last.get("adx_14"))
+        min_adx = {"RÁPIDO": 14, "EQUILIBRADO": 17, "CONSERVADOR": 20}.get(sensitivity_key, 17)
+        weak_regime = adx > 0 and adx < min_adx and not structure.breakout
+        atr_value = _number(last.get("atr_14"))
+        close_value = _number(last.get("close"))
+        ema_21 = _number(last.get("ema_21"), close_value)
+        extension_limit = {"RÁPIDO": 2.8, "EQUILIBRADO": 2.35,
+                           "CONSERVADOR": 2.0}.get(sensitivity_key, 2.35)
+        overextended = atr_value > 0 and abs(close_value - ema_21) > extension_limit * atr_value
         feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
-        atr_regime_value = feature_row.get("atr_regime")
-        # Somente regimes realmente extremos são rejeitados. A faixa anterior
-        # era estreita demais e reduzia o backtest a poucas operações.
-        volatility_ok = pd.isna(atr_regime_value) or 0.40 <= float(atr_regime_value) <= 3.00
-        probability_ok = True
+        atr_regime = feature_row.get("atr_regime")
+        volatility_ok = pd.isna(atr_regime) or 0.35 <= _number(atr_regime) <= 3.2
+        required_confluences = CONFLUENCE_MINIMUMS.get(sensitivity_key, 4)
+        required_momentum = MOMENTUM_MINIMUMS.get(sensitivity_key, 3)
+        required_gap = {"RÁPIDO": 8, "EQUILIBRADO": 12,
+                        "CONSERVADOR": 16}.get(sensitivity_key, 12)
+
+        chosen = probabilities.get(direction.value, 0.0)
+        opposite = probabilities.get(Direction.SELL.value if direction == Direction.BUY else Direction.BUY.value, 0.0)
+        payout_margin = {"RÁPIDO": 0.005, "EQUILIBRADO": 0.025,
+                         "CONSERVADOR": 0.05}.get(sensitivity_key, 0.025)
+        probability_floor = max(PROBABILITY_FLOORS.get(sensitivity_key, 0.62),
+                                break_even + payout_margin)
+        expected_value = chosen * payout / 100 - (1 - chosen)
+
+        waiting: list[str] = []
+        if score < threshold:
+            waiting.append(f"Pontuação {score}/{threshold} para o modo {sensitivity_key.lower()}")
+        if abs(buy_score - sell_score) < required_gap:
+            waiting.append("Compra e venda ainda estão próximas; falta direção clara")
+        if len(confluences) < required_confluences:
+            waiting.append(f"Faltam confirmações: {len(confluences)}/{required_confluences}")
+        if sum(momentum_votes) < required_momentum:
+            waiting.append("Momentum e direção ainda não estão alinhados")
+        if weak_regime:
+            waiting.append(f"ADX {adx:.1f} indica tendência fraca para este perfil")
+        if not volatility_ok:
+            waiting.append("Volatilidade fora da faixa operacional")
+        if overextended:
+            waiting.append("Preço esticado; aguarde pullback ou reteste")
         if model_ready:
-            chosen = probabilities[direction.value]
-            opposite = probabilities[Direction.SELL.value if direction == Direction.BUY else Direction.BUY.value]
-            probability_ok = (
-                chosen >= PROBABILITY_FLOORS.get(sensitivity_key, 0.64)
-                and chosen - opposite >= PROBABILITY_EDGES.get(sensitivity_key, 0.16)
-            )
-        required_confluences = 4
-        required_momentum = 3
-        if (
-            score < threshold or score_gap < 12 or len(confluences) < required_confluences
-            or sum(momentum_votes) < required_momentum or weak_regime or not probability_ok
-            or not volatility_ok or overextended
-        ):
-            return Signal(Direction.WAIT, SignalState.WAITING, max(buy_score, sell_score), probabilities, None, horizon_minutes, confluences[:4], model_version=model_version)
+            if chosen < probability_floor:
+                waiting.append(
+                    f"IA indica {chosen * 100:.1f}%; mínimo {probability_floor * 100:.1f}% "
+                    f"para payout de {payout}%"
+                )
+            if chosen - opposite < PROBABILITY_EDGES.get(sensitivity_key, 0.14):
+                waiting.append("A previsão ainda não tem vantagem suficiente sobre o lado oposto")
+
+        kwargs = {
+            "confluences": confluences[:8],
+            "model_version": model_version,
+            "setup_name": setup_name,
+            "technical_score": technical_score,
+            "model_score": round(chosen * 100) if model_ready else None,
+            "payout_percent": payout,
+            "break_even_rate": break_even,
+            "expected_value": expected_value if model_ready else None,
+        }
+        if waiting:
+            return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,
+                          None, horizon_minutes, waiting_reasons=waiting[:4], **kwargs)
         state = SignalState.CONFIRMED if candle_closed else SignalState.FORMING
-        entry = float(indicators["close"].iloc[-1])
-        return Signal(direction, state, score, probabilities, entry, horizon_minutes, confluences[:6], model_version=model_version)
+        return Signal(direction, state, score, probabilities, close_value,
+                      horizon_minutes, **kwargs)

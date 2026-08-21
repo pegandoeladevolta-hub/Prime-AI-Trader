@@ -11,7 +11,7 @@ from .base import ProviderError
 def get_json(url: str, params: dict | None = None, timeout: float = 12.0) -> dict | list:
     if params:
         url = f"{url}?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "PrimeAITrader/0.4.1"})
+    request = Request(url, headers={"User-Agent": "PrimeAITrader/0.5.0", "Accept": "application/json"})
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -20,3 +20,20 @@ def get_json(url: str, params: dict | None = None, timeout: float = 12.0) -> dic
         raise ProviderError(f"API respondeu HTTP {exc.code}: {detail}") from exc
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise ProviderError(f"Falha de comunicação: {exc}") from exc
+
+
+def get_text(url: str, params: dict | None = None, timeout: float = 6.0) -> str:
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    request = Request(url, headers={
+        "User-Agent": "Mozilla/5.0 PrimeAITrader/0.5.0",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+    })
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:200]
+        raise ProviderError(f"Feed respondeu HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError, UnicodeError) as exc:
+        raise ProviderError(f"Falha ao consultar feed público: {exc}") from exc

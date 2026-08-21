@@ -1,5 +1,30 @@
 # Release notes
 
+## 0.5.0 — 20/08/2026
+
+### Fontes públicas e ativos da plataforma
+
+- Binance com hosts públicos alternativos, além de Coinbase Exchange e Kraken como fallback gratuito.
+- Forex pode iniciar sem chave pelo feed público; Twelve Data e Alpha Vantage são opcionais.
+- Frankfurter fornece referência cambial diária, explicitamente separada dos candles intraday.
+- Calendário econômico público com cache de uma hora; Finnhub opcional.
+- BTC, LTC, ADA, BNB, XRP, ETH, SOL, DOGE, SUI e XLM aparecem no início da lista e no radar.
+- Painel visível de notícias com atualização automática/manual, GDELT, Google Notícias e feeds RSS cripto/Forex.
+
+### Estratégias e validação
+
+- Setups de continuação, pullback na EMA 21, rompimento/reteste, liquidez/rejeição, engolfo e timeframe superior.
+- IA e leitura técnica combinadas sem esmagar artificialmente um cenário concordante.
+- Sensibilidades rápido, equilibrado e conservador possuem exigências distintas e mostram os motivos de AGUARDAR.
+- Pagamento da plataforma configurável; ponto de equilíbrio, expectativa e intervalo de Wilson aparecem na análise/backtest.
+- Histórico de treino/backtest ampliado para até 2.000 candles; novos sinais e resultados ao vivo alimentam o histórico.
+- Amostras pequenas deixaram de gerar aviso amarelo; apenas riscos efetivos permanecem destacados.
+- Schema de features atualizado com momentum, rejeição, breakout, contexto macro e sessão operacional.
+
+### Validação
+
+- 85 testes automatizados aprovados, incluindo provedores públicos, fallback, notícias, payout e gravação ao vivo.
+
 ## 0.4.1 — 20/08/2026
 
 Versão estável reconstruída a partir do comportamento da v0.3.0.

@@ -84,6 +84,14 @@ class Signal:
     model_version: str = "rules-v1"
     calibrated_rate: float | None = None
     calibrated_samples: int = 0
+    setup_name: str = "ANÁLISE EM FORMAÇÃO"
+    waiting_reasons: list[str] = field(default_factory=list)
+    validation_note: str = ""
+    technical_score: int = 0
+    model_score: int | None = None
+    payout_percent: int = 80
+    break_even_rate: float = 1 / 1.8
+    expected_value: float | None = None
 
 
 @dataclass(slots=True)
@@ -95,11 +103,22 @@ class HealthStatus:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+PLATFORM_CRYPTO_DEFAULTS = [
+    "BTC/USDT", "LTC/USDT", "ADA/USDT", "BNB/USDT", "XRP/USDT",
+    "ETH/USDT", "SOL/USDT", "DOGE/USDT", "SUI/USDT", "XLM/USDT",
+]
+
+CRYPTO_NAMES = {
+    "BTC": "Bitcoin", "LTC": "Litecoin", "ADA": "Cardano", "BNB": "BNB",
+    "XRP": "XRP", "ETH": "Ethereum", "SOL": "Solana", "DOGE": "Dogecoin",
+    "SUI": "Sui", "XLM": "Stellar", "TRX": "Tron", "AVAX": "Avalanche",
+    "LINK": "Chainlink", "DOT": "Polkadot", "BCH": "Bitcoin Cash",
+}
+
 CRYPTO_DEFAULTS = [
-    "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
-    "DOGE/USDT", "ADA/USDT", "TRX/USDT", "AVAX/USDT", "LINK/USDT",
-    "DOT/USDT", "LTC/USDT", "BCH/USDT", "SHIB/USDT", "PEPE/USDT",
-    "SUI/USDT", "NEAR/USDT", "AAVE/USDT", "UNI/USDT", "ICP/USDT",
+    *PLATFORM_CRYPTO_DEFAULTS,
+    "TRX/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "BCH/USDT",
+    "SHIB/USDT", "PEPE/USDT", "NEAR/USDT", "AAVE/USDT", "UNI/USDT", "ICP/USDT",
     "ETC/USDT", "ATOM/USDT", "FIL/USDT", "ARB/USDT", "OP/USDT",
     "INJ/USDT", "SEI/USDT", "FET/USDT", "RENDER/USDT", "WIF/USDT",
 ]

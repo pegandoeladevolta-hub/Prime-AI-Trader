@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,11 @@ class BacktestResult:
     validation_samples: int
     test_samples: int
     quality: str
+    payout_percent: int = 80
+    break_even_rate: float = 1 / 1.8
+    expected_value: float = 0.0
+    confidence_low: float = 0.0
+    confidence_high: float = 1.0
 
 
 def _longest(values: list[bool | None], target: bool) -> int:
@@ -40,15 +46,17 @@ def _longest(values: list[bool | None], target: bool) -> int:
     return best
 
 
-def _directional_confluence(row: pd.Series, prediction: int) -> bool:
+def _directional_confluence(row: pd.Series, prediction: int,
+                            sensitivity: str = "EQUILIBRADO") -> bool:
     """Filtra previsões isoladas que contradizem tendência e momentum."""
     if prediction not in {-1, 1}:
         return False
     adx = row.get("adx_14")
-    if pd.isna(adx) or float(adx) < 18:
+    min_adx = {"RÁPIDO": 14, "EQUILIBRADO": 17, "CONSERVADOR": 20}.get(sensitivity.upper(), 17)
+    if pd.isna(adx) or float(adx) < min_adx:
         return False
     atr_regime = row.get("atr_regime")
-    if pd.notna(atr_regime) and not 0.40 <= float(atr_regime) <= 3.00:
+    if pd.notna(atr_regime) and not 0.35 <= float(atr_regime) <= 3.20:
         return False
     sign = float(prediction)
     votes = (
@@ -58,13 +66,25 @@ def _directional_confluence(row: pd.Series, prediction: int) -> bool:
         sign * (float(row.get("plus_di", 0) or 0) - float(row.get("minus_di", 0) or 0)) > 0,
         sign * float(row.get("trend_code", 0) or 0) >= 0,
     )
-    return sum(votes) >= 3
+    minimum = 2 if sensitivity.upper() == "RÁPIDO" else 3
+    return sum(votes) >= minimum
+
+
+def _wilson_interval(wins: int, samples: int, z: float = 1.96) -> tuple[float, float]:
+    if samples <= 0:
+        return 0.0, 1.0
+    rate = wins / samples
+    denominator = 1 + z * z / samples
+    center = rate + z * z / (2 * samples)
+    margin = z * math.sqrt((rate * (1 - rate) + z * z / (4 * samples)) / samples)
+    return max(0.0, (center - margin) / denominator), min(1.0, (center + margin) / denominator)
 
 
 class BacktestEngine:
     def run(self, features: pd.DataFrame, labels: pd.Series, model_name: str = "Logistic Regression",
             confidence_threshold: float = 0.58, probability_edge: float = 0.12,
-            purge_size: int = 0) -> BacktestResult:
+            purge_size: int = 0, sensitivity: str = "EQUILIBRADO",
+            payout_percent: int = 80) -> BacktestResult:
         x, y = align_supervised_data(features, labels)
         if len(x) < 130:
             raise ValueError("Histórico insuficiente para backtest walk-forward.")
@@ -92,7 +112,9 @@ class BacktestEngine:
                 opposite_position = class_positions.get(-int(prediction))
                 opposite_probability = float(proba[row_position, opposite_position]) if opposite_position is not None else 0.0
                 probability_edges.append(float(fold_confidence[row_position]) - opposite_probability)
-                confluences.append(_directional_confluence(fold_rows.iloc[row_position], int(prediction)))
+                confluences.append(_directional_confluence(
+                    fold_rows.iloc[row_position], int(prediction), sensitivity,
+                ))
             predictions.extend(int(v) for v in fold_predictions)
             truths.extend(int(v) for v in y.iloc[test_idx])
             confidences.extend(float(v) for v in fold_confidence)
@@ -111,7 +133,16 @@ class BacktestEngine:
         losses = len(directional) - wins
         draws = len(active) - len(directional)
         accuracy = wins / len(directional) if directional else 0.0
-        quality = "AMOSTRA INSUFICIENT" if len(directional) < 20 else "FORTE" if accuracy >= 0.62 else "MODERADA" if accuracy >= 0.55 else "FRACA"
+        payout = min(max(int(payout_percent or 80), 1), 200)
+        break_even = 1 / (1 + payout / 100)
+        expected_value = accuracy * payout / 100 - (1 - accuracy) if directional else 0.0
+        confidence_low, confidence_high = _wilson_interval(wins, len(directional))
+        quality = (
+            "AMOSTRA EM FORMAÇÃO" if len(directional) < 20
+            else "FRACA" if accuracy <= break_even
+            else "FORTE" if accuracy >= break_even + 0.08
+            else "MODERADA"
+        )
         matrix = confusion_matrix(truths, predictions, labels=[-1, 0, 1]).tolist()
         unique_days = max(len({timestamp.date() for timestamp in timestamps}), 1)
         by_hour: dict[int, dict[str, float]] = {}
@@ -133,4 +164,5 @@ class BacktestEngine:
             len(active) / len(predictions) if predictions else 0.0, matrix,
             _longest(outcomes, True), _longest(outcomes, False), len(active) / unique_days,
             by_hour, len(first_train), validation, len(last_test), quality,
+            payout, break_even, expected_value, confidence_low, confidence_high,
         )

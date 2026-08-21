@@ -22,17 +22,18 @@ def centered_window(parent, title: str, size: str) -> tk.Toplevel:
 
 class ApiSettingsDialog:
     FIELDS = [
-        ("twelve_data_key", "Twelve Data API Key", "Chave gratuita para Forex. O plano Basic oferece cota diária e não exige assinatura paga."),
-        ("finnhub_key", "Finnhub API Key", "Totalmente opcional. Pode deixar vazio; isso nunca bloqueia criptomoedas nem Forex."),
+        ("twelve_data_key", "Twelve Data API Key", "Opcional. Melhora o Forex; o plano gratuito oferece 8 créditos/minuto e 800 por dia."),
+        ("alpha_vantage_key", "Alpha Vantage API Key", "Opcional. Fonte gratuita extra de Forex quando a chave estiver disponível."),
+        ("finnhub_key", "Finnhub API Key", "Opcional. Complementa o calendário econômico público sem bloquear o aplicativo."),
     ]
 
     def __init__(self, parent, values: dict[str, str], on_save) -> None:
-        self.window = centered_window(parent, "Configurações de APIs", "620x430")
+        self.window = centered_window(parent, "Configurações de APIs", "650x540")
         panel = ttk.Frame(self.window, style="Panel.TFrame", padding=22)
         panel.pack(fill="both", expand=True, padx=14, pady=14)
         ttk.Label(panel, text="CHAVES DE API", style="Panel.TLabel", font=("Segoe UI Semibold", 14)).pack(anchor="w")
         ttk.Label(panel, text="As chaves são protegidas pelo Windows DPAPI e nunca ficam no código-fonte.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(4, 18))
-        ttk.Label(panel, text="Binance (cripto) e GDELT (notícias) funcionam sem chave. Forex usa uma chave gratuita da Twelve Data.", style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(0, 8))
+        ttk.Label(panel, text="Binance, Coinbase, Kraken, Forex público, notícias e calendário funcionam sem chave. As chaves abaixo são opcionais.", style="Muted.TLabel", wraplength=565).pack(anchor="w", pady=(0, 8))
         self.variables = {}
         for key, label, help_text in self.FIELDS:
             ttk.Label(panel, text=label, style="Panel.TLabel").pack(anchor="w", pady=(7, 3))
@@ -65,8 +66,8 @@ class BacktestDialog:
         values = [
             ("OPERAÇÕES", str(result.operations)), ("WIN", str(result.wins)), ("LOSS", str(result.losses)),
             ("DRAW", str(result.draws)), ("ACERTO DIRECIONAL", f"{result.accuracy * 100:.2f}%" if result.directional_operations else "SEM AMOSTRA"),
-            ("QUALIDADE", result.quality), ("COBERTURA", f"{result.coverage * 100:.2f}%"),
-            ("OP. DIRECIONAIS", str(result.directional_operations)), ("SINAIS/DIA", f"{result.signals_per_day:.2f}"),
+            ("QUALIDADE", result.quality), ("PONTO DE EQUILÍBRIO", f"{result.break_even_rate * 100:.2f}%"),
+            ("OP. DIRECIONAIS", str(result.directional_operations)), ("EXPECTATIVA", f"{result.expected_value * 100:+.2f}%"),
         ]
         for index, (label, value) in enumerate(values):
             card = ttk.Frame(metrics, style="Card.TFrame", padding=12)
@@ -83,8 +84,13 @@ class BacktestDialog:
             detail.insert("end", f"{label:<10} {row[0]:>6} {row[1]:>9} {row[2]:>7}\n")
         detail.insert("end", f"\nSeparação temporal\nTRAIN: {result.train_samples} amostras\nVALIDATION: {result.validation_samples} amostras\nTEST: {result.test_samples} amostras\n")
         detail.insert("end", f"\nDRAW: {result.draw_rate * 100:.2f}% das operações • sequência WIN {result.longest_win_streak} • sequência LOSS {result.longest_loss_streak}\n")
-        if result.quality in {"FRACA", "AMOSTRA INSUFICIENT"}:
-            if result.quality == "AMOSTRA INSUFICIENT":
+        detail.insert(
+            "end",
+            f"PAYOUT: {result.payout_percent}% • equilíbrio: {result.break_even_rate * 100:.2f}% "
+            f"• intervalo de confiança: {result.confidence_low * 100:.1f}% a {result.confidence_high * 100:.1f}%\n",
+        )
+        if result.quality in {"FRACA", "AMOSTRA INSUFICIENT", "AMOSTRA EM FORMAÇÃO"}:
+            if result.quality in {"AMOSTRA INSUFICIENT", "AMOSTRA EM FORMAÇÃO"}:
                 detail.insert(
                     "end",
                     f"AMOSTRA EM COLETA: existem {result.directional_operations} operações direcionais; "

@@ -6,6 +6,7 @@ import math
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,16 +15,20 @@ import pandas as pd
 
 from ..backtest.engine import BacktestEngine, BacktestResult
 from ..config.settings import AppSettings, SecretStore, SettingsStore, app_data_dir
-from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Candle, Direction, HealthStatus, Market, Signal, SignalState
+from ..core.models import (
+    CRYPTO_DEFAULTS, FOREX_DEFAULTS, PLATFORM_CRYPTO_DEFAULTS, Candle,
+    Direction, HealthStatus, Market, Signal, SignalState,
+)
 from ..crypto.binance import BinanceSpotProvider
+from ..crypto.public import ResilientCryptoProvider
 from ..database.repository import Repository
-from ..economic_calendar.finnhub import EconomicEvent, FinnhubEconomicCalendar
+from ..economic_calendar.finnhub import EconomicEvent, ResilientEconomicCalendar
 from ..features.builder import FEATURE_SCHEMA_VERSION, build_features, build_labels, build_time_labels
 from ..fibonacci.auto import FibonacciResult, automatic_fibonacci
-from ..forex.twelve_data import TwelveDataProvider
+from ..forex.public import ResilientForexProvider
 from ..indicators.technical import calculate_all, candles_frame
 from ..ml.models import ModelManager, TrainingReport, purge_size_from_context
-from ..news.provider import GdeltNewsProvider, NewsItem
+from ..news.provider import CompositeNewsProvider, NewsItem, market_news_query
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
 from ..signals.engine import PROBABILITY_EDGES, PROBABILITY_FLOORS, SignalEngine
@@ -43,6 +48,8 @@ class AnalysisSnapshot:
     timeframe: str
     market: str
     generated_at: datetime
+    data_source: str = ""
+    forex_reference_rate: float | None = None
 
 
 class TradingController:
@@ -53,14 +60,18 @@ class TradingController:
         self.settings = self.settings_store.load()
         self.secrets = self.secret_store.load()
         self.binance = BinanceSpotProvider()
-        self.forex = TwelveDataProvider(self.secrets.get("twelve_data_key", ""))
+        self.crypto = ResilientCryptoProvider(self.binance)
+        self.forex = ResilientForexProvider(
+            self.secrets.get("twelve_data_key", ""),
+            self.secrets.get("alpha_vantage_key", ""),
+        )
         self.model_manager = ModelManager()
         self.signal_engine = SignalEngine(self.model_manager)
         self.backtest_engine = BacktestEngine()
         self.radar_engine = RadarEngine()
         self.repository = Repository()
-        self.news_provider = GdeltNewsProvider()
-        self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
+        self.news_provider = CompositeNewsProvider()
+        self.calendar_provider = ResilientEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.snapshot: AnalysisSnapshot | None = None
         self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
         self._quality_gate: dict[tuple[str, str, str, int], BacktestResult] = {}
@@ -75,12 +86,15 @@ class TradingController:
     def save_secrets(self, values: dict[str, str]) -> None:
         self.secrets.update(values)
         self.secret_store.save(self.secrets)
-        self.forex = TwelveDataProvider(self.secrets.get("twelve_data_key", ""))
-        self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
+        self.forex = ResilientForexProvider(
+            self.secrets.get("twelve_data_key", ""),
+            self.secrets.get("alpha_vantage_key", ""),
+        )
+        self.calendar_provider = ResilientEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.logger.info("Chaves de API atualizadas com armazenamento protegido")
 
     def provider(self):
-        return self.binance if self.settings.market == Market.CRYPTO.value else self.forex
+        return self.crypto if self.settings.market == Market.CRYPTO.value else self.forex
 
     def symbol(self) -> str:
         return self.settings.crypto_symbol if self.settings.market == Market.CRYPTO.value else self.settings.forex_symbol
@@ -105,6 +119,9 @@ class TradingController:
 
     def refresh_symbols(self) -> list[str]:
         symbols = self.provider().list_symbols()
+        if self.settings.market == Market.CRYPTO.value and symbols:
+            priority = [symbol for symbol in PLATFORM_CRYPTO_DEFAULTS if symbol in symbols]
+            return priority + [symbol for symbol in symbols if symbol not in priority]
         return symbols or self.symbols()
 
     @staticmethod
@@ -116,11 +133,12 @@ class TradingController:
         timeframe = self.settings.timeframe
         horizon_minutes = self.settings.horizon_minutes
         sensitivity = self.settings.sensitivity
+        payout_percent = self.settings.payout_percent
         mode = self.settings.mode
         high_impact_block_minutes = self.settings.high_impact_block_minutes
         strict_risk_blocks = self.settings.strict_risk_blocks
         symbol = self.settings.crypto_symbol if market == Market.CRYPTO.value else self.settings.forex_symbol
-        provider = self.binance if market == Market.CRYPTO.value else self.forex
+        provider = self.crypto if market == Market.CRYPTO.value else self.forex
         context = {
             "market": market, "symbol": symbol, "timeframe": timeframe,
             "horizon_minutes": horizon_minutes, "feature_schema": FEATURE_SCHEMA_VERSION,
@@ -139,32 +157,53 @@ class TradingController:
         calendar_events: list[EconomicEvent] = []
         blockers: list[str] = []
         warnings: list[str] = []
-        try:
-            query = symbol.split("/")[0] if market == Market.CRYPTO.value else " OR ".join(symbol.split("/"))
-            news = self.news_provider.fetch(query, limit=12)
-            recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
-            risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
-            if risky:
-                message = f"Notícia de alto risco: {risky[0].title[:90]}"
-                (blockers if strict_risk_blocks else warnings).append(message)
-        except Exception as exc:
-            self.logger.warning("Notícias indisponíveis: %s", exc)
-        if market == Market.FOREX.value and self.secrets.get("finnhub_key"):
-            try:
-                today = datetime.now(timezone.utc).date()
-                calendar_events = self.calendar_provider.fetch(today, today + timedelta(days=1))
-                event = self.calendar_provider.blocking_event(
-                    calendar_events, datetime.now(timezone.utc), high_impact_block_minutes,
-                    tuple(symbol.split("/")),
+        reference_rate = None
+        query = market_news_query(symbol, market)
+        if market == Market.FOREX.value:
+            today = datetime.now(timezone.utc).date()
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="prime-context") as executor:
+                news_job = executor.submit(self.news_provider.fetch, query, 12)
+                calendar_job = executor.submit(
+                    self.calendar_provider.fetch, today, today + timedelta(days=1),
                 )
-                if event:
-                    message = f"Evento de alto impacto: {event.event} ({event.currency})"
-                    (blockers if strict_risk_blocks else warnings).append(message)
+                reference_job = executor.submit(self.forex.reference.fetch_reference_rate, symbol)
+                try:
+                    news = news_job.result()
+                except Exception as exc:
+                    self.logger.warning("Notícias indisponíveis: %s", exc)
+                try:
+                    calendar_events = calendar_job.result()
+                except Exception as exc:
+                    self.logger.warning("Calendário econômico público indisponível: %s", exc)
+                try:
+                    reference_rate = reference_job.result()
+                except Exception as exc:
+                    self.logger.info("Referência diária opcional indisponível: %s", exc)
+        else:
+            try:
+                news = self.news_provider.fetch(query, limit=12)
             except Exception as exc:
-                self.logger.warning("Calendário econômico indisponível: %s", exc)
+                self.logger.warning("Notícias indisponíveis: %s", exc)
+
+        recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
+        risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
+        if risky:
+            message = f"Notícia de alto risco: {risky[0].title[:90]}"
+            (blockers if strict_risk_blocks else warnings).append(message)
+        if market == Market.FOREX.value and calendar_events:
+            event = self.calendar_provider.blocking_event(
+                calendar_events, datetime.now(timezone.utc), high_impact_block_minutes,
+                tuple(symbol.split("/")),
+            )
+            if event:
+                message = f"Evento de alto impacto: {event.event} ({event.currency})"
+                (blockers if strict_risk_blocks else warnings).append(message)
+        if market == Market.CRYPTO.value and provider.last_warning:
+            warnings.append(provider.last_warning)
         signal = self.signal_engine.generate(
             indicators, features, structure, fibonacci, horizon_minutes,
             sensitivity, candles[-1].closed, blockers, mode, context,
+            payout_percent=payout_percent,
         )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
@@ -172,32 +211,47 @@ class TradingController:
             signal.score, market, symbol, timeframe, horizon_minutes, mode,
         )
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
-        snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal, news, calendar_events,
-                                    symbol, timeframe, market, datetime.now(timezone.utc))
+        snapshot = AnalysisSnapshot(
+            candles, indicators, features, structure, fibonacci, signal, news,
+            calendar_events, symbol, timeframe, market, datetime.now(timezone.utc),
+            provider.last_provider_name, reference_rate,
+        )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
-        if signal.state == SignalState.CONFIRMED and signal.direction != Direction.WAIT:
-            signature = (symbol, timeframe, candles[-1].open_time, signal.direction.value)
-            if signature != self._last_saved_signature:
-                last = indicators.iloc[-1]
-                values = {key: self._value(last.get(key)) for key in (
-                    "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di", "atr_14",
-                    "vwap", "obv", "cci_20", "williams_r", "volume_relative",
-                )}
-                self.repository.save_signal(signal, market, symbol, timeframe, values, mode)
-                self._last_saved_signature = signature
-                self.logger.info("Sinal salvo | %s %s score=%s", symbol, signal.direction.value, signal.score)
-        self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]))
+        self._record_signal(signal, market, symbol, timeframe, candles, indicators, mode)
+        self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         return snapshot
 
-    def _settle_pending(self, symbol: str, timeframe: str, current_price: float) -> None:
+    def _record_signal(self, signal: Signal, market: str, symbol: str,
+                       timeframe: str, candles: list[Candle],
+                       indicators: pd.DataFrame, mode: str) -> None:
+        if signal.state != SignalState.CONFIRMED or signal.direction == Direction.WAIT or not candles:
+            return
+        signature = (symbol, timeframe, candles[-1].open_time, signal.direction.value)
+        if signature == self._last_saved_signature:
+            return
+        last = indicators.iloc[-1]
+        values = {key: self._value(last.get(key)) for key in (
+            "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di",
+            "atr_14", "vwap", "obv", "cci_20", "williams_r", "volume_relative",
+        )}
+        self.repository.save_signal(signal, market, symbol, timeframe, values, mode)
+        self._last_saved_signature = signature
+        self.logger.info("Sinal salvo | %s %s score=%s setup=%s", symbol,
+                         signal.direction.value, signal.score, signal.setup_name)
+
+    def _settle_pending(self, symbol: str, timeframe: str, current_price: float,
+                        candles: list[Candle] | None = None) -> None:
         now = datetime.now(timezone.utc)
         for row in self.repository.pending(symbol, timeframe):
             created = datetime.fromisoformat(row["created_at"])
-            if now < created + timedelta(minutes=int(row["horizon_minutes"])):
+            expires_at = created + timedelta(minutes=int(row["horizon_minutes"]))
+            if now < expires_at:
                 continue
             entry = float(row["entry"])
-            move = (current_price - entry) / entry if entry else 0
+            expiry_candle = next((item for item in candles or [] if item.open_time >= expires_at), None)
+            exit_price = expiry_candle.open if expiry_candle is not None else current_price
+            move = (exit_price - entry) / entry if entry else 0
             signed = move if row["direction"] == "COMPRA" else -move
             try:
                 indicator_values = json.loads(row.get("indicators_json") or "{}")
@@ -205,10 +259,10 @@ class TradingController:
             except (TypeError, ValueError, json.JSONDecodeError):
                 atr_value = 0.0
             atr_pct = atr_value / entry if entry and atr_value > 0 else 0.0
-            market_floor = 0.0008 if row.get("market") == Market.CRYPTO.value else 0.00025
-            neutral_threshold = max(market_floor, atr_pct * 0.15)
+            market_floor = 0.00001 if row.get("market") == Market.CRYPTO.value else 0.000002
+            neutral_threshold = max(market_floor, atr_pct * 0.01)
             result = "DRAW" if abs(signed) < neutral_threshold else "WIN" if signed > 0 else "LOSS"
-            self.repository.set_result(int(row["id"]), current_price, result)
+            self.repository.set_result(int(row["id"]), exit_price, result)
 
     def merge_live_candle(self, candle: Candle) -> AnalysisSnapshot | None:
         if not self.snapshot:
@@ -246,8 +300,11 @@ class TradingController:
             if event:
                 message = f"Evento de alto impacto: {event.event} ({event.currency})"
                 (blockers if self.settings.strict_risk_blocks else warnings).append(message)
-        signal = self.signal_engine.generate(indicators, features, structure, fibonacci,
-            self.settings.horizon_minutes, self.settings.sensitivity, candle.closed, blockers, self.settings.mode, self.model_context())
+        signal = self.signal_engine.generate(
+            indicators, features, structure, fibonacci, self.settings.horizon_minutes,
+            self.settings.sensitivity, candle.closed, blockers, self.settings.mode,
+            self.model_context(), payout_percent=self.settings.payout_percent,
+        )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
@@ -256,14 +313,22 @@ class TradingController:
             signal.score, snapshot.market, snapshot.symbol, snapshot.timeframe,
             self.settings.horizon_minutes, self.settings.mode,
         )
-        self.snapshot = AnalysisSnapshot(candles, indicators, features, structure, fibonacci, signal,
-            snapshot.news, snapshot.calendar_events, snapshot.symbol, snapshot.timeframe, snapshot.market, datetime.now(timezone.utc))
+        self.snapshot = AnalysisSnapshot(
+            candles, indicators, features, structure, fibonacci, signal,
+            snapshot.news, snapshot.calendar_events, snapshot.symbol,
+            snapshot.timeframe, snapshot.market, datetime.now(timezone.utc),
+            snapshot.data_source, snapshot.forex_reference_rate,
+        )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
+        self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
+                            candles, indicators, self.settings.mode)
+        self._settle_pending(snapshot.symbol, snapshot.timeframe,
+                             float(indicators["close"].iloc[-1]), candles)
         return self.snapshot
 
     def train(self) -> TrainingReport:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1200:
-            self.analyze(limit=1500)
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1600:
+            self.analyze(limit=2000)
         assert self.snapshot is not None
         threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
@@ -275,8 +340,8 @@ class TradingController:
         return report
 
     def backtest(self) -> BacktestResult:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1200:
-            self.analyze(limit=1500)
+        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1600:
+            self.analyze(limit=2000)
         assert self.snapshot is not None
         threshold = self._label_threshold()
         labels = self._labels_for_horizon(threshold)
@@ -290,7 +355,8 @@ class TradingController:
             features = build_features(candles_frame(self.snapshot.candles))
         result = self.backtest_engine.run(
             features, labels, model_name, confidence, probability_edge,
-            purge_size_from_context(self.model_context()),
+            purge_size_from_context(self.model_context()), sensitivity,
+            self.settings.payout_percent,
         )
         gate_key = (self.snapshot.market, self.snapshot.symbol, self.snapshot.timeframe, self.settings.horizon_minutes)
         self._quality_gate[gate_key] = result
@@ -310,27 +376,48 @@ class TradingController:
         assert self.snapshot is not None
         median_atr = float(self.snapshot.indicators["atr_14"].median())
         median_price = float(self.snapshot.indicators["close"].median())
-        floor = 0.0004 if self.settings.market == Market.CRYPTO.value else 0.00020
-        return max((median_atr / median_price) * 0.35, floor)
+        floor = 0.00008 if self.settings.market == Market.CRYPTO.value else 0.000015
+        factor = 0.12 if self.settings.horizon_minutes <= 3 else 0.18
+        return max((median_atr / median_price) * factor, floor)
 
     def _apply_quality_gate(self, signal: Signal, market: str, symbol: str, timeframe: str,
                             horizon_minutes: int) -> Signal:
         result = self._quality_gate.get((market, symbol, timeframe, horizon_minutes))
-        if not result or result.quality not in {"FRACA", "AMOSTRA INSUFICIENT"}:
+        if not result:
             return signal
-        if result.quality == "AMOSTRA INSUFICIENT":
-            reason = (
-                f"Backtest em coleta: {result.directional_operations}/20 operações direcionais. "
-                f"Resultado parcial de {result.accuracy * 100:.1f}% ainda não é confiável e não bloqueia a análise"
+        if result.quality in {"AMOSTRA EM FORMAÇÃO", "AMOSTRA INSUFICIENT", "AMOSTRA INSUFICIENTE"}:
+            signal.validation_note = (
+                f"Backtest em formação: {result.directional_operations}/20 operações "
+                f"({result.accuracy * 100:.1f}% parcial). Não bloqueia entradas."
             )
+            return signal
+        if result.quality == "FRACA":
+            minimum = getattr(result, "break_even_rate", 1 / (1 + self.settings.payout_percent / 100))
+            reason = (
+                f"Backtest fora da amostra abaixo do equilíbrio: {result.accuracy * 100:.1f}% de acerto "
+                f"em {result.directional_operations} operações; payout exige {minimum * 100:.1f}%"
+            )
+            if reason not in signal.warnings:
+                signal.warnings.append(reason)
         else:
-            reason = (
-                f"Backtest fora da amostra fraco: {result.accuracy * 100:.1f}% de acerto "
-                f"em {result.directional_operations} operações; use cautela, sem bloqueio automático"
+            signal.validation_note = (
+                f"Backtest: {result.accuracy * 100:.1f}% em "
+                f"{result.directional_operations} operações fora da amostra."
             )
-        if reason not in signal.warnings:
-            signal.warnings.append(reason)
         return signal
+
+    def refresh_news(self, force: bool = False) -> AnalysisSnapshot | None:
+        if force:
+            self.news_provider.clear_cache()
+        query = market_news_query(self.symbol(), self.settings.market)
+        items = self.news_provider.fetch(query, limit=12)
+        if self.snapshot and self._snapshot_matches_settings():
+            self.snapshot.news = items
+            self.snapshot.generated_at = datetime.now(timezone.utc)
+            self._snapshot_cache[(self.settings.market, self.symbol(), self.settings.timeframe)] = (
+                time.monotonic(), self.snapshot,
+            )
+        return self.snapshot
 
     def _labels_for_horizon(self, threshold: float) -> pd.Series:
         assert self.snapshot is not None
@@ -358,8 +445,10 @@ class TradingController:
                 "Clique novamente para o próximo lote."
             )
         else:
-            selected = symbols
-            self.last_radar_note = f"{len(selected)} criptomoedas analisadas."
+            selected = [symbol for symbol in PLATFORM_CRYPTO_DEFAULTS if symbol in symbols]
+            self.last_radar_note = (
+                f"{len(selected)} criptomoedas aceitas pela sua plataforma analisadas."
+            )
         items = self.radar_engine.analyze(self.provider(), selected, self.settings.timeframe)
         self.logger.info("Radar concluído | ativos=%s", len(items))
         return items
@@ -391,9 +480,13 @@ class TradingController:
         self._last_saved_signature = None
         self.websocket_online = False
         self.binance = BinanceSpotProvider()
-        self.forex = TwelveDataProvider(self.secrets.get("twelve_data_key", ""))
-        self.news_provider = GdeltNewsProvider()
-        self.calendar_provider = FinnhubEconomicCalendar(self.secrets.get("finnhub_key", ""))
+        self.crypto = ResilientCryptoProvider(self.binance)
+        self.forex = ResilientForexProvider(
+            self.secrets.get("twelve_data_key", ""),
+            self.secrets.get("alpha_vantage_key", ""),
+        )
+        self.news_provider = CompositeNewsProvider()
+        self.calendar_provider = ResilientEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.model_manager = ModelManager()
         self.signal_engine = SignalEngine(self.model_manager)
         self.logger.info("Limpeza segura concluída | removidos=%s falhas=%s", removed, failures)
@@ -405,8 +498,11 @@ class TradingController:
         model_ready = self.model_manager.is_compatible(self.model_context())
         news_started = time.perf_counter()
         try:
-            self.news_provider.fetch("bitcoin", 1)
-            news_ok, news_detail, news_latency = True, "ONLINE", (time.perf_counter() - news_started) * 1000
+            items = self.news_provider.fetch(market_news_query(self.symbol(), self.settings.market), 6)
+            sources = ", ".join(self.news_provider.last_sources[:3]) or "fontes públicas"
+            news_ok = bool(items)
+            news_detail = f"{len(items)} NOTÍCIAS • {sources}" if items else "SEM NOTÍCIAS RECENTES"
+            news_latency = (time.perf_counter() - news_started) * 1000
         except Exception as exc:
             news_ok, news_detail, news_latency = False, str(exc), None
         database_ok = False

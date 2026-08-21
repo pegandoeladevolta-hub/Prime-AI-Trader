@@ -89,8 +89,9 @@ class ControllerReconnectTests(unittest.TestCase):
             original = Signal(Direction.BUY, SignalState.CONFIRMED, 80, {"COMPRA": 0.7}, 100.0, 5)
             guarded = controller._apply_quality_gate(original, *key)
             self.assertEqual(guarded.state, SignalState.CONFIRMED)
-            self.assertIn("9/20", guarded.warnings[0])
-            self.assertIn("não bloqueia", guarded.warnings[0])
+            self.assertFalse(guarded.warnings)
+            self.assertIn("9/20", guarded.validation_note)
+            self.assertIn("Não bloqueia", guarded.validation_note)
 
     def test_cleanup_preserves_keys_settings_and_database(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):

@@ -28,6 +28,7 @@ class AppSettings:
     forex_symbol: str = "EUR/USD"
     timeframe: str = "5m"
     horizon_minutes: int = 5
+    payout_percent: int = 80
     sensitivity: str = "EQUILIBRADO"
     mode: str = "CONFIRMAÇÃO"
     audio_enabled: bool = True
@@ -127,5 +128,5 @@ class SettingsStore:
 
 def load_api_config_template() -> dict[str, Any]:
     return {
-        "twelve_data_key": "", "finnhub_key": "",
+        "twelve_data_key": "", "alpha_vantage_key": "", "finnhub_key": "",
     }

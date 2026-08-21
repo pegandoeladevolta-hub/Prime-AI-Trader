@@ -14,6 +14,11 @@ from ..market.http import get_json
 class BinanceSpotProvider(MarketDataProvider):
     name = "Binance Spot"
     rest_url = "https://api.binance.com"
+    public_urls = (
+        "https://api.binance.com",
+        "https://data-api.binance.vision",
+        "https://api-gcp.binance.com",
+    )
     ws_url = "wss://stream.binance.com:9443/ws"
 
     def __init__(self) -> None:
@@ -22,6 +27,22 @@ class BinanceSpotProvider(MarketDataProvider):
     @staticmethod
     def api_symbol(symbol: str) -> str:
         return symbol.replace("/", "").upper()
+
+    def _public_json(self, path: str, params: dict | None = None,
+                     timeout: float = 5.0) -> dict | list:
+        errors: list[str] = []
+        for base_url in self.public_urls:
+            try:
+                return get_json(f"{base_url}{path}", params, timeout=timeout)
+            except ProviderError as exc:
+                message = str(exc)
+                # Limites por IP e símbolos inválidos não podem ser resolvidos
+                # trocando o host; insistir apenas piora a disponibilidade.
+                lowered = message.lower()
+                if "429" in lowered or "418" in lowered or "invalid symbol" in lowered or "-1121" in lowered:
+                    raise
+                errors.append(message)
+        raise ProviderError(f"Binance pública indisponível: {errors[-1] if errors else 'sem resposta'}")
 
     def fetch_candles(self, symbol: str, timeframe: str, limit: int = 500,
                       start: datetime | None = None, end: datetime | None = None) -> list[Candle]:
@@ -37,7 +58,7 @@ class BinanceSpotProvider(MarketDataProvider):
                 params["startTime"] = int(start.timestamp() * 1000)
             if next_end is not None:
                 params["endTime"] = next_end
-            batch = get_json(f"{self.rest_url}/api/v3/klines", params)
+            batch = self._public_json("/api/v3/klines", params)
             if not isinstance(batch, list):
                 raise ProviderError("A Binance retornou candles em formato inesperado.")
             if not batch:
@@ -54,7 +75,7 @@ class BinanceSpotProvider(MarketDataProvider):
     def list_symbols(self) -> list[str]:
         if self._symbols_cache and time.monotonic() - self._symbols_cache[0] < 600:
             return self._symbols_cache[1].copy()
-        payload = get_json(f"{self.rest_url}/api/v3/exchangeInfo")
+        payload = self._public_json("/api/v3/exchangeInfo")
         candidates: dict[str, str] = {}
         stable_bases = {"USDT", "USDC", "FDUSD", "TUSD", "USDP", "DAI", "EUR", "BRL"}
         leveraged_suffixes = ("UP", "DOWN", "BULL", "BEAR")
@@ -66,7 +87,7 @@ class BinanceSpotProvider(MarketDataProvider):
                 candidates[str(item["symbol"])] = f"{base}/USDT"
         ranked: list[str] = []
         try:
-            tickers = get_json(f"{self.rest_url}/api/v3/ticker/24hr")
+            tickers = self._public_json("/api/v3/ticker/24hr")
             if isinstance(tickers, list):
                 liquid = sorted(
                     (
@@ -85,14 +106,14 @@ class BinanceSpotProvider(MarketDataProvider):
         return ranked.copy()
 
     def book_ticker(self, symbol: str) -> dict[str, float]:
-        data = get_json(f"{self.rest_url}/api/v3/ticker/bookTicker", {"symbol": self.api_symbol(symbol)})
+        data = self._public_json("/api/v3/ticker/bookTicker", {"symbol": self.api_symbol(symbol)})
         bid, ask = float(data["bidPrice"]), float(data["askPrice"])
         return {"bid": bid, "ask": ask, "spread": ask - bid, "spread_pct": ((ask - bid) / bid * 100) if bid else 0.0}
 
     def test_connection(self) -> tuple[bool, float | None, str]:
         started = time.perf_counter()
         try:
-            get_json(f"{self.rest_url}/api/v3/ping", timeout=5)
+            self._public_json("/api/v3/ping", timeout=5)
             return True, (time.perf_counter() - started) * 1000, "ONLINE"
         except ProviderError as exc:
             return False, None, str(exc)

@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from datetime import datetime, timezone
 from tkinter import messagebox, ttk
 
@@ -58,6 +59,8 @@ class PrimeAITraderApp(tk.Tk):
         self._last_voice_signature = None
         self._forex_prompted = False
         self._countdown_job = None
+        self._news_refresh_job = None
+        self._news_refresh_running = False
         self._ui_events = queue.Queue()
         self._ui_events_job = None
         self._build_variables()
@@ -72,6 +75,7 @@ class PrimeAITraderApp(tk.Tk):
         self.symbol_var = tk.StringVar(value=self.controller.symbol())
         self.timeframe_var = tk.StringVar(value=settings.timeframe)
         self.horizon_var = tk.StringVar(value=str(settings.horizon_minutes))
+        self.payout_var = tk.StringVar(value=str(settings.payout_percent))
         self.sensitivity_var = tk.StringVar(value=settings.sensitivity)
         self.mode_var = tk.StringVar(value=settings.mode)
         self.audio_var = tk.BooleanVar(value=settings.audio_enabled)
@@ -111,7 +115,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.4.1  •  ESTÁVEL E OTIMIZADO", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.5.0  •  MULTIFONTE E PROFISSIONAL", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -141,6 +145,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Button(panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(0, 7))
         self._combo(panel, "Timeframe do gráfico", self.timeframe_var, TIMEFRAMES, self._selection_changed)
         self._combo(panel, "Horizonte / previsão", self.horizon_var, ["1", "2", "3", "5", "10", "15", "30", "60", "240"], self._save_form)
+        self._combo(panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
         self._combo(panel, "Sensibilidade", self.sensitivity_var, ["CONSERVADOR", "EQUILIBRADO", "RÁPIDO"], self._save_form)
         self._combo(panel, "Modo", self.mode_var, ["CONFIRMAÇÃO", "PRICE ACTION", "QUANTITATIVO"], self._save_form)
         ttk.Label(panel, text="RÁPIDO gera mais sinais e pode aumentar falsos positivos.", style="Muted.TLabel", wraplength=205).pack(anchor="w", pady=(2, 10))
@@ -245,7 +250,7 @@ class PrimeAITraderApp(tk.Tk):
         self.signal_state.pack(anchor="w")
         self.signal_direction = ttk.Label(hero, text="AGUARDAR", style="Card.TLabel", foreground=COLORS["amber"], font=("Segoe UI Semibold", 28))
         self.signal_direction.pack(anchor="w", pady=(3, 8))
-        self.signal_score = ttk.Label(hero, text="Score combinado: —", style="Card.TLabel", font=("Segoe UI Semibold", 11))
+        self.signal_score = ttk.Label(hero, text="Score combinado: —", style="Card.TLabel", font=("Segoe UI Semibold", 10), wraplength=250)
         self.signal_score.pack(anchor="w")
         self.score_bar = ttk.Progressbar(hero, style="Score.Horizontal.TProgressbar", maximum=100, variable=self.score_var)
         self.score_bar.pack(fill="x", pady=(7, 10))
@@ -255,6 +260,10 @@ class PrimeAITraderApp(tk.Tk):
         self.probability_low_label.pack(anchor="w")
         self.calibration_label = ttk.Label(hero, text="Confiança calibrada: histórico insuficiente", style="CardMuted.TLabel", wraplength=250)
         self.calibration_label.pack(anchor="w", pady=(2, 0))
+        self.validation_label = ttk.Label(hero, text="", style="CardMuted.TLabel", wraplength=250)
+        self.validation_label.pack(anchor="w", pady=(3, 0))
+        self.setup_label = ttk.Label(hero, text="Estratégia: análise em formação", style="CardMuted.TLabel", wraplength=250)
+        self.setup_label.pack(anchor="w", pady=(3, 0))
 
         details = ttk.Frame(panel, style="Card.TFrame", padding=12)
         details.pack(fill="x", pady=(9, 0))
@@ -265,6 +274,8 @@ class PrimeAITraderApp(tk.Tk):
         self.horizon_label.pack(anchor="w", pady=2)
         self.countdown_label = ttk.Label(details, text="Contagem: —", style="Card.TLabel", foreground=COLORS["accent2"])
         self.countdown_label.pack(anchor="w", pady=2)
+        self.payout_label = ttk.Label(details, text="Pagamento / equilíbrio: —", style="CardMuted.TLabel", wraplength=250)
+        self.payout_label.pack(anchor="w", pady=(4, 1))
 
         ttk.Label(panel, text="CONFLUÊNCIAS", style="Section.TLabel").pack(anchor="w", pady=(14, 7))
         self.confluence_frame = ttk.Frame(panel, style="Panel.TFrame")
@@ -274,6 +285,21 @@ class PrimeAITraderApp(tk.Tk):
         self.blocker_label.pack(anchor="w", pady=(10, 0))
         self.warning_label = ttk.Label(panel, text="", style="Panel.TLabel", foreground=COLORS["amber"], wraplength=265)
         self.warning_label.pack(anchor="w", pady=(6, 0))
+        self.waiting_label = ttk.Label(panel, text="", style="Panel.TLabel", foreground=COLORS["muted"], wraplength=265, justify="left")
+        self.waiting_label.pack(anchor="w", pady=(6, 0))
+        ttk.Separator(panel).pack(fill="x", pady=14)
+        news_header = ttk.Frame(panel, style="Panel.TFrame")
+        news_header.pack(fill="x")
+        ttk.Label(news_header, text="NOTÍCIAS AO VIVO", style="Section.TLabel").pack(side="left")
+        ttk.Button(news_header, text="↻", style="Tool.TButton", width=3, command=self.refresh_news_panel).pack(side="right")
+        self.news_source_label = ttk.Label(panel, text="Aguardando fontes públicas…", style="Muted.TLabel", wraplength=265)
+        self.news_source_label.pack(anchor="w", pady=(3, 6))
+        self.news_labels: list[ttk.Label] = []
+        self._news_items = []
+        for index in range(5):
+            label = ttk.Label(panel, text="", style="Panel.TLabel", foreground=COLORS["accent2"], wraplength=265, justify="left", cursor="hand2")
+            label.bind("<Button-1>", lambda _, position=index: self._open_news(position))
+            self.news_labels.append(label)
         ttk.Separator(panel).pack(fill="x", pady=14)
         warning = ttk.Label(panel, text="Assistente de análise. Não executa ordens e não garante lucro.", style="Muted.TLabel", wraplength=265, justify="left")
         warning.pack(anchor="w")
@@ -287,6 +313,7 @@ class PrimeAITraderApp(tk.Tk):
             settings.forex_symbol = self.symbol_var.get()
         settings.timeframe = self.timeframe_var.get()
         settings.horizon_minutes = int(self.horizon_var.get())
+        settings.payout_percent = int(self.payout_var.get())
         settings.sensitivity = self.sensitivity_var.get()
         settings.mode = self.mode_var.get()
         settings.audio_enabled = self.audio_var.get()
@@ -304,10 +331,7 @@ class PrimeAITraderApp(tk.Tk):
         self.symbol_var.set(values[0])
         self._save_form()
         if self.market_var.get() == Market.FOREX.value and not self.controller.secrets.get("twelve_data_key"):
-            self.status_var.set("Forex selecionado • configure a chave Twelve Data em APIs")
-            if not self._forex_prompted:
-                self._forex_prompted = True
-                self.after(100, self.open_api_settings)
+            self.status_var.set("Forex público sem chave ativo • Twelve Data é opcional")
         if self._analysis_active:
             self._schedule_analysis_restart()
 
@@ -338,7 +362,7 @@ class PrimeAITraderApp(tk.Tk):
         self.controller.save_secrets(values)
         self.status_var.set("Chaves protegidas e provedores atualizados")
         self._load_health()
-        if self.market_var.get() == Market.FOREX.value and values.get("twelve_data_key") and self._analysis_active:
+        if self.market_var.get() == Market.FOREX.value and self._analysis_active:
             self._schedule_analysis_restart()
 
     def refresh_symbols(self) -> None:
@@ -426,10 +450,6 @@ class PrimeAITraderApp(tk.Tk):
 
     def start_analysis(self) -> None:
         self._save_form()
-        if self.market_var.get() == Market.FOREX.value and not self.controller.secrets.get("twelve_data_key"):
-            self.status_var.set("Para ativar o Forex, configure a chave Twelve Data")
-            self.open_api_settings()
-            return
         if self._task_running:
             self.status_var.set("Aguardando a tarefa atual para atualizar o gráfico…")
             if self._selection_job is None:
@@ -462,13 +482,15 @@ class PrimeAITraderApp(tk.Tk):
             return
         self.render_snapshot(snapshot)
         if snapshot.market == Market.FOREX.value:
-            self.status_var.set(f"Forex ativo • {snapshot.symbol} • próxima atualização em cerca de 2 minutos")
+            source = snapshot.data_source or "fonte pública"
+            self.status_var.set(f"Forex ativo • {source} • atualização automática")
         else:
             self.status_var.set(f"Análise ativa • {snapshot.symbol} • {snapshot.timeframe} • {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         if snapshot.market == Market.CRYPTO.value:
             self._start_crypto_stream(token, context)
         else:
             self._schedule_forex_poll(token)
+        self._schedule_news_refresh(token)
 
     def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
         symbol, timeframe = self.controller.symbol(), self.controller.settings.timeframe
@@ -513,6 +535,8 @@ class PrimeAITraderApp(tk.Tk):
         self._run_task("Atualizando análise em tempo real…", lambda: self.controller.merge_live_candle(candle), ready, quiet=True)
 
     def _schedule_forex_poll(self, token: int, delay_ms: int = FOREX_POLL_INTERVAL_MS) -> None:
+        if delay_ms == FOREX_POLL_INTERVAL_MS:
+            delay_ms = self.controller.forex.recommended_poll_ms
         if self._forex_poll_job is not None:
             self.after_cancel(self._forex_poll_job)
         self._forex_poll_job = self.after(delay_ms, lambda: self._forex_poll(token))
@@ -535,6 +559,9 @@ class PrimeAITraderApp(tk.Tk):
             self.after_cancel(self._live_ui_job)
             self._live_ui_job = None
         self._pending_live_candle = None
+        if self._news_refresh_job is not None:
+            self.after_cancel(self._news_refresh_job)
+            self._news_refresh_job = None
 
     def pause_analysis(self, silent: bool = False) -> None:
         self._stop_feeds()
@@ -579,6 +606,59 @@ class PrimeAITraderApp(tk.Tk):
                 RadarDialog(self, items, self._radar_analyze),
             ),
         )
+
+    def refresh_news_panel(self) -> None:
+        if not self.controller.snapshot:
+            self.status_var.set("Inicie uma análise para carregar as notícias do ativo")
+            return
+        self._run_task(
+            "Atualizando notícias públicas…",
+            lambda: self.controller.refresh_news(force=True),
+            self._news_ready,
+        )
+
+    def _news_ready(self, snapshot) -> None:
+        if snapshot:
+            self._render_news(snapshot)
+            self._render_indicators(snapshot)
+            self.status_var.set(f"Notícias atualizadas • {len(snapshot.news)} manchetes")
+
+    def _schedule_news_refresh(self, token: int, delay_ms: int = 90_000) -> None:
+        if self._news_refresh_job is not None:
+            self.after_cancel(self._news_refresh_job)
+        self._news_refresh_job = self.after(delay_ms, lambda: self._auto_refresh_news(token))
+
+    def _auto_refresh_news(self, token: int) -> None:
+        self._news_refresh_job = None
+        if token != self._analysis_token or not self._analysis_active:
+            return
+        if self._news_refresh_running or self._task_running:
+            self._schedule_news_refresh(token, 15_000)
+            return
+        self._news_refresh_running = True
+
+        def done(snapshot, error: str = "") -> None:
+            self._news_refresh_running = False
+            if token != self._analysis_token or not self._analysis_active:
+                return
+            if snapshot:
+                self._render_news(snapshot)
+                self._render_indicators(snapshot)
+            elif error:
+                self.controller.logger.warning("Atualização automática das notícias: %s", error)
+            self._schedule_news_refresh(token)
+
+        def worker() -> None:
+            try:
+                self._post_ui(done, self.controller.refresh_news())
+            except Exception as exc:
+                self._post_ui(done, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True, name="prime-news-ui").start()
+
+    def _open_news(self, index: int) -> None:
+        if 0 <= index < len(self._news_items) and self._news_items[index].url:
+            webbrowser.open(self._news_items[index].url)
 
     def open_health(self) -> None:
         self._run_task("Executando diagnóstico dos serviços…", self.controller.health,
@@ -638,6 +718,22 @@ class PrimeAITraderApp(tk.Tk):
         self.updated_var.set(f"ATUALIZADO {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         self._render_indicators(snapshot)
         self._render_signal(snapshot)
+        self._render_news(snapshot)
+
+    def _render_news(self, snapshot: AnalysisSnapshot) -> None:
+        self._news_items = snapshot.news[: len(self.news_labels)]
+        sources = getattr(self.controller.news_provider, "last_sources", [])
+        summary = ", ".join(sources[:3]) if sources else snapshot.data_source or "Fontes públicas"
+        self.news_source_label.configure(text=f"{len(snapshot.news)} manchetes • {summary}")
+        for index, label in enumerate(self.news_labels):
+            if index >= len(self._news_items):
+                label.pack_forget()
+                continue
+            item = self._news_items[index]
+            hour = item.published_at.astimezone().strftime("%H:%M")
+            marker = "▲" if item.sentiment == "POSITIVA" else "▼" if item.sentiment == "NEGATIVA" else "●"
+            label.configure(text=f"{marker} {hour} • {item.title[:105]}")
+            label.pack(anchor="w", fill="x", pady=(3, 5))
 
     def _render_indicators(self, snapshot: AnalysisSnapshot) -> None:
         last = snapshot.indicators.iloc[-1]
@@ -662,7 +758,10 @@ class PrimeAITraderApp(tk.Tk):
         color = COLORS["green"] if signal.direction == Direction.BUY else COLORS["red"] if signal.direction == Direction.SELL else COLORS["amber"]
         self.signal_state.configure(text=signal.state.value)
         self.signal_direction.configure(text=signal.direction.value, foreground=color)
-        self.signal_score.configure(text=f"Score combinado: {signal.score}/100")
+        score_detail = f"Score: {signal.score}/100 • técnica {signal.technical_score}"
+        if signal.model_score is not None:
+            score_detail += f" • IA {signal.model_score}%"
+        self.signal_score.configure(text=score_detail)
         self.score_var.set(signal.score)
         ordered = sorted(signal.probabilities.items(), key=lambda item: item[1], reverse=True)
         if ordered:
@@ -674,9 +773,18 @@ class PrimeAITraderApp(tk.Tk):
         if signal.calibrated_rate is not None:
             self.calibration_label.configure(text=f"Confiança calibrada: {signal.calibrated_rate * 100:.1f}% em {signal.calibrated_samples} operações semelhantes")
         else:
-            self.calibration_label.configure(text=f"Confiança calibrada: histórico insuficiente ({signal.calibrated_samples}/30)")
+            self.calibration_label.configure(text=f"Histórico real em coleta: {signal.calibrated_samples}/30 • não bloqueia")
+        self.validation_label.configure(text=signal.validation_note)
+        self.setup_label.configure(text=f"Estratégia: {signal.setup_name}")
         self.entry_label.configure(text=f"Entrada: {signal.entry:,.4f}" if signal.entry else "Entrada: —")
         self.horizon_label.configure(text=f"Horizonte: {signal.horizon_minutes} minuto(s)")
+        payout_text = (
+            f"Pagamento {signal.payout_percent}% • equilíbrio "
+            f"{signal.break_even_rate * 100:.2f}%"
+        )
+        if signal.expected_value is not None:
+            payout_text += f" • expectativa {signal.expected_value * 100:+.1f}%"
+        self.payout_label.configure(text=payout_text)
         for index, reason in enumerate(signal.confluences):
             if index >= len(self.confluence_labels):
                 label = ttk.Label(self.confluence_frame, style="Panel.TLabel", wraplength=265, justify="left", font=("Segoe UI", 9))
@@ -688,6 +796,8 @@ class PrimeAITraderApp(tk.Tk):
             label.pack_forget()
         self.blocker_label.configure(text="\n".join(f"⚠ {item}" for item in signal.blockers))
         self.warning_label.configure(text="\n".join(f"AVISO • {item}" for item in signal.warnings))
+        waiting = "\n".join(f"• {reason}" for reason in signal.waiting_reasons)
+        self.waiting_label.configure(text=f"POR QUE AGUARDAR\n{waiting}" if waiting else "")
         self._start_countdown(snapshot)
         voice_signature = (
             snapshot.symbol,

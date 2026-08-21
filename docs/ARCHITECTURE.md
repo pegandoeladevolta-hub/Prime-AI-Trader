@@ -4,12 +4,20 @@
 Interface Tkinter
     └── TradingController
         ├── MarketDataProvider
-        │   ├── BinanceSpotProvider
-        │   └── TwelveDataProvider
+        │   ├── ResilientCryptoProvider
+        │   │   ├── BinanceSpotProvider / data-api.binance.vision
+        │   │   ├── CoinbaseSpotProvider
+        │   │   └── KrakenSpotProvider
+        │   └── ResilientForexProvider
+        │       ├── YahooForexProvider: público, sem chave
+        │       ├── TwelveDataProvider / AlphaVantageForexProvider: opcionais
+        │       └── FrankfurterReferenceProvider: referência diária
         ├── Indicadores / Price Action / Fibonacci
         ├── Feature Builder
         ├── ModelManager / SignalEngine / BacktestEngine
-        ├── NewsProvider / EconomicCalendar
+        ├── CompositeNewsProvider: GDELT, Google News, Cointelegraph,
+        │                            CoinDesk, FXStreet e ForexLive
+        ├── ResilientEconomicCalendar: Forex Factory / Finnhub opcional
         └── Repository SQLite / VoiceService / Logs
 ```
 
@@ -20,10 +28,10 @@ Interface Tkinter
 3. A estrutura agrupa pivôs próximos em zonas.
 4. O Fibonacci seleciona um swing relevante.
 5. O modelo local fornece probabilidades das três classes, se estiver treinado.
-6. O motor combina o modelo com regras auditáveis e aplica o threshold da sensibilidade.
-7. Notícias e calendário podem bloquear o sinal, mas nunca criá-lo sozinhos.
-8. Somente sinal confirmado é salvo.
-9. Após o horizonte, o resultado é fechado pelo preço observado.
+6. O motor combina o modelo com regras auditáveis, setup, payout e threshold da sensibilidade.
+7. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
+8. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket.
+9. Após o horizonte, o resultado é fechado pela vela de expiração observada; a calibração permanece separada por ativo, timeframe e horizonte.
 
 ## Separação de responsabilidades
 
@@ -43,4 +51,3 @@ Interface Tkinter
 ## Auditoria do modelo
 
 O arquivo `%APPDATA%\PrimeAITrader\models\training_report.json` registra o modelo escolhido, versão, data, amostras e métricas de cada fold de cada candidato. O modelo ativo recebe uma versão imutável no formato `ml-AAAAMMDD-HHMMSS`.
-

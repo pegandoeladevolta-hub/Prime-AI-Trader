@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+from threading import Lock
+import time as clock
 
 from ..market.base import ProviderError
 from ..market.http import get_json
@@ -67,3 +69,67 @@ class FinnhubEconomicCalendar:
                 return event
         return None
 
+
+class PublicEconomicCalendar:
+    """Calendário público semanal com cache de uma hora para respeitar o feed."""
+
+    endpoint = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+
+    def __init__(self, cache_seconds: int = 3600) -> None:
+        self.cache_seconds = cache_seconds
+        self._cached_at = 0.0
+        self._cached_events: list[EconomicEvent] = []
+        self._lock = Lock()
+
+    def fetch(self, start: date, end: date) -> list[EconomicEvent]:
+        with self._lock:
+            if self._cached_at and clock.monotonic() - self._cached_at < self.cache_seconds:
+                return [event for event in self._cached_events if start <= event.scheduled_at.date() <= end]
+        payload = get_json(self.endpoint, timeout=5)
+        if not isinstance(payload, list):
+            raise ProviderError("O calendário econômico público retornou uma resposta inesperada.")
+        events = []
+        for row in payload:
+            try:
+                when = datetime.fromisoformat(str(row.get("date", "")).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            else:
+                when = when.astimezone(timezone.utc)
+            events.append(EconomicEvent(
+                FinnhubEconomicCalendar._currency(row),
+                str(row.get("title") or row.get("event") or "Evento econômico"),
+                when, str(row.get("impact", "medium")).upper(),
+                str(row.get("previous", "")), str(row.get("forecast", "")),
+                str(row.get("actual", "")),
+            ))
+        events.sort(key=lambda item: item.scheduled_at)
+        with self._lock:
+            self._cached_events = events
+            self._cached_at = clock.monotonic()
+        return [event for event in events if start <= event.scheduled_at.date() <= end]
+
+    blocking_event = staticmethod(FinnhubEconomicCalendar.blocking_event)
+
+
+class ResilientEconomicCalendar:
+    def __init__(self, finnhub_key: str = "") -> None:
+        self.finnhub = FinnhubEconomicCalendar(finnhub_key)
+        self.public = PublicEconomicCalendar()
+        self.last_source = "CALENDÁRIO PÚBLICO"
+
+    def fetch(self, start: date, end: date) -> list[EconomicEvent]:
+        providers = ([self.finnhub] if self.finnhub.api_key else []) + [self.public]
+        errors = []
+        for provider in providers:
+            try:
+                events = provider.fetch(start, end)
+                self.last_source = "FINNHUB" if provider is self.finnhub else "CALENDÁRIO PÚBLICO"
+                return events
+            except ProviderError as exc:
+                errors.append(str(exc))
+        raise ProviderError(errors[-1] if errors else "Calendário econômico indisponível.")
+
+    blocking_event = staticmethod(FinnhubEconomicCalendar.blocking_event)

@@ -14,9 +14,12 @@ FEATURE_COLUMNS = [
     "hour_sin", "hour_cos", "day_sin", "day_cos", "distance_support", "distance_resistance",
     "fib_distance", "trend_code",
     "return_3", "return_12", "ema_50_slope", "atr_regime", "trend_efficiency",
+    "macd_acceleration", "rsi_slope", "stoch_spread", "ema21_distance_atr",
+    "bollinger_width", "volume_impulse", "candle_rejection", "breakout_20",
+    "higher_trend_proxy", "london_new_york_session",
 ]
 
-FEATURE_SCHEMA_VERSION = 3
+FEATURE_SCHEMA_VERSION = 4
 
 
 def build_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -37,6 +40,20 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     output["atr_regime"] = output["atr_pct"] / atr_median
     path_length = data["close"].pct_change().abs().rolling(12, min_periods=6).sum().replace(0, np.nan)
     output["trend_efficiency"] = data["close"].pct_change(12) / path_length
+    output["macd_acceleration"] = data["macd_hist"].diff()
+    output["rsi_slope"] = data["rsi_14"].diff(3)
+    output["stoch_spread"] = data["stoch_k"] - data["stoch_d"]
+    output["ema21_distance_atr"] = (data["close"] - data["ema_21"]) / data["atr_14"].replace(0, np.nan)
+    output["bollinger_width"] = (data["bb_upper"] - data["bb_lower"]) / close
+    output["volume_impulse"] = data["volume_relative"] * np.sign(data["close"] - data["open"])
+    output["candle_rejection"] = (data["lower_wick"] - data["upper_wick"]) / data["atr_14"].replace(0, np.nan)
+    previous_high = data["high"].shift(1).rolling(20, min_periods=10).max()
+    previous_low = data["low"].shift(1).rolling(20, min_periods=10).min()
+    output["breakout_20"] = np.select(
+        [data["close"] > previous_high, data["close"] < previous_low],
+        [1.0, -1.0], default=0.0,
+    )
+    output["higher_trend_proxy"] = data["ema_50"].pct_change(10)
     output["bb_position"] = (data["close"] - data["bb_lower"]) / (data["bb_upper"] - data["bb_lower"]).replace(0, np.nan)
     output["vwap_distance"] = (data["close"] - data["vwap"]) / close
     output["obv_change"] = data["obv"].pct_change().replace([np.inf, -np.inf], np.nan)
@@ -47,6 +64,7 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     days = pd.Series(data.index.dayofweek, index=data.index)
     output["hour_sin"] = np.sin(2 * np.pi * hours / 24)
     output["hour_cos"] = np.cos(2 * np.pi * hours / 24)
+    output["london_new_york_session"] = ((hours >= 7) & (hours <= 20)).astype(float)
     output["day_sin"] = np.sin(2 * np.pi * days / 7)
     output["day_cos"] = np.cos(2 * np.pi * days / 7)
     # Proxies causais e vetorizadas. A implementação antiga executava análise
