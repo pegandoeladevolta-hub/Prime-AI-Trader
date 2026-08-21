@@ -4,15 +4,16 @@ import ast
 import inspect
 import unittest
 from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import patch
 
-from prime_ai_trader.core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS
+from prime_ai_trader.core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Candle
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
 from prime_ai_trader.economic_calendar.finnhub import FinnhubEconomicCalendar
 from prime_ai_trader.forex.twelve_data import TwelveDataProvider
 from prime_ai_trader.market.base import ProviderError
 from prime_ai_trader.news.provider import GdeltNewsProvider, classify_text
-from prime_ai_trader.ui.chart import CandleChart
+from prime_ai_trader.ui.chart import CandleChart, has_real_volume, market_price_decimals
 from prime_ai_trader.ui.dashboard import PrimeAITraderApp
 
 
@@ -110,6 +111,36 @@ class ProviderUiContractTests(unittest.TestCase):
         source = inspect.getsource(CandleChart.update_last_candle)
         self.assertIn("_schedule_live_redraw", source)
         self.assertNotIn("schedule_redraw(80)", source)
+
+    def test_forex_price_precision_matches_currency_pair(self) -> None:
+        self.assertEqual(market_price_decimals("Forex|EUR/USD|1m", 1.12345), 5)
+        self.assertEqual(market_price_decimals("Forex|USD/JPY|1m", 148.123), 3)
+        self.assertEqual(market_price_decimals("Criptomoedas|BTC/USDT|1m", 62000), 4)
+
+    def test_forex_chart_never_invents_unavailable_volume(self) -> None:
+        opened = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+        forex = Candle(opened, 1.1, 1.2, 1.0, 1.15, 0.0)
+        crypto = Candle(opened, 100, 102, 99, 101, 4.5)
+        self.assertFalse(has_real_volume([forex]))
+        self.assertTrue(has_real_volume([forex, crypto]))
+
+    def test_forex_uses_incremental_quote_scheduler_and_partial_chart_update(self) -> None:
+        ready_source = inspect.getsource(PrimeAITraderApp._analysis_ready)
+        quote_source = inspect.getsource(PrimeAITraderApp._forex_quote_ready)
+        self.assertIn("_schedule_forex_quote", ready_source)
+        self.assertIn("merge_forex_quote", quote_source)
+        self.assertIn("_queue_live_chart", quote_source)
+
+    def test_forex_quote_network_worker_does_not_touch_tkinter(self) -> None:
+        source = inspect.getsource(PrimeAITraderApp._forex_quote)
+        worker = source.split("def worker()", 1)[1].split("threading.Thread", 1)[0]
+        self.assertNotIn("self.after(", worker)
+        self.assertIn("_post_ui", worker)
+
+    def test_forex_crosshair_uses_dynamic_plot_bounds_and_precision(self) -> None:
+        source = inspect.getsource(CandleChart._crosshair)
+        self.assertIn('state["bottom"]', source)
+        self.assertIn("_format_price", source)
 
     def test_every_visible_button_declares_a_command(self) -> None:
         ui_dir = Path(__file__).parents[1] / "prime_ai_trader" / "ui"

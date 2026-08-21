@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 
@@ -9,6 +11,36 @@ from ..crypto.public import _aggregate_candles
 from ..market.base import MarketDataProvider, ProviderError
 from ..market.http import get_json
 from .twelve_data import TwelveDataProvider
+
+
+@dataclass(frozen=True, slots=True)
+class ForexLiveQuote:
+    symbol: str
+    price: float
+    observed_at: datetime
+    source: str
+
+
+def merge_forex_quote(candle: Candle, quote: ForexLiveQuote, timeframe: str) -> Candle | None:
+    """Atualiza uma vela com cotação real, sem inventar ticks, volume ou períodos."""
+    minutes = TIMEFRAME_MINUTES.get(timeframe)
+    if minutes is None or not math.isfinite(quote.price) or quote.price <= 0:
+        return None
+    observed = quote.observed_at.astimezone(timezone.utc)
+    seconds = minutes * 60
+    opened = datetime.fromtimestamp(int(observed.timestamp()) // seconds * seconds, tz=timezone.utc)
+    previous_opened = candle.open_time.astimezone(timezone.utc)
+    if opened < previous_opened:
+        return None
+    if opened == previous_opened:
+        return Candle(
+            candle.open_time, candle.open, max(candle.high, quote.price),
+            min(candle.low, quote.price), quote.price, candle.volume,
+            close_time=candle.close_time, quote_volume=candle.quote_volume,
+            trades=candle.trades, taker_buy_volume=candle.taker_buy_volume,
+            closed=False,
+        )
+    return Candle(opened, quote.price, quote.price, quote.price, quote.price, 0.0, closed=False)
 
 
 class YahooForexProvider(MarketDataProvider):
@@ -22,10 +54,66 @@ class YahooForexProvider(MarketDataProvider):
     _intervals = {"1m": "1m", "3m": "1m", "5m": "5m", "15m": "15m",
                   "30m": "30m", "1h": "60m", "4h": "60m"}
 
-    def __init__(self, cache_seconds: int = 45) -> None:
+    def __init__(self, cache_seconds: int = 45, quote_cache_seconds: int = 6) -> None:
         self.cache_seconds = cache_seconds
+        self.quote_cache_seconds = quote_cache_seconds
         self._cache: dict[tuple, tuple[float, list[Candle]]] = {}
+        self._quote_cache: dict[str, tuple[float, ForexLiveQuote]] = {}
         self._lock = Lock()
+
+    def fetch_live_quote(self, symbol: str) -> ForexLiveQuote:
+        key = symbol.upper()
+        with self._lock:
+            cached = self._quote_cache.get(key)
+            if cached and time.monotonic() - cached[0] < self.quote_cache_seconds:
+                return cached[1]
+        ticker = key.replace("/", "") + "=X"
+        payload = None
+        last_error = ""
+        for endpoint in self.base_urls:
+            try:
+                payload = get_json(
+                    f"{endpoint}/{ticker}",
+                    {"interval": "1m", "range": "1d", "includePrePost": "false"},
+                    timeout=4,
+                )
+                break
+            except ProviderError as exc:
+                last_error = str(exc)
+                if "429" in last_error:
+                    break
+        if not isinstance(payload, dict):
+            raise ProviderError(f"Cotação Forex pública indisponível: {last_error or 'resposta inválida'}")
+        chart = payload.get("chart") or {}
+        if chart.get("error") or not chart.get("result"):
+            raise ProviderError(f"Cotação Forex pública indisponível para {symbol}.")
+        result = chart["result"][0]
+        metadata = result.get("meta") or {}
+        timestamps = result.get("timestamp") or []
+        values = ((result.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+        latest = next(
+            ((int(timestamps[index]), float(values[index]))
+             for index in range(min(len(timestamps), len(values)) - 1, -1, -1)
+             if values[index] is not None),
+            None,
+        )
+        try:
+            raw_price = float(metadata.get("regularMarketPrice"))
+            raw_time = int(metadata.get("regularMarketTime") or (latest[0] if latest else 0))
+        except (TypeError, ValueError):
+            if latest is None:
+                raise ProviderError(f"Cotação Forex pública inválida para {symbol}.") from None
+            raw_time, raw_price = latest
+        if latest is not None and latest[0] > raw_time:
+            raw_time, raw_price = latest
+        if raw_time <= 0 or not math.isfinite(raw_price) or raw_price <= 0:
+            raise ProviderError(f"Cotação Forex pública inválida para {symbol}.")
+        quote = ForexLiveQuote(
+            key, raw_price, datetime.fromtimestamp(raw_time, tz=timezone.utc), self.name,
+        )
+        with self._lock:
+            self._quote_cache[key] = (time.monotonic(), quote)
+        return quote
 
     def fetch_candles(self, symbol: str, timeframe: str, limit: int = 500,
                       start: datetime | None = None,
@@ -213,6 +301,14 @@ class ResilientForexProvider(MarketDataProvider):
     @property
     def recommended_poll_ms(self) -> int:
         return 120_000 if self.last_provider_name == self.twelve_data.name else 60_000
+
+    @property
+    def recommended_quote_ms(self) -> int:
+        return 10_000
+
+    def fetch_live_quote(self, symbol: str) -> ForexLiveQuote:
+        """Cotação rápida sem consumir créditos do Twelve Data ou da Alpha Vantage."""
+        return self.yahoo.fetch_live_quote(symbol)
 
     def _providers(self) -> list[MarketDataProvider]:
         providers: list[MarketDataProvider] = []

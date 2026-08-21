@@ -17,8 +17,9 @@ import pandas as pd
 from ..app.controller import AnalysisSnapshot, TradingController
 from ..audio.voice import VoiceService
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
+from ..forex.public import merge_forex_quote
 from ..signals.engine import sensitivity_profile
-from .chart import CandleChart
+from .chart import CandleChart, market_price_decimals
 from .dialogs import ApiSettingsDialog, BacktestDialog, HealthDialog, PerformanceDialog, RadarDialog
 from .theme import COLORS, configure_style
 
@@ -32,6 +33,7 @@ INDICATOR_LAYOUT = [
 
 LIVE_ANALYSIS_INTERVAL_SECONDS = 30
 FOREX_POLL_INTERVAL_MS = 125_000
+FOREX_QUOTE_RETRY_MS = 30_000
 
 
 def voice_message_for_signal(signal, symbol: str, sensitivity: str, *,
@@ -69,6 +71,8 @@ class PrimeAITraderApp(tk.Tk):
         self._analysis_token = 0
         self._selection_job = None
         self._forex_poll_job = None
+        self._forex_quote_job = None
+        self._forex_quote_running = False
         self._live_ui_job = None
         self._pending_live_candle = None
         self._health_job = None
@@ -134,7 +138,7 @@ class PrimeAITraderApp(tk.Tk):
         brand.pack(side="left")
         ttk.Label(brand, text="PRIME", style="Title.TLabel", foreground=COLORS["accent2"]).pack(side="left")
         ttk.Label(brand, text=" AI TRADER", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="v0.6.0  •  PERFIS CALIBRADOS", style="Badge.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Label(header, text="v0.6.1  •  FOREX FLUIDO", style="Badge.TLabel").pack(side="left", padx=(12, 0))
         ttk.Label(header, text="ANÁLISE QUANTITATIVA • OPERAÇÃO MANUAL", foreground=COLORS["muted"], font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
         self.health_labels = {}
         for name in ("ÁUDIO", "DATABASE", "NEWS", "IA", "WEBSOCKET", "FOREX", "BINANCE"):
@@ -503,13 +507,14 @@ class PrimeAITraderApp(tk.Tk):
         self.render_snapshot(snapshot)
         if snapshot.market == Market.FOREX.value:
             source = snapshot.data_source or "fonte pública"
-            self.status_var.set(f"Forex ativo • {source} • atualização automática")
+            self.status_var.set(f"Forex ativo • {source} • cotação pública a cada 10 segundos")
         else:
             self.status_var.set(f"Análise ativa • {snapshot.symbol} • {snapshot.timeframe} • {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         if snapshot.market == Market.CRYPTO.value:
             self._start_crypto_stream(token, context)
         else:
             self._schedule_forex_poll(token)
+            self._schedule_forex_quote(token, delay_ms=750)
         self._schedule_news_refresh(token)
 
     def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
@@ -543,7 +548,11 @@ class PrimeAITraderApp(tk.Tk):
         candle = self._pending_live_candle
         self._pending_live_candle = None
         self.chart.update_last_candle(candle)
-        self.updated_var.set(f"PREÇO AO VIVO • {datetime.now().strftime('%H:%M:%S')}")
+        if self.market_var.get() == Market.FOREX.value:
+            if "FONTE COM ATRASO" not in self.updated_var.get():
+                self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {datetime.now().strftime('%H:%M:%S')}")
+        else:
+            self.updated_var.set(f"PREÇO AO VIVO • {datetime.now().strftime('%H:%M:%S')}")
 
     def _process_live(self, candle, token: int, context: tuple[str, str, str]) -> None:
         if self._stop_event.is_set() or self._task_running or token != self._analysis_token:
@@ -569,12 +578,79 @@ class PrimeAITraderApp(tk.Tk):
         self._run_task("Atualizando Forex…", self.controller.analyze,
                        lambda snapshot: self._analysis_ready(snapshot, token, context), quiet=True)
 
+    def _schedule_forex_quote(self, token: int, delay_ms: int | None = None) -> None:
+        if self._forex_quote_job is not None:
+            self.after_cancel(self._forex_quote_job)
+        interval = self.controller.forex.recommended_quote_ms if delay_ms is None else delay_ms
+        self._forex_quote_job = self.after(interval, lambda: self._forex_quote(token))
+
+    def _forex_quote(self, token: int) -> None:
+        self._forex_quote_job = None
+        if self._stop_event.is_set() or token != self._analysis_token or not self._analysis_active:
+            return
+        if self.controller.settings.market != Market.FOREX.value:
+            return
+        if self._forex_quote_running:
+            self._schedule_forex_quote(token)
+            return
+        symbol = self.controller.symbol()
+        context = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
+        self._forex_quote_running = True
+
+        def worker() -> None:
+            try:
+                quote = self.controller.forex.fetch_live_quote(symbol)
+                self._post_ui(self._forex_quote_ready, quote, token, context)
+            except Exception as exc:
+                self.controller.logger.debug("Cotação rápida Forex indisponível: %s", exc)
+                self._post_ui(self._forex_quote_failed, token)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _forex_quote_ready(self, quote, token: int, context: tuple[str, str, str]) -> None:
+        if token != self._analysis_token:
+            return
+        self._forex_quote_running = False
+        current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
+        if not self._analysis_active or context != current:
+            return
+        snapshot = self.controller.snapshot
+        if snapshot is None or not self.chart.candles:
+            self._schedule_forex_quote(token)
+            return
+        age_seconds = max(0, (datetime.now(timezone.utc) - quote.observed_at).total_seconds())
+        candle = merge_forex_quote(self.chart.candles[-1], quote, snapshot.timeframe) if age_seconds <= 180 else None
+        if candle is not None:
+            self._queue_live_chart(candle, token)
+            now = time.monotonic()
+            if now - self._last_live_analysis >= LIVE_ANALYSIS_INTERVAL_SECONDS:
+                self._last_live_analysis = now
+                self._process_live(candle, token, context)
+        observed = quote.observed_at.astimezone().strftime("%H:%M:%S")
+        if age_seconds > 180:
+            self.updated_var.set(f"FOREX • ÚLTIMA COTAÇÃO {observed} • FONTE COM ATRASO")
+            self._schedule_forex_quote(token, delay_ms=FOREX_QUOTE_RETRY_MS)
+        else:
+            self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {observed}")
+            self._schedule_forex_quote(token)
+
+    def _forex_quote_failed(self, token: int) -> None:
+        if token != self._analysis_token:
+            return
+        self._forex_quote_running = False
+        if self._analysis_active:
+            self._schedule_forex_quote(token, delay_ms=FOREX_QUOTE_RETRY_MS)
+
     def _stop_feeds(self) -> None:
         self._stop_event.set()
         self.controller.websocket_online = False
         if self._forex_poll_job is not None:
             self.after_cancel(self._forex_poll_job)
             self._forex_poll_job = None
+        if self._forex_quote_job is not None:
+            self.after_cancel(self._forex_quote_job)
+            self._forex_quote_job = None
+        self._forex_quote_running = False
         if self._live_ui_job is not None:
             self.after_cancel(self._live_ui_job)
             self._live_ui_job = None
@@ -757,17 +833,22 @@ class PrimeAITraderApp(tk.Tk):
 
     def _render_indicators(self, snapshot: AnalysisSnapshot) -> None:
         last = snapshot.indicators.iloc[-1]
+        forex = snapshot.market == Market.FOREX.value
+        price_digits = market_price_decimals(f"{snapshot.market}|{snapshot.symbol}") if forex else 2
+        real_volume = not forex or any(candle.volume > 0 for candle in snapshot.candles[-90:])
         def f(key, digits=2):
             value = last.get(key)
             return "—" if pd.isna(value) else f"{float(value):,.{digits}f}"
         ema_trend = "ALTA" if last["ema_9"] > last["ema_21"] > last["ema_50"] else "BAIXA" if last["ema_9"] < last["ema_21"] < last["ema_50"] else "MISTA"
         values = {
             "ema": f"9/21/50  {ema_trend}", "rsi": f"14  {f('rsi_14', 1)}", "macd": f"Hist {f('macd_hist', 4)}",
-            "bb": f"{f('bb_lower', 2)} – {f('bb_upper', 2)}", "stoch": f"K {f('stoch_k', 1)} / D {f('stoch_d', 1)}",
-            "adx": f"14  {f('adx_14', 1)}", "atr": f"14  {f('atr_14', 4)}", "vwap": f('vwap', 4),
-            "obv": f('obv', 0), "cci": f"20  {f('cci_20', 1)}", "williams": f('williams_r', 1),
+            "bb": f"{f('bb_lower', price_digits)} – {f('bb_upper', price_digits)}", "stoch": f"K {f('stoch_k', 1)} / D {f('stoch_d', 1)}",
+            "adx": f"14  {f('adx_14', 1)}", "atr": f"14  {f('atr_14', 5 if forex else 4)}",
+            "vwap": f('vwap', price_digits if forex else 4) if real_volume else "SEM VOLUME REAL",
+            "obv": f('obv', 0) if real_volume else "SEM VOLUME REAL", "cci": f"20  {f('cci_20', 1)}", "williams": f('williams_r', 1),
             "fib": f"{snapshot.fibonacci.nearest_ratio * 100:.1f}%  PRÓXIMO" if snapshot.fibonacci else "SEM SWING",
-            "volume": f"Rel {f('volume_relative', 2)}x", "price_action": f"{snapshot.structure.trend} {' '.join(snapshot.structure.sequence)}",
+            "volume": f"Rel {f('volume_relative', 2)}x" if real_volume else "SEM VOLUME CENTRALIZADO",
+            "price_action": f"{snapshot.structure.trend} {' '.join(snapshot.structure.sequence)}",
             "news": f"{sum(item.high_risk for item in snapshot.news)} alto risco / {len(snapshot.news)}",
         }
         for key, text in values.items():

@@ -12,6 +12,18 @@ from ..priceaction.structure import MarketStructure
 from .theme import COLORS
 
 
+def market_price_decimals(context_key: str, price: float = 0.0) -> int:
+    parts = context_key.split("|")
+    if parts and parts[0].casefold() == "forex":
+        symbol = parts[1] if len(parts) > 1 else ""
+        return 3 if symbol.upper().endswith("/JPY") else 5
+    return 4
+
+
+def has_real_volume(candles: list[Candle]) -> bool:
+    return any(math.isfinite(candle.volume) and candle.volume > 0 for candle in candles)
+
+
 class CandleChart(tk.Canvas):
     def __init__(self, master, on_ohlc: Callable[[str], None] | None = None, **kwargs) -> None:
         super().__init__(master, bg=COLORS["card_alt"], highlightthickness=0, **kwargs)
@@ -100,7 +112,8 @@ class CandleChart(tk.Canvas):
     def _drag_move(self, event) -> None:
         if self.drag_x is None or not self.candles:
             return
-        width = max(self.winfo_width() - 90, 1)
+        right_padding = 92 if self._is_forex() else 74
+        width = max(self.winfo_width() - right_padding - 16, 1)
         candle_width = width / max(self.visible_count, 1)
         shift = round((self.drag_x - event.x) / max(candle_width, 1))
         if shift:
@@ -115,8 +128,20 @@ class CandleChart(tk.Canvas):
 
     def _bounds(self, visible: list[Candle]) -> tuple[float, float]:
         low, high = min(c.low for c in visible), max(c.high for c in visible)
+        if self._is_forex():
+            tick = 10 ** -market_price_decimals(self._context_key, visible[-1].close)
+            if high - low < tick * 8:
+                midpoint = (high + low) / 2
+                low, high = midpoint - tick * 4, midpoint + tick * 4
         margin = (high - low) * 0.08 or high * 0.001
         return low - margin, high + margin
+
+    def _is_forex(self) -> bool:
+        return self._context_key.split("|", 1)[0].casefold() == "forex"
+
+    def _format_price(self, price: float) -> str:
+        decimals = market_price_decimals(self._context_key, price)
+        return f"{price:,.{decimals}f}"
 
     def redraw(self) -> None:
         self._redraw_job = None
@@ -130,11 +155,12 @@ class CandleChart(tk.Canvas):
         width, height = self.winfo_width(), self.winfo_height()
         if width < 120 or height < 100:
             return
-        left, right, top, bottom = 16, width - 74, 16, height - 70
         visible, start = self._slice()
         if not visible:
             self.create_text(width / 2, height / 2, text="Clique em INICIAR ANÁLISE", fill=COLORS["muted"], font=("Segoe UI", 12))
             return
+        volume_visible = has_real_volume(visible)
+        left, right, top, bottom = 16, width - (92 if self._is_forex() else 74), 16, height - (70 if volume_visible else 28)
         low, high = self._bounds(visible)
         price_height = bottom - top
         def y(price: float) -> float:
@@ -145,12 +171,12 @@ class CandleChart(tk.Canvas):
             yy = top + price_height * line / 5
             price = high - (high - low) * line / 5
             self.create_line(left, yy, right, yy, fill=COLORS["grid"], width=1)
-            self.create_text(right + 8, yy, anchor="w", text=f"{price:,.4f}", fill=COLORS["muted"], font=("Segoe UI", 8))
+            self.create_text(right + 8, yy, anchor="w", text=self._format_price(price), fill=COLORS["muted"], font=("Segoe UI", 8))
         if self.overlays.get("sr"):
             for zone in self.zones:
                 color = COLORS["green"] if zone.kind == "SUPORTE" else COLORS["red"]
                 self.create_rectangle(left, y(zone.high), right, y(zone.low), fill=color, stipple="gray12", outline=color, width=1)
-                self.create_text(left + 8, y(zone.high) - 3, anchor="sw", text=f"{zone.kind} {zone.low:,.4f}–{zone.high:,.4f}", fill=color, font=("Segoe UI", 8))
+                self.create_text(left + 8, y(zone.high) - 3, anchor="sw", text=f"{zone.kind} {self._format_price(zone.low)}–{self._format_price(zone.high)}", fill=color, font=("Segoe UI", 8))
         if self.overlays.get("fibonacci") and self.fibonacci:
             for ratio, price in self.fibonacci.levels.items():
                 yy = y(price)
@@ -177,8 +203,9 @@ class CandleChart(tk.Canvas):
                 self.create_line(x - body_width / 2, y_open, x + body_width / 2, y_close, fill=color, width=2, tags=tags)
             else:
                 self.create_rectangle(x - body_width / 2, min(y_open, y_close), x + body_width / 2, max(y_open, y_close), fill=color, outline=color, tags=tags)
-            bar_height = candle.volume / max_volume * volume_height
-            self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags=tags)
+            if volume_visible:
+                bar_height = candle.volume / max_volume * volume_height
+                self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags=tags)
         if self.structure and self.overlays.get("swings"):
             for pivot_index, marker, color, anchor in (
                 *[(i, "▼", COLORS["red"], "s") for i in self.structure.pivot_highs[-8:]],
@@ -205,13 +232,13 @@ class CandleChart(tk.Canvas):
         current = visible[-1].close
         self.create_line(left, y(current), right, y(current), fill=COLORS["accent2"], dash=(2, 3), tags="live-price")
         self.create_rectangle(right, y(current) - 9, width, y(current) + 9, fill=COLORS["accent"], outline="", tags="live-price")
-        self.create_text(right + 5, y(current), anchor="w", text=f"{current:,.4f}", fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
+        self.create_text(right + 5, y(current), anchor="w", text=self._format_price(current), fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
         self._plot_state = {
             "width": width, "height": height, "left": left, "right": right,
             "top": top, "bottom": bottom, "low": low, "high": high,
             "step": step, "count": count, "max_volume": max_volume,
             "volume_base": volume_base, "volume_height": volume_height,
-            "body_width": body_width,
+            "body_width": body_width, "volume_visible": volume_visible,
         }
 
     def _redraw_live_candle(self) -> None:
@@ -240,14 +267,15 @@ class CandleChart(tk.Canvas):
             self.create_line(x - body_width / 2, y_open, x + body_width / 2, y_close, fill=color, width=2, tags="live-candle")
         else:
             self.create_rectangle(x - body_width / 2, min(y_open, y_close), x + body_width / 2, max(y_open, y_close), fill=color, outline=color, tags="live-candle")
-        bar_height = candle.volume / max(float(state["max_volume"]), 1) * float(state["volume_height"])
-        volume_base = float(state["volume_base"])
-        self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags="live-candle")
+        if state["volume_visible"]:
+            bar_height = candle.volume / max(float(state["max_volume"]), 1) * float(state["volume_height"])
+            volume_base = float(state["volume_base"])
+            self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags="live-candle")
         self.delete("live-price")
         current_y = y(candle.close)
         self.create_line(left, current_y, right, current_y, fill=COLORS["accent2"], dash=(2, 3), tags="live-price")
         self.create_rectangle(right, current_y - 9, width, current_y + 9, fill=COLORS["accent"], outline="", tags="live-price")
-        self.create_text(right + 5, current_y, anchor="w", text=f"{candle.close:,.4f}", fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
+        self.create_text(right + 5, current_y, anchor="w", text=self._format_price(candle.close), fill="white", font=("Segoe UI Semibold", 8), tags="live-price")
 
     def _draw_line(self, column: str, start: int, count: int, left: float, step: float, y, color: str) -> None:
         if column not in self.indicators:
@@ -264,17 +292,25 @@ class CandleChart(tk.Canvas):
         visible, _ = self._slice()
         if not visible:
             return
-        width, height = self.winfo_width(), self.winfo_height()
-        left, right = 16, width - 74
-        if not (left <= event.x <= right and 16 <= event.y <= height - 70):
+        state = self._plot_state
+        if state is None:
+            return
+        left, right = float(state["left"]), float(state["right"])
+        top, bottom = float(state["top"]), float(state["bottom"])
+        if not (left <= event.x <= right and top <= event.y <= bottom):
             return
         index = min(max(int((event.x - left) / max((right - left) / len(visible), 1)), 0), len(visible) - 1)
         candle = visible[index]
         self.delete("crosshair")
-        self.create_line(event.x, 16, event.x, height - 70, fill=COLORS["muted"], dash=(2, 3), tags="crosshair")
+        self.create_line(event.x, top, event.x, bottom, fill=COLORS["muted"], dash=(2, 3), tags="crosshair")
         self.create_line(left, event.y, right, event.y, fill=COLORS["muted"], dash=(2, 3), tags="crosshair")
         if self.on_ohlc:
-            self.on_ohlc(f"{candle.open_time.astimezone().strftime('%d/%m %H:%M')}   O {candle.open:,.4f}   H {candle.high:,.4f}   L {candle.low:,.4f}   C {candle.close:,.4f}   V {candle.volume:,.2f}")
+            volume = f"{candle.volume:,.2f}" if state["volume_visible"] else "—"
+            self.on_ohlc(
+                f"{candle.open_time.astimezone().strftime('%d/%m %H:%M')}"
+                f"   O {self._format_price(candle.open)}   H {self._format_price(candle.high)}"
+                f"   L {self._format_price(candle.low)}   C {self._format_price(candle.close)}   V {volume}"
+            )
 
     def _crosshair_leave(self, _event) -> None:
         self.delete("crosshair")

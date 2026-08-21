@@ -1,11 +1,14 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.6.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 0.6.1 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.6.0
+## Destaques da versão 0.6.1
 
+- Forex com cotação pública real consultada a cada 10 segundos e atualização incremental da última vela, sem consumir créditos do Twelve Data ou da Alpha Vantage.
+- O histórico Forex continua sendo reconciliado automaticamente; fontes atrasadas são identificadas honestamente e não geram ticks ou volume inventados.
+- Gráfico Forex com cinco casas decimais, três para pares em JPY, escala ampliada e remoção da área de volume quando a fonte não fornece volume real.
 - Perfis calibrados de verdade: conservador exige alta confirmação; equilibrado mantém seletividade intermediária; rápido prioriza leitura imediata com duas confirmações.
 - Score mínimo por perfil: conservador 86, equilibrado 73 e rápido 57; ADX, momentum, volatilidade, vantagem direcional e peso da IA também são independentes.
 - O perfil rápido avisa a direção ainda durante a formação da vela, deixando claro que a confirmação final depende do fechamento.
@@ -62,7 +65,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 | Binance Spot + espelhos oficiais | Criptomoedas e WebSocket | Não | Nenhum |
 | Coinbase Exchange | Backup de criptomoedas em USD | Não | Nenhum |
 | Kraken | Backup de criptomoedas em USD | Não | Nenhum |
-| Yahoo Finance Forex público | Candles Forex | Não | Nenhum |
+| Yahoo Finance Forex público | Candles Forex e cotação pública a cada 10 segundos | Não | Nenhum |
 | Frankfurter | Referência cambial diária, nunca intraday | Não | Nenhum |
 | Twelve Data Basic | Forex principal opcional | Sim, gratuita | Nenhum |
 | Alpha Vantage | Forex alternativo opcional | Sim, gratuita | Nenhum |
@@ -111,7 +114,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.6.0 possui 103 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões.
+A versão 0.6.1 possui 116 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo atualização incremental e precisão cambial.
 
 ## Dados locais
 

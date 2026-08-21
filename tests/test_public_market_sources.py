@@ -5,13 +5,13 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
-from prime_ai_trader.core.models import CRYPTO_DEFAULTS, PLATFORM_CRYPTO_DEFAULTS
+from prime_ai_trader.core.models import CRYPTO_DEFAULTS, PLATFORM_CRYPTO_DEFAULTS, Candle
 from prime_ai_trader.crypto.binance import BinanceSpotProvider
 from prime_ai_trader.crypto.public import CoinbaseSpotProvider, KrakenSpotProvider, ResilientCryptoProvider
 from prime_ai_trader.economic_calendar.finnhub import PublicEconomicCalendar
 from prime_ai_trader.forex.public import (
-    AlphaVantageForexProvider, FrankfurterReferenceProvider,
-    ResilientForexProvider, YahooForexProvider,
+    AlphaVantageForexProvider, ForexLiveQuote, FrankfurterReferenceProvider,
+    ResilientForexProvider, YahooForexProvider, merge_forex_quote,
 )
 from prime_ai_trader.market.base import ProviderError
 from prime_ai_trader.news.provider import CompositeNewsProvider, NewsItem, RssNewsProvider, classify_text, market_news_query
@@ -90,6 +90,93 @@ class PublicMarketSourceTests(unittest.TestCase):
             result = provider.fetch_candles("EUR/USD", "1m", 90)
         self.assertEqual(result, expected)
         self.assertIn("público", provider.last_provider_name.lower())
+
+    @patch("prime_ai_trader.forex.public.get_json")
+    def test_yahoo_live_forex_quote_uses_real_market_metadata(self, mocked) -> None:
+        observed = int(datetime.now(timezone.utc).timestamp())
+        mocked.return_value = {
+            "chart": {"error": None, "result": [{
+                "meta": {"regularMarketPrice": 1.10567, "regularMarketTime": observed},
+                "timestamp": [observed - 30],
+                "indicators": {"quote": [{"close": [1.10541]}]},
+            }]},
+        }
+        quote = YahooForexProvider().fetch_live_quote("EUR/USD")
+        self.assertEqual(quote.symbol, "EUR/USD")
+        self.assertAlmostEqual(quote.price, 1.10567)
+        self.assertEqual(quote.observed_at, datetime.fromtimestamp(observed, timezone.utc))
+        self.assertEqual(mocked.call_args.args[1]["range"], "1d")
+
+    @patch("prime_ai_trader.forex.public.get_json")
+    def test_yahoo_live_forex_quote_uses_latest_real_candle_when_metadata_is_old(self, mocked) -> None:
+        observed = int(datetime.now(timezone.utc).timestamp())
+        mocked.return_value = {
+            "chart": {"result": [{
+                "meta": {"regularMarketPrice": 1.101, "regularMarketTime": observed - 90},
+                "timestamp": [observed - 60, observed],
+                "indicators": {"quote": [{"close": [1.102, 1.10456]}]},
+            }]},
+        }
+        quote = YahooForexProvider().fetch_live_quote("EUR/USD")
+        self.assertEqual(quote.price, 1.10456)
+        self.assertEqual(int(quote.observed_at.timestamp()), observed)
+
+    @patch("prime_ai_trader.forex.public.get_json")
+    def test_live_forex_quote_cache_prevents_redundant_public_requests(self, mocked) -> None:
+        observed = int(datetime.now(timezone.utc).timestamp())
+        mocked.return_value = {"chart": {"result": [{
+            "meta": {"regularMarketPrice": 1.12345, "regularMarketTime": observed},
+        }]}}
+        provider = YahooForexProvider(quote_cache_seconds=20)
+        self.assertEqual(provider.fetch_live_quote("EUR/USD"), provider.fetch_live_quote("EUR/USD"))
+        mocked.assert_called_once()
+
+    @patch("prime_ai_trader.forex.public.get_json")
+    def test_invalid_public_forex_quote_is_not_fabricated(self, mocked) -> None:
+        mocked.return_value = {"chart": {"result": [{
+            "meta": {"regularMarketPrice": 0, "regularMarketTime": 1234},
+        }]}}
+        with self.assertRaisesRegex(ProviderError, "inválida"):
+            YahooForexProvider().fetch_live_quote("EUR/USD")
+
+    def test_live_forex_uses_free_public_source_without_twelve_data_credits(self) -> None:
+        provider = ResilientForexProvider("optional-key")
+        quote = ForexLiveQuote("EUR/USD", 1.12345, datetime.now(timezone.utc), "Yahoo")
+        with patch.object(provider.yahoo, "fetch_live_quote", return_value=quote) as public_quote, patch.object(
+            provider.twelve_data, "fetch_candles",
+        ) as paid_history:
+            self.assertEqual(provider.fetch_live_quote("EUR/USD"), quote)
+        public_quote.assert_called_once_with("EUR/USD")
+        paid_history.assert_not_called()
+        self.assertEqual(provider.recommended_quote_ms, 10_000)
+
+    def test_live_forex_quote_updates_existing_candle_without_fake_volume(self) -> None:
+        opened = datetime(2026, 8, 20, 12, 10, tzinfo=timezone.utc)
+        previous = Candle(opened, 1.101, 1.103, 1.100, 1.102, 0.0)
+        quote = ForexLiveQuote("EUR/USD", 1.10456, opened + timedelta(seconds=30), "Yahoo")
+        candle = merge_forex_quote(previous, quote, "1m")
+        self.assertIsNotNone(candle)
+        self.assertEqual(candle.open_time, opened)
+        self.assertAlmostEqual(candle.open, 1.101)
+        self.assertAlmostEqual(candle.high, 1.10456)
+        self.assertEqual(candle.volume, 0.0)
+        self.assertFalse(candle.closed)
+
+    def test_live_forex_quote_opens_next_real_candle_in_correct_timeframe(self) -> None:
+        opened = datetime(2026, 8, 20, 12, 9, tzinfo=timezone.utc)
+        previous = Candle(opened, 1.10, 1.11, 1.09, 1.105, 0.0)
+        quote = ForexLiveQuote("EUR/USD", 1.108, opened + timedelta(minutes=4, seconds=20), "Yahoo")
+        candle = merge_forex_quote(previous, quote, "3m")
+        self.assertEqual(candle.open_time, datetime(2026, 8, 20, 12, 12, tzinfo=timezone.utc))
+        self.assertEqual(candle.open, 1.108)
+        self.assertEqual(candle.close, 1.108)
+        self.assertEqual(candle.volume, 0.0)
+
+    def test_stale_forex_quote_never_overwrites_newer_candle(self) -> None:
+        opened = datetime(2026, 8, 20, 12, 10, tzinfo=timezone.utc)
+        previous = Candle(opened, 1.10, 1.11, 1.09, 1.105, 0.0)
+        quote = ForexLiveQuote("EUR/USD", 1.08, opened - timedelta(minutes=1), "Yahoo")
+        self.assertIsNone(merge_forex_quote(previous, quote, "1m"))
 
     def test_forex_falls_back_when_twelve_data_credits_are_exhausted(self) -> None:
         provider = ResilientForexProvider("test-key")

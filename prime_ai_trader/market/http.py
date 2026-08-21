@@ -11,7 +11,7 @@ from .base import ProviderError
 def get_json(url: str, params: dict | None = None, timeout: float = 12.0) -> dict | list:
     if params:
         url = f"{url}?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "PrimeAITrader/0.6.0", "Accept": "application/json"})
+    request = Request(url, headers={"User-Agent": "PrimeAITrader/0.6.1", "Accept": "application/json"})
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -26,7 +26,7 @@ def get_text(url: str, params: dict | None = None, timeout: float = 6.0) -> str:
     if params:
         url = f"{url}?{urlencode(params)}"
     request = Request(url, headers={
-        "User-Agent": "Mozilla/5.0 PrimeAITrader/0.6.0",
+        "User-Agent": "Mozilla/5.0 PrimeAITrader/0.6.1",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
     })
     try:
