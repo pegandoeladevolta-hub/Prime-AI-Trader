@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from prime_ai_trader.app.controller import TradingController
 from prime_ai_trader.config.settings import AppSettings
-from prime_ai_trader.ui.dashboard import INDICATOR_LAYOUT, MODE_LABELS, PrimeAITraderApp, recent_signal_display
+from prime_ai_trader.ui.dashboard import INDICATOR_LAYOUT, PrimeAITraderApp, recent_signal_display
 from prime_ai_trader.ui.theme import COLORS, configure_style
 
 
@@ -18,33 +18,7 @@ class ModernDashboardTests(unittest.TestCase):
         self.assertIn("self._build_left(content)", source)
         self.assertIn("self._build_center(content)", source)
         self.assertIn("self._build_right(content)", source)
-        self.assertIn("self._build_voice_panel(content)", source)
-        self.assertIn("self._build_insights(content)", source)
         self.assertIn("PROTEGIDO", source)
-
-    def test_reference_sidebar_uses_five_original_visible_fields(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp._build_left)
-        for label in ('"Mercado"', '"Ativo"', '"Gráfico"', '"Expiração"', '"Modo"'):
-            self.assertIn(label, source)
-        for label in ("INICIAR ANÁLISE", "PAUSAR", "BACKTEST", "TREINAR IA"):
-            self.assertIn(label, source)
-        self.assertEqual(MODE_LABELS["CONFIRMAÇÃO"], "Entrada manual VEX")
-
-    def test_reference_voice_card_is_separate_from_the_sidebar(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp._build_voice_panel)
-        self.assertIn("row=1, column=0", source)
-        self.assertIn("Alertas de voz", source)
-        self.assertIn("self.voice_switch", source)
-
-    def test_reference_bottom_cards_span_chart_and_signal_columns(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp._build_insights)
-        self.assertIn("row=1, column=1, columnspan=2", source)
-
-    def test_reference_header_keeps_requested_visible_statuses(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp._build_header)
-        for item in ("BINANCE", "IA", "NEWS", "DATABASE", "ÁUDIO"):
-            self.assertIn(f'"{item}"', source)
-        self.assertIn("_draw_brand_icon", source)
 
     def test_original_operational_actions_remain_available(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_left)
@@ -72,28 +46,26 @@ class ModernDashboardTests(unittest.TestCase):
         for item in ('"1m"', '"5m"', '"15m"', '"1h"', '"4h"', '"sr"', '"fibonacci"',
                      '"ema"', '"bollinger"', '"swings"', '"trend"', '"signals"'):
             self.assertIn(item, source)
-        self.assertIn("_open_tools_menu", source)
-
-    def test_indicator_cards_begin_in_the_reference_order(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp._build_indicator_strip)
-        self.assertIn('"ema": 0', source)
-        self.assertIn('"rsi": 1', source)
-        self.assertIn('"macd": 2', source)
-        self.assertIn('"volume": 3', source)
-        self.assertIn('"price_action": 4', source)
-        self.assertIn('"news": 5', source)
-
-    def test_reference_chart_summary_displays_real_ohlc_values(self) -> None:
-        source = inspect.getsource(PrimeAITraderApp.render_snapshot)
-        self.assertIn("market_price_decimals(context_key, candle.close)", source)
-        for value in ("candle.open", "candle.high", "candle.low", "candle.close"):
-            self.assertIn(value, source)
+        self.assertIn("_build_insights", source)
 
     def test_bottom_cards_match_requested_reference(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_insights)
         self.assertIn("Explicação da IA", source)
         self.assertIn("Últimos sinais", source)
         self.assertIn("Alertas de voz", source)
+
+    def test_audio_card_is_compact_and_prioritizes_the_other_cards(self) -> None:
+        source = inspect.getsource(PrimeAITraderApp._build_insights)
+        self.assertIn("grid_columnconfigure(0, weight=6)", source)
+        self.assertIn("grid_columnconfigure(1, weight=4)", source)
+        self.assertIn("grid_columnconfigure(2, weight=2)", source)
+        self.assertIn("width=42, height=42", source)
+        self.assertIn("width=118, height=22", source)
+
+    def test_balanced_confirmation_configuration_remains_unchanged(self) -> None:
+        settings = AppSettings()
+        self.assertEqual(settings.sensitivity, "EQUILIBRADO")
+        self.assertEqual(settings.mode, "CONFIRMAÇÃO")
 
     def test_right_panel_retains_signal_confidence_timer_news_and_reasoning(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_right)
@@ -123,8 +95,7 @@ class ModernDashboardTests(unittest.TestCase):
         self.assertEqual(recent_signal_display({}), ("--:--", "—", "—", "◷"))
 
     def test_modern_palette_keeps_distinct_trading_states(self) -> None:
-        self.assertEqual(COLORS["bg"], "#00050B")
-        self.assertEqual(COLORS["panel"], "#070F17")
+        self.assertEqual(COLORS["bg"], "#03070C")
         self.assertNotEqual(COLORS["green"], COLORS["red"])
         self.assertNotEqual(COLORS["accent2"], COLORS["purple"])
         source = inspect.getsource(configure_style)
@@ -144,16 +115,12 @@ class ModernDashboardTests(unittest.TestCase):
                 app = PrimeAITraderApp(controller)
             app.update_idletasks()
             self.assertTrue(app.chart.winfo_exists())
-            self.assertTrue(app.voice_card.winfo_exists())
-            self.assertTrue(app.insights_holder.winfo_exists())
-            self.assertEqual(int(app.voice_card.grid_info()["row"]), 1)
-            self.assertEqual(int(app.signal_card.grid_info()["row"]), 0)
-            self.assertEqual(int(app.insights_holder.grid_info()["columnspan"]), 2)
-            self.assertEqual(app.market_display_var.get(), "Cripto")
-            self.assertEqual(app.mode_display_var.get(), "Entrada manual VEX")
             self.assertEqual(len(app.indicator_values), len(INDICATOR_LAYOUT))
             self.assertEqual(len(app.recent_signal_labels), 3)
             self.assertEqual(app.countdown_label.cget("text"), "--:--")
+            self.assertEqual(int(app.audio_icon.cget("width")), 42)
+            self.assertEqual(int(app.audio_wave.cget("width")), 118)
+            self.assertEqual(app.audio_card.master.grid_columnconfigure(2)["weight"], 2)
             self.assertFalse(app._advanced_visible)
             app._toggle_advanced()
             self.assertTrue(app._advanced_visible)

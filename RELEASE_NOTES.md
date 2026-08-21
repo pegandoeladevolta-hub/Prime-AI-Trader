@@ -1,16 +1,14 @@
 # Release notes
 
-## 0.7.1 — 21/08/2026
+## 0.7.2 — 21/08/2026
 
-### Reprodução fiel da interface de referência
+### Ajuste pontual no cartão de voz da versão aprovada
 
-- Composição com a mesma divisão da imagem: cabeçalho, cinco seletores, quatro botões, gráfico central, sinal à direita e rodapé.
-- Painel de voz independente abaixo da coluna esquerda, com seletor português brasileiro e chave funcional.
-- Explicação da IA, últimos sinais reais e alertas de voz ocupam toda a largura do gráfico mais a coluna do sinal.
-- Barra do gráfico exibe abertura, máxima, mínima e fechamento reais; os indicadores começam com EMA, RSI, MACD, volume, Price Action e notícias.
-- Engrenagem reúne todas as funções preservadas: sensibilidade, risco, APIs, radar, atualização, desempenho, saúde, logs e limpeza segura.
-- Estratégias, análise, IA, provedores, Forex, criptomoedas, notícias, perfis e sinais permanecem inalterados.
-- 135 testes, incluindo verificações estruturais e smoke test da interface completa em Windows antes do empacotamento.
+- A versão 0.7.0 fornecida pelo usuário foi restaurada integralmente como base.
+- Apenas o cartão inferior de alertas de voz foi reduzido: alto-falante, texto e onda de áudio ocupam menos espaço.
+- A explicação da IA e os últimos sinais recebem prioridade na distribuição horizontal.
+- Sensibilidade equilibrada, modo confirmação, estratégias, Forex, criptomoedas, notícias e sinais continuam sem alterações.
+- 131 testes, incluindo confirmação do perfil equilibrado e smoke test visual em Windows.
 
 ## 0.7.0 — 21/08/2026
 
