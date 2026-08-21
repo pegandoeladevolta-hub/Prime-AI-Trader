@@ -1,10 +1,9 @@
-{
-  "status": "preparing",
-  "version": "0.8.0",
-  "run_id": 0,
-  "commit_sha": "",
-  "artifact_id": 0,
-  "artifact_name": "PRIME-AI-TRADER-Windows-x64",
-  "artifact_url": "",
-  "artifact_digest": ""
+﻿{
+    "status":  "success",
+    "run_id":  32499174842,
+    "commit_sha":  "59b1f3361eaa15dc744ea348d9c8250e739077cf",
+    "artifact_id":  9452909869,
+    "artifact_name":  "PRIME-AI-TRADER-Windows-x64",
+    "artifact_url":  "https://github.com/pegandoeladevolta-hub/primezap/actions/runs/32499174842/artifacts/9452909869",
+    "artifact_digest":  "865261ced9c1e982debd2d05d41a4a39f068309271c0e14456bd9d0d4b6f3a68"
 }
