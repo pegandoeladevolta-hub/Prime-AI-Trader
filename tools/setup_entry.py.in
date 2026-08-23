@@ -1,0 +1,425 @@
+"""Native Windows installer entry point embedded in the patched application.
+
+The installer is built from the already-patched PyInstaller executable.  It
+restores the original application entry point while copying itself to the
+chosen installation directory, so the 75 MiB runtime is not duplicated.
+"""
+
+from __future__ import annotations
+
+import base64
+import ctypes
+from ctypes import wintypes
+import hashlib
+import os
+from pathlib import Path
+import struct
+import subprocess
+import sys
+import threading
+import tkinter as tk
+from tkinter import messagebox, ttk
+import zlib
+
+try:
+    import winreg
+except ImportError:  # pragma: no cover - Windows-only executable
+    winreg = None
+
+
+APP_NAME = "Prime AI Trader"
+APP_VERSION = "0.9.1.1"
+APP_EXE = "PrimeAITrader.exe"
+UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\PrimeAITrader"
+COOKIE_MAGIC = b"MEI\x0c\x0b\x0a\x0b\x0e"
+COOKIE = struct.Struct("!8sIIII64s")
+TOC_HEADER = struct.Struct("!iIIIBc")
+ORIGINAL_RUN = base64.b64decode("__APP_RUN_PAYLOAD_B64__")
+
+
+class _BrowseInfo(ctypes.Structure):
+    """Windows Shell folder-picker structure (avoids tkinter.filedialog)."""
+
+    _fields_ = [
+        ("hwndOwner", wintypes.HWND),
+        ("pidlRoot", ctypes.c_void_p),
+        ("pszDisplayName", wintypes.LPWSTR),
+        ("lpszTitle", wintypes.LPCWSTR),
+        ("ulFlags", wintypes.UINT),
+        ("lpfn", ctypes.c_void_p),
+        ("lParam", wintypes.LPARAM),
+        ("iImage", ctypes.c_int),
+    ]
+
+
+def _choose_directory(owner: int, title: str) -> str | None:
+    """Open the native Windows folder picker using APIs bundled with Windows."""
+    display_name = ctypes.create_unicode_buffer(260)
+    info = _BrowseInfo(
+        hwndOwner=owner,
+        pidlRoot=None,
+        pszDisplayName=display_name,
+        lpszTitle=title,
+        ulFlags=0x0001 | 0x0010 | 0x0040,
+        lpfn=None,
+        lParam=0,
+        iImage=0,
+    )
+    shell32 = ctypes.windll.shell32
+    shell32.SHBrowseForFolderW.argtypes = [ctypes.POINTER(_BrowseInfo)]
+    shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+    shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+    shell32.SHGetPathFromIDListW.restype = wintypes.BOOL
+    ole32 = ctypes.windll.ole32
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole32.CoTaskMemFree.restype = None
+    pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+    if not pidl:
+        return None
+    try:
+        selected = ctypes.create_unicode_buffer(32768)
+        if shell32.SHGetPathFromIDListW(pidl, selected):
+            return selected.value
+        return None
+    finally:
+        ole32.CoTaskMemFree(pidl)
+
+README_TEXT = """Prime AI Trader 0.9.1.1 - Market Aware
+
+Esta versão adiciona confirmação específica por mercado:
+
+- CRIPTO: tendência, volume relativo, corpo e fechamento da vela.
+- FOREX: tendência, força DI/MACD e validação de sessão, sem usar volume de cripto.
+- CONFIRMAÇÃO: nunca entra antes do fechamento real da vela.
+- Pullback isolado não é tratado como reversão.
+- Vela dominada por pavio, fechamento fraco ou preço esticado gera AGUARDAR.
+
+IMPORTANTE
+Use somente em conta demo até completar 200 operações de Cripto e 200 de Forex
+em amostras separadas. O software não promete lucro ou taxa fixa de acerto.
+"""
+
+UNINSTALL_TEXT = r"""@echo off
+chcp 65001 >nul
+title Desinstalar Prime AI Trader
+echo.
+echo PRIME AI TRADER - DESINSTALADOR
+echo.
+choice /C SN /N /M "Deseja remover o Prime AI Trader? [S/N]: "
+if errorlevel 2 exit /b 0
+taskkill /IM PrimeAITrader.exe /F >nul 2>&1
+del /Q "%USERPROFILE%\Desktop\Prime AI Trader.lnk" >nul 2>&1
+rmdir /S /Q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Prime AI Trader" >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrimeAITrader" /f >nul 2>&1
+set "APPDIR=%~dp0"
+set "CLEANER=%TEMP%\PrimeAITrader-remove-%RANDOM%.cmd"
+(
+  echo @echo off
+  echo timeout /t 2 /nobreak ^>nul
+  echo rmdir /S /Q "%APPDIR%"
+  echo del /Q "%%~f0"
+) > "%CLEANER%"
+start "" /min cmd /c ""%CLEANER%""
+exit /b 0
+"""
+
+
+def _toc_entries(blob: bytes, archive_start: int, toc_pos: int, toc_len: int):
+    cursor = archive_start + toc_pos
+    end = cursor + toc_len
+    while cursor < end:
+        entry_size, pos, csize, usize, compressed, typecode = TOC_HEADER.unpack_from(blob, cursor)
+        if entry_size < TOC_HEADER.size or cursor + entry_size > end:
+            raise ValueError("Tabela interna do executável está inválida")
+        name = (
+            blob[cursor + TOC_HEADER.size : cursor + entry_size]
+            .split(b"\0", 1)[0]
+            .decode("utf-8", "surrogateescape")
+        )
+        yield {
+            "entry_start": cursor,
+            "entry_size": entry_size,
+            "pos": pos,
+            "csize": csize,
+            "usize": usize,
+            "compressed": compressed,
+            "typecode": typecode,
+            "name": name,
+        }
+        cursor += entry_size
+
+
+def restore_application(installer_path: Path, target_path: Path) -> str:
+    """Turn a copy of this setup back into the audited application executable."""
+    blob = installer_path.read_bytes()
+    cookie_pos = blob.rfind(COOKIE_MAGIC)
+    if cookie_pos < 0 or cookie_pos + COOKIE.size != len(blob):
+        raise ValueError("Pacote do instalador não foi reconhecido")
+    magic, package_len, toc_pos, toc_len, pyver, pylib = COOKIE.unpack_from(blob, cookie_pos)
+    if pyver != 312:
+        raise ValueError("O instalador requer o pacote Python 3.12 esperado")
+    archive_start = cookie_pos + COOKIE.size - package_len
+    entries = list(_toc_entries(blob, archive_start, toc_pos, toc_len))
+    if not any(entry["name"] == "run" and entry["typecode"] == b"s" for entry in entries):
+        raise ValueError("Ponto de entrada do aplicativo não encontrado")
+
+    rebuilt = bytearray(blob[:archive_start])
+    rebuilt_toc = bytearray()
+    for entry in entries:
+        if entry["name"] == "run" and entry["typecode"] == b"s":
+            raw = ORIGINAL_RUN
+            stored = zlib.compress(raw, level=9)
+            compressed = 1
+        else:
+            start = archive_start + entry["pos"]
+            stored = blob[start : start + entry["csize"]]
+            compressed = entry["compressed"]
+            raw = zlib.decompress(stored) if compressed else stored
+
+        new_pos = len(rebuilt) - archive_start
+        rebuilt.extend(stored)
+        toc_entry = bytearray(blob[entry["entry_start"] : entry["entry_start"] + entry["entry_size"]])
+        struct.pack_into("!I", toc_entry, 4, new_pos)
+        struct.pack_into("!I", toc_entry, 8, len(stored))
+        struct.pack_into("!I", toc_entry, 12, len(raw))
+        struct.pack_into("!B", toc_entry, 16, compressed)
+        rebuilt_toc.extend(toc_entry)
+
+    new_toc_pos = len(rebuilt) - archive_start
+    rebuilt.extend(rebuilt_toc)
+    new_package_len = len(rebuilt) + COOKIE.size - archive_start
+    rebuilt.extend(COOKIE.pack(magic, new_package_len, new_toc_pos, len(rebuilt_toc), pyver, pylib))
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target_path.with_name(target_path.name + ".installing")
+    temporary.write_bytes(rebuilt)
+    os.replace(temporary, target_path)
+    return hashlib.sha256(rebuilt).hexdigest()
+
+
+def _safe_install_directory(value: str) -> Path:
+    target = Path(os.path.abspath(os.path.expandvars(value))).resolve()
+    normalized_name = target.name.lower().replace(" ", "")
+    if normalized_name != "primeaitrader":
+        raise ValueError("Escolha uma pasta exclusiva chamada PrimeAITrader")
+    forbidden = {
+        Path(os.environ.get(key, "C:\\__invalid__")).resolve()
+        for key in ("USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMFILES", "WINDIR")
+    }
+    if target == Path(target.anchor) or target in forbidden:
+        raise ValueError("Essa pasta é ampla demais para uma instalação segura")
+    return target
+
+
+def _powershell_quote(value: Path | str) -> str:
+    return str(value).replace("'", "''")
+
+
+def _create_shortcut(shortcut: Path, target: Path, working_directory: Path) -> None:
+    shortcut.parent.mkdir(parents=True, exist_ok=True)
+    command = (
+        "$w=New-Object -ComObject WScript.Shell;"
+        f"$s=$w.CreateShortcut('{_powershell_quote(shortcut)}');"
+        f"$s.TargetPath='{_powershell_quote(target)}';"
+        f"$s.WorkingDirectory='{_powershell_quote(working_directory)}';"
+        f"$s.IconLocation='{_powershell_quote(target)},0';"
+        "$s.Description='Prime AI Trader - estratégias por mercado';$s.Save()"
+    )
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    completed = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"Não foi possível criar o atalho: {shortcut}")
+
+
+def _write_uninstall_registry(install_dir: Path, exe_path: Path, uninstall_path: Path) -> None:
+    if winreg is None:
+        return
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as key:
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_NAME)
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, APP_VERSION)
+        winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "Prime AI Trader")
+        winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_dir))
+        winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe_path))
+        winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, f'"{uninstall_path}"')
+        winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(key, "EstimatedSize", 0, winreg.REG_DWORD, 76450)
+
+
+def install(installer_path: Path, install_dir: Path, desktop_shortcut: bool) -> tuple[Path, list[str]]:
+    install_dir = _safe_install_directory(str(install_dir))
+    target_exe = install_dir / APP_EXE
+    restore_application(installer_path, target_exe)
+
+    (install_dir / "LEIA-ME.txt").write_text(README_TEXT, encoding="utf-8")
+    (install_dir / "VERSAO.txt").write_text(
+        "Prime AI Trader 0.9.1.1 Market-Aware\nFiltro CRIPTO/FOREX ativo.\n",
+        encoding="utf-8",
+    )
+    config_dir = install_dir / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    example = config_dir / "apis.example.json"
+    if not example.exists():
+        example.write_text('{\n  "binance_api_key": "",\n  "binance_api_secret": ""\n}\n', encoding="utf-8")
+
+    uninstall_path = install_dir / "Desinstalar Prime AI Trader.cmd"
+    uninstall_path.write_text(UNINSTALL_TEXT, encoding="utf-8-sig", newline="\r\n")
+    warnings: list[str] = []
+
+    start_menu = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / APP_NAME
+    try:
+        _create_shortcut(start_menu / f"{APP_NAME}.lnk", target_exe, install_dir)
+        _create_shortcut(start_menu / f"Desinstalar {APP_NAME}.lnk", uninstall_path, install_dir)
+    except Exception as exc:
+        warnings.append(str(exc))
+
+    if desktop_shortcut:
+        try:
+            desktop = Path(os.environ["USERPROFILE"]) / "Desktop" / f"{APP_NAME}.lnk"
+            _create_shortcut(desktop, target_exe, install_dir)
+        except Exception as exc:
+            warnings.append(str(exc))
+
+    try:
+        _write_uninstall_registry(install_dir, target_exe, uninstall_path)
+    except Exception as exc:
+        warnings.append(f"Registro do desinstalador: {exc}")
+    return target_exe, warnings
+
+
+class SetupWindow:
+    def __init__(self) -> None:
+        self.root = tk.Tk()
+        self.root.title(f"Instalador do {APP_NAME} {APP_VERSION}")
+        self.root.geometry("680x500")
+        self.root.resizable(False, False)
+        self.root.configure(bg="#071426")
+        self.installer_path = Path(sys.executable)
+        default = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "PrimeAITrader"
+        self.path_var = tk.StringVar(value=str(default))
+        self.desktop_var = tk.BooleanVar(value=True)
+        self.launch_var = tk.BooleanVar(value=True)
+        self.status_var = tk.StringVar(value="Pronto para instalar")
+        self._build()
+
+    def _build(self) -> None:
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("Gold.Horizontal.TProgressbar", troughcolor="#13243b", background="#e8b84f")
+
+        header = tk.Frame(self.root, bg="#0d2340", height=110)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="PRIME AI TRADER", fg="#f2c761", bg="#0d2340", font=("Segoe UI", 22, "bold")).pack(anchor="w", padx=34, pady=(20, 0))
+        tk.Label(header, text="Versão 0.9.1.1 • Estratégias específicas para Cripto e Forex", fg="#d7e3f4", bg="#0d2340", font=("Segoe UI", 10)).pack(anchor="w", padx=36, pady=(2, 0))
+
+        body = tk.Frame(self.root, bg="#071426")
+        body.pack(fill="both", expand=True, padx=34, pady=22)
+        tk.Label(body, text="Melhorias desta atualização", fg="white", bg="#071426", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        improvements = (
+            "✓ Confirmação somente após o fechamento real da vela\n"
+            "✓ Pullback não é confundido com reversão\n"
+            "✓ Volume específico para Cripto e força/sessão para Forex\n"
+            "✓ Entradas frágeis são convertidas em AGUARDAR"
+        )
+        tk.Label(body, text=improvements, justify="left", fg="#b9c9dd", bg="#071426", font=("Segoe UI", 10), pady=8).pack(anchor="w")
+
+        tk.Label(body, text="Pasta de instalação", fg="white", bg="#071426", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 4))
+        row = tk.Frame(body, bg="#071426")
+        row.pack(fill="x")
+        self.path_entry = tk.Entry(row, textvariable=self.path_var, bg="#101f34", fg="white", insertbackground="white", relief="flat", font=("Segoe UI", 9))
+        self.path_entry.pack(side="left", fill="x", expand=True, ipady=8)
+        self.browse_button = tk.Button(row, text="Procurar", command=self._browse, bg="#1b3658", fg="white", activebackground="#294d79", activeforeground="white", relief="flat", padx=14, pady=7)
+        self.browse_button.pack(side="left", padx=(8, 0))
+
+        options = tk.Frame(body, bg="#071426")
+        options.pack(fill="x", pady=12)
+        tk.Checkbutton(options, text="Criar atalho na área de trabalho", variable=self.desktop_var, bg="#071426", fg="#d7e3f4", selectcolor="#13243b", activebackground="#071426", activeforeground="white").pack(anchor="w")
+        tk.Checkbutton(options, text="Abrir o Prime AI Trader após instalar", variable=self.launch_var, bg="#071426", fg="#d7e3f4", selectcolor="#13243b", activebackground="#071426", activeforeground="white").pack(anchor="w")
+
+        self.progress = ttk.Progressbar(body, mode="indeterminate", style="Gold.Horizontal.TProgressbar")
+        self.progress.pack(fill="x", pady=(2, 6))
+        tk.Label(body, textvariable=self.status_var, fg="#90a8c2", bg="#071426", font=("Segoe UI", 9)).pack(anchor="w")
+
+        footer = tk.Frame(self.root, bg="#0d1b2d", height=66)
+        footer.pack(fill="x", side="bottom")
+        footer.pack_propagate(False)
+        tk.Label(footer, text="Use em conta demo durante a validação.", fg="#8fa4ba", bg="#0d1b2d", font=("Segoe UI", 8)).pack(side="left", padx=34)
+        self.install_button = tk.Button(footer, text="INSTALAR ATUALIZAÇÃO", command=self._start_install, bg="#e8b84f", fg="#071426", activebackground="#f5cf75", relief="flat", font=("Segoe UI", 10, "bold"), padx=20, pady=9)
+        self.install_button.pack(side="right", padx=34, pady=13)
+
+    def _browse(self) -> None:
+        self.root.update_idletasks()
+        selected = _choose_directory(
+            self.root.winfo_id(),
+            "Escolha onde criar a pasta PrimeAITrader",
+        )
+        if selected:
+            parent = Path(selected)
+            self.path_var.set(str(parent if parent.name.lower().replace(" ", "") == "primeaitrader" else parent / "PrimeAITrader"))
+
+    def _start_install(self) -> None:
+        try:
+            install_dir = _safe_install_directory(self.path_var.get())
+        except Exception as exc:
+            messagebox.showerror("Pasta inválida", str(exc), parent=self.root)
+            return
+        self.install_button.configure(state="disabled")
+        self.browse_button.configure(state="disabled")
+        self.path_entry.configure(state="disabled")
+        self.progress.start(12)
+        self.status_var.set("Instalando e verificando os arquivos...")
+        threading.Thread(target=self._worker, args=(install_dir,), daemon=True).start()
+
+    def _worker(self, install_dir: Path) -> None:
+        try:
+            target, warnings = install(self.installer_path, install_dir, self.desktop_var.get())
+            self.root.after(0, self._finished, target, warnings)
+        except Exception as exc:
+            self.root.after(0, self._failed, exc)
+
+    def _finished(self, target: Path, warnings: list[str]) -> None:
+        self.progress.stop()
+        self.status_var.set("Instalação concluída")
+        detail = "O Prime AI Trader 0.9.1.1 foi instalado com sucesso."
+        if warnings:
+            detail += "\n\nAviso: o aplicativo foi instalado, mas algum atalho não pôde ser criado."
+        messagebox.showinfo("Instalação concluída", detail, parent=self.root)
+        if self.launch_var.get():
+            try:
+                subprocess.Popen([str(target)], cwd=str(target.parent))
+            except Exception:
+                pass
+        self.root.destroy()
+
+    def _failed(self, exc: Exception) -> None:
+        self.progress.stop()
+        self.status_var.set("Falha na instalação")
+        self.install_button.configure(state="normal")
+        self.browse_button.configure(state="normal")
+        self.path_entry.configure(state="normal")
+        messagebox.showerror(
+            "Não foi possível instalar",
+            f"{exc}\n\nFeche o Prime AI Trader se ele estiver aberto e tente novamente.",
+            parent=self.root,
+        )
+
+    def run(self) -> None:
+        self.root.mainloop()
+
+
+def main() -> int:
+    if os.name != "nt":
+        return 1
+    SetupWindow().run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
