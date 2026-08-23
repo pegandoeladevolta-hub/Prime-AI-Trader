@@ -42,6 +42,21 @@ py -3.12 tools\patch_prime_ai_trader.py `
 O patch mantém todos os componentes originais e injeta apenas
 `signals/market_guard.py` e o adaptador `signals/engine.py`.
 
+## Gerar o instalador Windows x64
+
+Depois de criar o executável corrigido, gere um setup compacto com:
+
+```powershell
+py -3.12 tools\build_market_aware_setup.py `
+  "PrimeAITrader-market-aware.exe" `
+  "PrimeAITrader-Setup-x64-v0.9.1-Market-Aware.exe"
+```
+
+O instalador reutiliza o runtime do próprio aplicativo, preserva configurações
+existentes durante a atualização, cria atalhos e registra o desinstalador no
+perfil do usuário. A geração só termina se o setup conseguir reconstruir um
+executável idêntico ao aplicativo corrigido.
+
 ## Limite importante
 
 Este filtro reduz entradas frágeis, mas não promete lucro ou taxa fixa de
