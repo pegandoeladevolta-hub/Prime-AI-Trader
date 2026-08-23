@@ -5,11 +5,12 @@ import math
 
 import pandas as pd
 
-from ..core.models import Direction, Signal, SignalState
+from ..core.models import Direction, Market, Signal, SignalState, TIMEFRAME_MINUTES
 from ..fibonacci.auto import FibonacciResult
 from ..ml.models import ModelManager
 from ..priceaction.professional import ProfessionalAssessment, assess_professional_market
 from ..priceaction.structure import MarketStructure
+from ..strategies.context import forex_sessions, strategy_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +114,8 @@ class SignalEngine:
     def assess_rules(indicators: pd.DataFrame, structure: MarketStructure,
                      fib: FibonacciResult | None,
                      professional: ProfessionalAssessment | None = None,
-                     mode: str = "CONFIRMAÇÃO") -> RuleAssessment:
+                     mode: str = "CONFIRMAÇÃO", market: str | None = None,
+                     symbol: str | None = None) -> RuleAssessment:
         last = indicators.iloc[-1]
         previous = indicators.iloc[-2] if len(indicators) >= 2 else last
         buy = sell = 0
@@ -165,19 +167,37 @@ class SignalEngine:
             elif minus_di > plus_di:
                 sell += strength; sell_reasons.append(f"ADX/-DI confirma força vendedora ({adx:.1f})")
 
+        is_forex = market == Market.FOREX.value
+        is_crypto = market == Market.CRYPTO.value
+        has_real_volume = _number(last.get("volume")) > 0 and not is_forex
         vwap = _number(last.get("vwap"))
-        if vwap > 0:
+        if vwap > 0 and has_real_volume:
             if close > vwap:
                 buy += 7; buy_reasons.append("Preço acima da VWAP")
             elif close < vwap:
                 sell += 7; sell_reasons.append("Preço abaixo da VWAP")
 
         volume_relative = _number(last.get("volume_relative"))
-        if volume_relative >= 1.15:
+        if has_real_volume and volume_relative >= 1.15:
             if close >= opened:
                 buy += 9; buy_reasons.append(f"Volume comprador {volume_relative:.2f}x")
             else:
                 sell += 9; sell_reasons.append(f"Volume vendedor {volume_relative:.2f}x")
+
+        if is_crypto and has_real_volume:
+            taker_buy = _number(last.get("taker_buy_volume"))
+            taker_ratio = taker_buy / _number(last.get("volume"), 1.0)
+            if taker_ratio >= 0.56:
+                buy += 6; buy_reasons.append(f"Força compradora real da Binance {taker_ratio * 100:.0f}%")
+            elif taker_ratio <= 0.44:
+                sell += 6; sell_reasons.append(f"Força vendedora real da Binance {(1 - taker_ratio) * 100:.0f}%")
+
+        if is_forex and isinstance(indicators.index, pd.DatetimeIndex):
+            active_sessions = forex_sessions(indicators.index[-1].to_pydatetime())
+            if active_sessions:
+                session_text = "/".join(active_sessions)
+                buy_reasons.append(f"Sessão Forex ativa: {session_text}")
+                sell_reasons.append(f"Sessão Forex ativa: {session_text}")
 
         stoch_k = _number(last.get("stoch_k"), 50)
         stoch_d = _number(last.get("stoch_d"), 50)
@@ -314,7 +334,8 @@ class SignalEngine:
                  horizon_minutes: int, sensitivity: str, candle_closed: bool,
                  blockers: list[str] | None = None, mode: str = "CONFIRMAÇÃO",
                  model_context: dict[str, str | int] | None = None,
-                 payout_percent: int = 80) -> Signal:
+                 payout_percent: int = 80,
+                 source_lag_seconds: float | None = None) -> Signal:
         payout = min(max(int(payout_percent or 80), 1), 200)
         break_even = 1 / (1 + payout / 100)
         profile = sensitivity_profile(sensitivity)
@@ -328,8 +349,11 @@ class SignalEngine:
             )
 
         context_timeframe = str(model_context.get("timeframe", "")) if model_context else ""
+        market = str(model_context.get("market", "")) if model_context else ""
+        symbol = str(model_context.get("symbol", "")) if model_context else ""
+        selected_strategy = strategy_key(market)
         professional = assess_professional_market(indicators, structure, fib, context_timeframe)
-        rules = self.assess_rules(indicators, structure, fib, professional, mode)
+        rules = self.assess_rules(indicators, structure, fib, professional, mode, market, symbol)
         technical_buy = self._technical_score(rules.buy_points, rules.sell_points, len(rules.buy_reasons))
         technical_sell = self._technical_score(rules.sell_points, rules.buy_points, len(rules.sell_reasons))
         model_ready = self.model_manager.is_compatible(model_context)
@@ -415,7 +439,10 @@ class SignalEngine:
             waiting.append("Volatilidade fora da faixa operacional")
         if overextended:
             waiting.append("Preço esticado; aguarde pullback ou reteste")
-        if not profile.early_reading:
+        strict_confirmation = (
+            mode == "CONFIRMAÇÃO" and context_timeframe == "1m" and horizon_minutes <= 1
+        )
+        if not profile.early_reading or strict_confirmation:
             against_higher = (
                 direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
                 or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
@@ -437,6 +464,27 @@ class SignalEngine:
                 waiting.append(
                     f"Confirmações independentes insuficientes: "
                     f"{len(independent)}/{minimum_independent}"
+                )
+        if professional.regime.transition and not (
+            professional.event and professional.event.kind == "CHOCH"
+        ):
+            waiting.append("Mudança de tendência em formação; aguarde CHOCH confirmado")
+        if market == Market.FOREX.value:
+            feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
+            session_active = any(_number(feature_row.get(name)) > 0 for name in (
+                "tokyo_session", "london_session", "new_york_session",
+            ))
+            pair_atr_regime = _number(feature_row.get("pair_atr_regime"), 1.0)
+            if context_timeframe == "1m" and not session_active:
+                waiting.append("Fora das sessões de Tóquio, Londres e Nova York")
+            if pair_atr_regime and not 0.28 <= pair_atr_regime <= 3.8:
+                waiting.append(f"ATR fora do regime recente deste par ({pair_atr_regime:.2f}x)")
+        if source_lag_seconds is not None:
+            timeframe_seconds = TIMEFRAME_MINUTES.get(context_timeframe, 1) * 60
+            maximum_lag = max(30.0, timeframe_seconds * 1.5)
+            if source_lag_seconds > maximum_lag:
+                waiting.insert(0,
+                    f"Fonte atrasada em {source_lag_seconds:.0f}s; sinal não pode ser confirmado"
                 )
         penalties = professional.buy_penalties if direction == Direction.BUY else professional.sell_penalties
         same_direction_event = bool(professional.event and professional.event.direction == direction)
@@ -481,6 +529,9 @@ class SignalEngine:
             "structure_event": professional.event.label if professional.event else "",
             "pullback_state": professional.pullback.label if professional.pullback else "",
             "timeframe_context": professional.policy.timeframe,
+            "strategy_name": selected_strategy,
+            "source_lag_seconds": source_lag_seconds,
+            "confirmed_candle": candle_closed,
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,

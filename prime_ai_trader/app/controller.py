@@ -33,6 +33,7 @@ from ..platform.vex import VexPlatformSnapshot, compare_platform_market
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
 from ..signals.engine import SignalEngine, sensitivity_profile
+from ..strategies.context import strategy_key
 
 
 @dataclass(slots=True)
@@ -75,7 +76,7 @@ class TradingController:
         self.calendar_provider = ResilientEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.snapshot: AnalysisSnapshot | None = None
         self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
-        self._quality_gate: dict[tuple[str, str, str, int], BacktestResult] = {}
+        self._quality_gate: dict[tuple, BacktestResult] = {}
         self._last_saved_signature: tuple | None = None
         self._radar_offset = 0
         self.last_radar_note = ""
@@ -110,7 +111,24 @@ class TradingController:
         return {
             "market": self.settings.market, "symbol": self.symbol(), "timeframe": self.settings.timeframe,
             "horizon_minutes": self.settings.horizon_minutes, "feature_schema": FEATURE_SCHEMA_VERSION,
+            "strategy": strategy_key(self.settings.market),
+            "sensitivity": self.settings.sensitivity,
+            "mode": self.settings.mode,
         }
+
+    @staticmethod
+    def _source_lag_seconds(candles: list[Candle], timeframe: str) -> float | None:
+        if not candles:
+            return None
+        candle = candles[-1]
+        minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15,
+                   "30m": 30, "1h": 60, "4h": 240}.get(timeframe, 1)
+        expected = candle.open_time.astimezone(timezone.utc) + timedelta(minutes=minutes)
+        # A vela aberta recebe atualizações do stream/quote; a idade do horário de
+        # abertura não é confundida com atraso da fonte.
+        if not candle.closed and datetime.now(timezone.utc) <= expected + timedelta(seconds=15):
+            return 0.0
+        return max(0.0, (datetime.now(timezone.utc) - expected).total_seconds())
 
     def cached_snapshot(self, max_age_seconds: float = 120.0) -> AnalysisSnapshot | None:
         key = (self.settings.market, self.symbol(), self.settings.timeframe)
@@ -144,6 +162,7 @@ class TradingController:
         context = {
             "market": market, "symbol": symbol, "timeframe": timeframe,
             "horizon_minutes": horizon_minutes, "feature_schema": FEATURE_SCHEMA_VERSION,
+            "strategy": strategy_key(market), "sensitivity": sensitivity, "mode": mode,
         }
         self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
         candles = provider.fetch_candles(symbol, timeframe, limit=limit)
@@ -154,7 +173,7 @@ class TradingController:
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
         fibonacci = automatic_fibonacci(indicators)
-        features = build_features(frame)
+        features = build_features(frame, market, symbol)
         news: list[NewsItem] = []
         calendar_events: list[EconomicEvent] = []
         blockers: list[str] = []
@@ -206,12 +225,14 @@ class TradingController:
             indicators, features, structure, fibonacci, horizon_minutes,
             sensitivity, candles[-1].closed, blockers, mode, context,
             payout_percent=payout_percent,
+            source_lag_seconds=self._source_lag_seconds(candles, timeframe),
         )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         signal = self._apply_platform_alignment(signal, market, symbol, float(indicators["close"].iloc[-1]))
         calibrated, samples = self.repository.calibration(
             signal.score, market, symbol, timeframe, horizon_minutes, mode,
+            sensitivity=sensitivity, strategy=strategy_key(market), result_source="MANUAL",
         )
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
         snapshot = AnalysisSnapshot(
@@ -238,7 +259,12 @@ class TradingController:
             "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di",
             "atr_14", "vwap", "obv", "cci_20", "williams_r", "volume_relative",
         )}
-        self.repository.save_signal(signal, market, symbol, timeframe, values, mode)
+        self.repository.save_signal(
+            signal, market, symbol, timeframe, values, mode,
+            platform=self.settings.platform_name,
+            strategy=strategy_key(market), sensitivity=self.settings.sensitivity,
+            stake_amount=self.settings.stake_amount,
+        )
         self._last_saved_signature = signature
         self.logger.info("Sinal salvo | %s %s score=%s setup=%s", symbol,
                          signal.direction.value, signal.score, signal.setup_name)
@@ -265,7 +291,9 @@ class TradingController:
             market_floor = 0.00001 if row.get("market") == Market.CRYPTO.value else 0.000002
             neutral_threshold = max(market_floor, atr_pct * 0.01)
             result = "DRAW" if abs(signed) < neutral_threshold else "WIN" if signed > 0 else "LOSS"
-            self.repository.set_result(int(row["id"]), exit_price, result)
+            self.repository.set_result(
+                int(row["id"]), exit_price, result, result_source="INFERRED",
+            )
 
     def merge_live_candle(self, candle: Candle) -> AnalysisSnapshot | None:
         if not self.snapshot:
@@ -287,7 +315,7 @@ class TradingController:
         structure = analyze_structure(indicators, last_atr)
         fibonacci = automatic_fibonacci(indicators)
         feature_frame = frame.iloc[-180:] if len(frame) > 180 else frame
-        features = build_features(feature_frame)
+        features = build_features(feature_frame, snapshot.market, snapshot.symbol)
         blockers: list[str] = []
         warnings: list[str] = []
         recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
@@ -307,6 +335,7 @@ class TradingController:
             indicators, features, structure, fibonacci, self.settings.horizon_minutes,
             self.settings.sensitivity, candle.closed, blockers, self.settings.mode,
             self.model_context(), payout_percent=self.settings.payout_percent,
+            source_lag_seconds=self._source_lag_seconds(candles, snapshot.timeframe),
         )
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(
@@ -318,6 +347,8 @@ class TradingController:
         signal.calibrated_rate, signal.calibrated_samples = self.repository.calibration(
             signal.score, snapshot.market, snapshot.symbol, snapshot.timeframe,
             self.settings.horizon_minutes, self.settings.mode,
+            sensitivity=self.settings.sensitivity, strategy=strategy_key(snapshot.market),
+            result_source="MANUAL",
         )
         self.snapshot = AnalysisSnapshot(
             candles, indicators, features, structure, fibonacci, signal,
@@ -343,7 +374,8 @@ class TradingController:
         signal.state = SignalState.WAITING
         signal.entry = None
         signal.waiting_reasons = (reasons + signal.waiting_reasons)[:4]
-        signal.validation_note = "Análise pausada até a VEX e a fonte pública estarem alinhadas."
+        platform = getattr(self.platform_snapshot, "platform_name", self.settings.platform_name)
+        signal.validation_note = f"Análise pausada até a {platform} e a fonte pública estarem alinhadas."
         return signal
 
     def train(self) -> TrainingReport:
@@ -354,7 +386,7 @@ class TradingController:
         labels = self._labels_for_horizon(threshold)
         features = self.snapshot.features
         if len(features) != len(self.snapshot.indicators):
-            features = build_features(candles_frame(self.snapshot.candles))
+            features = build_features(candles_frame(self.snapshot.candles), self.snapshot.market, self.snapshot.symbol)
         report = self.model_manager.train(features, labels, self.model_context())
         self.logger.info("IA treinada | modelo=%s versão=%s amostras=%s", report.selected_model, report.version, report.samples)
         return report
@@ -374,13 +406,17 @@ class TradingController:
         model_name = self.model_manager.report.selected_model if compatible_model and self.model_manager.report else "Logistic Regression"
         features = self.snapshot.features
         if len(features) != len(self.snapshot.indicators):
-            features = build_features(candles_frame(self.snapshot.candles))
+            features = build_features(candles_frame(self.snapshot.candles), self.snapshot.market, self.snapshot.symbol)
         result = self.backtest_engine.run(
             features, labels, model_name, confidence, probability_edge,
             purge_size_from_context(self.model_context()), sensitivity,
             self.settings.payout_percent,
+            self.settings.stake_amount,
         )
-        gate_key = (self.snapshot.market, self.snapshot.symbol, self.snapshot.timeframe, self.settings.horizon_minutes)
+        gate_key = self._quality_gate_key(
+            self.snapshot.market, self.snapshot.symbol, self.snapshot.timeframe,
+            self.settings.horizon_minutes,
+        )
         self._quality_gate[gate_key] = result
         self.logger.info("Backtest concluído | operações=%s acerto=%.3f cobertura=%.3f", result.operations, result.accuracy, result.coverage)
         return result
@@ -404,7 +440,11 @@ class TradingController:
 
     def _apply_quality_gate(self, signal: Signal, market: str, symbol: str, timeframe: str,
                             horizon_minutes: int) -> Signal:
-        result = self._quality_gate.get((market, symbol, timeframe, horizon_minutes))
+        result = self._quality_gate.get(
+            self._quality_gate_key(market, symbol, timeframe, horizon_minutes),
+        )
+        # Compatibilidade somente em memória com chaves criadas pela versão 0.9.0.
+        result = result or self._quality_gate.get((market, symbol, timeframe, horizon_minutes))
         if not result:
             return signal
         if result.quality in {"AMOSTRA EM FORMAÇÃO", "AMOSTRA INSUFICIENT", "AMOSTRA INSUFICIENTE"}:
@@ -427,6 +467,13 @@ class TradingController:
                 f"{result.directional_operations} operações fora da amostra."
             )
         return signal
+
+    def _quality_gate_key(self, market: str, symbol: str, timeframe: str,
+                          horizon_minutes: int) -> tuple:
+        return (
+            market, symbol, timeframe, horizon_minutes, strategy_key(market),
+            self.settings.sensitivity, self.settings.mode, FEATURE_SCHEMA_VERSION,
+        )
 
     def refresh_news(self, force: bool = False) -> AnalysisSnapshot | None:
         if force:

@@ -19,11 +19,15 @@ from ..audio.voice import VoiceService
 from ..config.settings import app_data_dir
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
 from ..forex.public import merge_forex_quote
+from ..platform.bullex import BULLEX_CVM_ALERT_URL, BullexBrowserBridge
 from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market, merge_vex_quote
 from ..priceaction.professional import live_refresh_interval
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
-from .dialogs import ApiSettingsDialog, BacktestDialog, HealthDialog, PerformanceDialog, RadarDialog
+from .dialogs import (
+    ApiSettingsDialog, BacktestDialog, HealthDialog, ManualResultDialog,
+    PerformanceDialog, RadarDialog,
+)
 from .theme import COLORS, configure_style
 
 
@@ -121,6 +125,8 @@ class PrimeAITraderApp(tk.Tk):
         self.timeframe_var = tk.StringVar(value=settings.timeframe)
         self.horizon_var = tk.StringVar(value=str(settings.horizon_minutes))
         self.payout_var = tk.StringVar(value=str(settings.payout_percent))
+        self.stake_var = tk.StringVar(value=f"{settings.stake_amount:.2f}")
+        self.platform_var = tk.StringVar(value=settings.platform_name)
         self.sensitivity_var = tk.StringVar(value=settings.sensitivity)
         self.profile_hint_var = tk.StringVar(value=sensitivity_profile(settings.sensitivity).description)
         self.mode_var = tk.StringVar(value=settings.mode)
@@ -136,7 +142,9 @@ class PrimeAITraderApp(tk.Tk):
         self.context_var = tk.StringVar(value="SELECIONE UM ATIVO")
         self.updated_var = tk.StringVar(value="Aguardando análise")
         self.score_var = tk.DoubleVar(value=0)
-        self.platform_status_var = tk.StringVar(value="VEX não conectada • pagamento manual")
+        self.platform_status_var = tk.StringVar(
+            value=f"{settings.platform_name} não conectada • pagamento manual"
+        )
 
     def _build_ui(self) -> None:
         self.grid_rowconfigure(1, weight=1)
@@ -154,7 +162,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 0.9.0", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.0.0", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -202,13 +210,22 @@ class PrimeAITraderApp(tk.Tk):
         quick.pack(fill="x", pady=(4, 4))
         ttk.Button(quick, text="↻ GRÁFICO", style="Secondary.TButton", command=self.refresh_analysis).pack(side="left", fill="x", expand=True, padx=(0, 3))
         ttk.Button(quick, text="◎ RADAR", style="Secondary.TButton", command=self.run_radar).pack(side="left", fill="x", expand=True, padx=(3, 0))
-        self.vex_button = ttk.Button(panel, text="◉   CONECTAR VEX INVEST", style="Secondary.TButton", command=self.connect_vex)
+        self.platform_combo = self._combo(
+            panel, "Plataforma (sincronização visual)", self.platform_var,
+            ["VEX", "BULLEX"], self._platform_changed,
+        )
+        initial_platform_button = (
+            "◉   CONECTAR VEX INVEST" if self.platform_var.get() == "VEX"
+            else "◉   CONECTAR BULLEX"
+        )
+        self.vex_button = ttk.Button(panel, text=initial_platform_button, style="Secondary.TButton", command=self.connect_vex)
         self.vex_button.pack(fill="x", pady=(4, 2))
         ttk.Label(panel, textvariable=self.platform_status_var, style="Muted.TLabel", wraplength=238, justify="left").pack(anchor="w", pady=(0, 4))
         self._advanced_button = ttk.Button(panel, text="AJUSTES AVANÇADOS  ▾", style="Tool.TButton", command=self._toggle_advanced)
         self._advanced_button.pack(fill="x", pady=(4, 4))
         self.advanced_panel = ttk.Frame(panel, style="Panel.TFrame")
         self.payout_combo = self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
+        self._combo(self.advanced_panel, "Valor da entrada (R$)", self.stake_var, ["10.00", "20.00", "50.00", "80.00", "100.00"], self._save_form)
         self._combo(self.advanced_panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
         ttk.Button(self.advanced_panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(3, 6))
         ttk.Checkbutton(self.advanced_panel, text="Bloquear automaticamente por notícia/evento", variable=self.strict_risk_blocks_var, command=self._save_form).pack(anchor="w", pady=(2, 4))
@@ -229,6 +246,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Button(tools, text="APIs", style="Tool.TButton", command=self.open_api_settings).pack(side="left", fill="x", expand=True)
         ttk.Button(tools, text="LOGS", style="Tool.TButton", command=self.open_logs).pack(side="left", fill="x", expand=True)
         ttk.Button(tools, text="RESULTADOS", style="Tool.TButton", command=self.open_performance).pack(side="left", fill="x", expand=True)
+        ttk.Button(panel, text="REGISTRAR RESULTADO OBSERVADO", style="Secondary.TButton", command=self.open_manual_result).pack(fill="x", pady=(2, 3))
         ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self.open_health).pack(fill="x", pady=(2, 3))
         ttk.Button(panel, text="LIMPAR CACHE / MODELOS ANTIGOS", style="Tool.TButton", command=self.clean_cache).pack(fill="x", pady=(2, 0))
 
@@ -487,6 +505,12 @@ class PrimeAITraderApp(tk.Tk):
         settings.timeframe = self.timeframe_var.get()
         settings.horizon_minutes = int(self.horizon_var.get())
         settings.payout_percent = int(self.payout_var.get())
+        try:
+            settings.stake_amount = max(0.01, float(self.stake_var.get().replace(",", ".")))
+        except ValueError:
+            settings.stake_amount = 80.0
+            self.stake_var.set("80.00")
+        settings.platform_name = self.platform_var.get()
         settings.sensitivity = self.sensitivity_var.get()
         self.profile_hint_var.set(sensitivity_profile(settings.sensitivity).description)
         settings.mode = self.mode_var.get()
@@ -498,6 +522,20 @@ class PrimeAITraderApp(tk.Tk):
         settings.high_impact_block_minutes = int(self.impact_block_var.get())
         settings.strict_risk_blocks = self.strict_risk_blocks_var.get()
         self.controller.save_settings()
+
+    def _platform_changed(self) -> None:
+        if self._platform_bridge and self._platform_bridge.running:
+            self.connect_vex()
+        name = self.platform_var.get()
+        self.controller.settings.platform_name = name
+        self.controller.save_settings()
+        button = "◉   CONECTAR VEX INVEST" if name == "VEX" else "◉   CONECTAR BULLEX"
+        self.vex_button.configure(text=button)
+        suffix = (
+            " • exige aceite do alerta CVM"
+            if name == "BULLEX" and not self.controller.settings.bullex_sync_authorized else ""
+        )
+        self.platform_status_var.set(f"{name} não conectada • pagamento manual{suffix}")
 
     def _market_changed(self) -> None:
         values = CRYPTO_DEFAULTS if self.market_var.get() == Market.CRYPTO.value else FOREX_DEFAULTS
@@ -517,32 +555,50 @@ class PrimeAITraderApp(tk.Tk):
             self._schedule_analysis_restart()
 
     def connect_vex(self) -> None:
+        platform_name = self.platform_var.get()
         if self._platform_bridge and self._platform_bridge.running:
             self._platform_bridge.stop()
             self._platform_snapshot = None
             self.controller.platform_snapshot = None
             self.controller.settings.platform_sync_enabled = False
             self.controller.save_settings()
-            self.vex_button.configure(text="◉   CONECTAR VEX INVEST")
-            self.platform_status_var.set("VEX desconectada • pagamento manual")
-            self.status_var.set("Sincronização com a VEX desativada")
+            connect_text = "◉   CONECTAR VEX INVEST" if platform_name == "VEX" else "◉   CONECTAR BULLEX"
+            self.vex_button.configure(text=connect_text)
+            self.platform_status_var.set(f"{platform_name} desconectada • pagamento manual")
+            self.status_var.set(f"Sincronização com a {platform_name} desativada")
             return
-        self._platform_bridge = VexBrowserBridge(
-            app_data_dir() / "vex-browser",
+        if platform_name == "BULLEX" and not self.controller.settings.bullex_sync_authorized:
+            accepted = messagebox.askyesno(
+                "Alerta regulatório CVM — BullEx",
+                "A CVM informou que Digital Smart LLC/BULLEX não possui autorização para "
+                "intermediar valores mobiliários ou captar recursos no Brasil.\n\n"
+                "Esta conexão é somente leitura visual: não deposita, não acessa senha, "
+                "não clica e não executa operações. Deseja habilitá-la conscientemente?",
+                parent=self,
+            )
+            if not accepted:
+                self.platform_status_var.set("BULLEX continua desativada • consulte o alerta da CVM")
+                webbrowser.open(BULLEX_CVM_ALERT_URL)
+                return
+            self.controller.settings.bullex_sync_authorized = True
+            self.controller.save_settings()
+        bridge_type = VexBrowserBridge if platform_name == "VEX" else BullexBrowserBridge
+        self._platform_bridge = bridge_type(
+            app_data_dir() / f"{platform_name.lower()}-browser",
             lambda snapshot: self._post_ui(self._vex_snapshot_ready, snapshot),
             lambda status: self._post_ui(self._vex_status_ready, status),
         )
         try:
             self._platform_bridge.start()
         except Exception as exc:
-            self.platform_status_var.set("VEX não conectada")
-            messagebox.showerror("Conectar VEX Invest", str(exc), parent=self)
+            self.platform_status_var.set(f"{platform_name} não conectada")
+            messagebox.showerror(f"Conectar {platform_name}", str(exc), parent=self)
             return
         self.controller.settings.platform_sync_enabled = True
         self.controller.save_settings()
-        self.vex_button.configure(text="◉   DESCONECTAR VEX")
-        self.platform_status_var.set("Abrindo VEX • entre na sua conta no navegador")
-        self.status_var.set("Entre na VEX pelo navegador dedicado; o robô não solicita sua senha")
+        self.vex_button.configure(text=f"◉   DESCONECTAR {platform_name}")
+        self.platform_status_var.set(f"Abrindo {platform_name} • entre na sua conta no navegador")
+        self.status_var.set(f"Entre na {platform_name} pelo navegador dedicado; o robô não solicita sua senha")
 
     def _vex_status_ready(self, status: str) -> None:
         self.platform_status_var.set(status)
@@ -589,7 +645,8 @@ class PrimeAITraderApp(tk.Tk):
             details.append(f"{seconds // 60:02d}:{seconds % 60:02d}")
         if snapshot.otc:
             details.append("OTC não compatível")
-        self.platform_status_var.set("VEX ● " + " • ".join(details))
+        platform_name = snapshot.platform_name
+        self.platform_status_var.set(f"{platform_name} ● " + " • ".join(details))
         if changed:
             self._save_form()
             if self._analysis_active:
@@ -611,7 +668,7 @@ class PrimeAITraderApp(tk.Tk):
                     if candle is not None:
                         self._queue_live_chart(candle, self._analysis_token)
                         self.updated_var.set(
-                            f"VEX • PREÇO VISÍVEL AO VIVO {snapshot.observed_at.astimezone().strftime('%H:%M:%S')}"
+                            f"{platform_name} • PREÇO VISÍVEL AO VIVO {snapshot.observed_at.astimezone().strftime('%H:%M:%S')}"
                         )
                         now = time.monotonic()
                         interval = live_refresh_interval(current.timeframe, settings.sensitivity)
@@ -816,7 +873,7 @@ class PrimeAITraderApp(tk.Tk):
         self.chart.update_last_candle(candle)
         platform = self._platform_snapshot
         if platform and platform.fresh() and platform.price is not None and platform.asset == self.symbol_var.get():
-            self.updated_var.set(f"VEX • PREÇO VISÍVEL AO VIVO {datetime.now().strftime('%H:%M:%S')}")
+            self.updated_var.set(f"{platform.platform_name} • PREÇO VISÍVEL AO VIVO {datetime.now().strftime('%H:%M:%S')}")
         elif self.market_var.get() == Market.FOREX.value:
             if "FONTE COM ATRASO" not in self.updated_var.get():
                 self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {datetime.now().strftime('%H:%M:%S')}")
@@ -897,11 +954,12 @@ class PrimeAITraderApp(tk.Tk):
                 self._last_live_analysis = now
                 self._process_live(candle, token, context)
         observed = quote.observed_at.astimezone().strftime("%H:%M:%S")
+        spread_text = f" • spread {quote.spread:g}" if quote.spread is not None else ""
         if age_seconds > 180:
             self.updated_var.set(f"FOREX • ÚLTIMA COTAÇÃO {observed} • FONTE COM ATRASO")
             self._schedule_forex_quote(token, delay_ms=FOREX_QUOTE_RETRY_MS)
         else:
-            self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {observed}")
+            self.updated_var.set(f"FOREX • COTAÇÃO PÚBLICA {observed}{spread_text}")
             self._schedule_forex_quote(token)
 
     def _forex_quote_failed(self, token: int) -> None:
@@ -1034,6 +1092,26 @@ class PrimeAITraderApp(tk.Tk):
         self._run_task(
             "Calculando desempenho real…", self.controller.repository.statistics,
             lambda stats: (self.status_var.set("Desempenho atualizado"), PerformanceDialog(self, stats)),
+        )
+
+    def open_manual_result(self) -> None:
+        rows = self.controller.repository.recent(30)
+        if not rows:
+            messagebox.showinfo(
+                "Resultado observado", "Ainda não há sinais salvos para registrar.", parent=self,
+            )
+            return
+
+        def save(signal_id: int, result: str, payout: int, stake: float) -> None:
+            self.controller.repository.record_manual_result(
+                signal_id, result, payout_percent=payout, stake_amount=stake,
+            )
+            self.status_var.set(f"Resultado {result} registrado como observado na plataforma")
+            self._refresh_recent_signals()
+
+        ManualResultDialog(
+            self, rows, save, int(self.payout_var.get()),
+            float(self.stake_var.get().replace(",", ".")),
         )
 
     def clean_cache(self) -> None:
@@ -1206,8 +1284,9 @@ class PrimeAITraderApp(tk.Tk):
         self.entry_label.configure(text=f"Entrada: {signal.entry:,.{digits}f}" if signal.entry else "Entrada: —")
         self.horizon_label.configure(text=f"Expiração: {signal.horizon_minutes} minuto(s)")
         synced = self._platform_snapshot and self._platform_snapshot.fresh() and self._platform_snapshot.payout_percent == signal.payout_percent
+        platform_name = self._platform_snapshot.platform_name if synced else ""
         payout_text = (
-            f"{'Payout VEX' if synced else 'Pagamento'} {signal.payout_percent}% • equilíbrio "
+            f"{f'Payout {platform_name}' if synced else 'Pagamento'} {signal.payout_percent}% • equilíbrio "
             f"{signal.break_even_rate * 100:.2f}%"
         )
         if signal.expected_value is not None:
@@ -1259,7 +1338,7 @@ class PrimeAITraderApp(tk.Tk):
         )
         if synchronized:
             target = platform.expires_at.timestamp()
-            self._countdown_signature = ("vex", snapshot.market, snapshot.symbol)
+            self._countdown_signature = (platform.platform_name.lower(), snapshot.market, snapshot.symbol)
             self._countdown_target = target
         elif snapshot.signal.direction != Direction.WAIT:
             candle_time = snapshot.candles[-1].open_time if snapshot.candles else None

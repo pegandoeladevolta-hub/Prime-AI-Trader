@@ -68,6 +68,8 @@ class BacktestDialog:
             ("DRAW", str(result.draws)), ("ACERTO DIRECIONAL", f"{result.accuracy * 100:.2f}%" if result.directional_operations else "SEM AMOSTRA"),
             ("QUALIDADE", result.quality), ("PONTO DE EQUILÍBRIO", f"{result.break_even_rate * 100:.2f}%"),
             ("OP. DIRECIONAIS", str(result.directional_operations)), ("EXPECTATIVA", f"{result.expected_value * 100:+.2f}%"),
+            ("RESULTADO LÍQUIDO", f"R$ {result.net_profit:,.2f}"),
+            ("PROFIT FACTOR", f"{result.profit_factor:.4f}" if result.profit_factor is not None else "—"),
         ]
         for index, (label, value) in enumerate(values):
             card = ttk.Frame(metrics, style="Card.TFrame", padding=12)
@@ -131,6 +133,77 @@ class RadarDialog:
         ttk.Button(outer, text="ANALISAR ATIVO", style="Accent.TButton", command=select).pack(anchor="e", pady=(12, 0))
 
 
+class ManualResultDialog:
+    """Registro explícito do desfecho visto pelo usuário na plataforma."""
+
+    def __init__(self, parent, rows: list[dict], on_save,
+                 default_payout: int, default_stake: float) -> None:
+        self.window = centered_window(parent, "Resultado observado", "790x570")
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=18)
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(outer, text="REGISTRAR RESULTADO DA PLATAFORMA", style="Panel.TLabel",
+                  font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="Selecione o sinal e informe o resultado realmente observado. "
+                 "Isso substitui qualquer resultado apenas inferido pelo gráfico público.",
+            style="Muted.TLabel", wraplength=700,
+        ).pack(anchor="w", pady=(4, 12))
+        tree = ttk.Treeview(
+            outer, columns=("id", "time", "platform", "asset", "direction", "result", "source"),
+            show="headings", height=12,
+        )
+        for key, label, width in (
+            ("id", "ID", 45), ("time", "HORÁRIO", 130), ("platform", "PLATAFORMA", 90),
+            ("asset", "ATIVO", 100), ("direction", "DIREÇÃO", 80),
+            ("result", "RESULTADO", 80), ("source", "FONTE", 80),
+        ):
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor="center")
+        tree.pack(fill="both", expand=True)
+        for row in rows:
+            tree.insert("", "end", iid=str(row["id"]), values=(
+                row["id"], str(row.get("created_at", ""))[:19].replace("T", " "),
+                row.get("platform") or "MANUAL", row.get("symbol") or "—",
+                row.get("direction") or "—", row.get("result") or "PENDENTE",
+                row.get("result_source") or "—",
+            ))
+        if rows:
+            tree.selection_set(str(rows[0]["id"]))
+
+        fields = ttk.Frame(outer, style="Panel.TFrame")
+        fields.pack(fill="x", pady=(12, 8))
+        payout_var = tk.StringVar(value=str(default_payout))
+        stake_var = tk.StringVar(value=f"{default_stake:.2f}")
+        ttk.Label(fields, text="Payout (%)", style="Panel.TLabel").pack(side="left")
+        ttk.Entry(fields, textvariable=payout_var, width=8).pack(side="left", padx=(6, 20))
+        ttk.Label(fields, text="Entrada (R$)", style="Panel.TLabel").pack(side="left")
+        ttk.Entry(fields, textvariable=stake_var, width=12).pack(side="left", padx=6)
+
+        def register(result: str) -> None:
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("Resultado", "Selecione um sinal.", parent=self.window)
+                return
+            try:
+                payout = int(payout_var.get())
+                stake = float(stake_var.get().replace(",", "."))
+                if not 1 <= payout <= 200 or stake <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Resultado", "Payout ou valor da entrada inválido.", parent=self.window)
+                return
+            on_save(int(selected[0]), result, payout, stake)
+            messagebox.showinfo("Resultado", f"{result} registrado como resultado observado.", parent=self.window)
+            self.window.destroy()
+
+        buttons = ttk.Frame(outer, style="Panel.TFrame")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="WIN", style="Accent.TButton", command=lambda: register("WIN")).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        ttk.Button(buttons, text="LOSS", style="Danger.TButton", command=lambda: register("LOSS")).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(buttons, text="DRAW", command=lambda: register("DRAW")).pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+
 class PerformanceDialog:
     def __init__(self, parent, stats: dict) -> None:
         self.window = centered_window(parent, "Desempenho", "680x520")
@@ -149,19 +222,26 @@ class PerformanceDialog:
                 f"Sinais concluídos: {total}\n"
                 f"WIN: {stats.get('wins') or 0}   LOSS: {stats.get('losses') or 0}   DRAW: {stats.get('draws') or 0}\n"
                 f"Acerto direcional: {accuracy * 100:.2f}% em {directional_total} operações\n"
-                f"Cobertura direcional: {coverage * 100:.2f}%\nProfit factor: {profit_factor}"
+                f"Cobertura direcional: {coverage * 100:.2f}%\n"
+                f"Lucro bruto: R$ {stats.get('gross_profit', 0):,.2f}   "
+                f"Perda bruta: R$ {stats.get('gross_loss', 0):,.2f}\n"
+                f"Resultado líquido: R$ {stats.get('net_profit', 0):,.2f}\n"
+                f"Profit factor financeiro: {profit_factor}   •   "
+                f"Expectativa/operação: R$ {(stats.get('expectancy_per_operation') or 0):,.2f}\n"
+                f"Resultados observados: {stats.get('manual_results') or 0}   •   "
+                f"Inferidos: {stats.get('inferred_results') or 0}"
             )
         ttk.Label(outer, text=summary, style="Panel.TLabel", font=("Segoe UI", 12), justify="left").pack(anchor="w", pady=(14, 20))
         if total:
             ttk.Label(outer, text=f"Maior sequência WIN: {stats.get('longest_win_streak', 0)}   •   Maior sequência LOSS: {stats.get('longest_loss_streak', 0)}", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
-        tree = ttk.Treeview(outer, columns=("symbol", "timeframe", "mode", "total", "accuracy"), show="headings")
-        for key, label, width in (("symbol", "ATIVO", 120), ("timeframe", "TF", 60), ("mode", "MODO", 130), ("total", "TOTAL", 70), ("accuracy", "ACERTO", 90)):
+        tree = ttk.Treeview(outer, columns=("platform", "symbol", "timeframe", "strategy", "total", "accuracy"), show="headings")
+        for key, label, width in (("platform", "PLATAFORMA", 85), ("symbol", "ATIVO", 100), ("timeframe", "TF", 50), ("strategy", "ESTRATÉGIA", 150), ("total", "TOTAL", 60), ("accuracy", "ACERTO", 80)):
             tree.heading(key, text=label); tree.column(key, width=width, anchor="center")
         tree.pack(fill="both", expand=True)
         for group in stats.get("groups", []):
             directional = (group.get("wins") or 0) + (group.get("losses") or 0)
             rate = (group.get("wins") or 0) / directional if directional else 0
-            tree.insert("", "end", values=(group["symbol"], group["timeframe"], group["mode"], group["total"], f"{rate * 100:.2f}%" if directional else "—"))
+            tree.insert("", "end", values=(group.get("platform", "MANUAL"), group["symbol"], group["timeframe"], group.get("strategy") or group["mode"], group["total"], f"{rate * 100:.2f}%" if directional else "—"))
         ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e", pady=(10, 0))
 
 

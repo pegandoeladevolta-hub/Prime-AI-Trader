@@ -89,6 +89,7 @@ class VexPlatformSnapshot:
     horizon_minutes: int | None = None
     price: float | None = None
     otc: bool = False
+    platform_name: str = "VEX"
 
     @property
     def expires_at(self) -> datetime | None:
@@ -186,13 +187,21 @@ def _best(candidates: list[dict], category: str, parser):
     return max(found, key=lambda row: row[0])[1] if found else None
 
 
-def snapshot_from_visible(payload: dict) -> VexPlatformSnapshot:
+def snapshot_from_visible(payload: dict, *,
+                          allowed_hosts: set[str] | None = None,
+                          path_prefix: str | None = "/traderoom",
+                          platform_name: str = "VEX") -> VexPlatformSnapshot:
     url = str(payload.get("url", ""))
     parsed_url = urlparse(url)
+    hosts = allowed_hosts or {"vexinvest.com", "www.vexinvest.com"}
+    path_trusted = path_prefix is None or (
+        parsed_url.path.rstrip("/") == path_prefix.rstrip("/")
+        or parsed_url.path.startswith(path_prefix.rstrip("/") + "/")
+    )
     trusted = (
         parsed_url.scheme == "https"
-        and parsed_url.hostname in {"vexinvest.com", "www.vexinvest.com"}
-        and (parsed_url.path.rstrip("/") == "/traderoom" or parsed_url.path.startswith("/traderoom/"))
+        and parsed_url.hostname in hosts
+        and path_trusted
     )
     login = bool(payload.get("login"))
     try:
@@ -201,7 +210,7 @@ def snapshot_from_visible(payload: dict) -> VexPlatformSnapshot:
     except (ValueError, TypeError):
         observed = datetime.now(timezone.utc)
     if not trusted or login:
-        return VexPlatformSnapshot(observed, url, False)
+        return VexPlatformSnapshot(observed, url, False, platform_name=platform_name)
     candidates = [item for item in payload.get("candidates", []) if isinstance(item, dict)][:96]
     normalized_asset = _best(candidates, "asset", normalize_vex_asset)
     asset, market, otc = normalized_asset if normalized_asset else (None, None, False)
@@ -212,25 +221,29 @@ def snapshot_from_visible(payload: dict) -> VexPlatformSnapshot:
         period = None
     price_candidates = [item for item in candidates if item.get("kind") == "price" and _score_candidate(item, "price") >= 15]
     price = _best(price_candidates, "price", parse_localized_price)
-    return VexPlatformSnapshot(observed, url, True, asset, market, payout, countdown, period, price, otc)
+    return VexPlatformSnapshot(
+        observed, url, True, asset, market, payout, countdown, period, price, otc,
+        platform_name,
+    )
 
 
 def compare_platform_market(snapshot: VexPlatformSnapshot | None, market: str, symbol: str,
                             reference_price: float | None = None) -> list[str]:
     if snapshot is None or not snapshot.authenticated or not snapshot.fresh():
         return []
+    platform = snapshot.platform_name
     reasons = []
     if snapshot.otc:
-        reasons.append("A VEX está em um ativo OTC; a cotação pública não representa esse mercado")
+        reasons.append(f"A {platform} está em um ativo OTC; a cotação pública não representa esse mercado")
     if snapshot.market and snapshot.market != market:
-        reasons.append(f"Mercado diferente: VEX {snapshot.market} / análise {market}")
+        reasons.append(f"Mercado diferente: {platform} {snapshot.market} / análise {market}")
     if snapshot.asset and snapshot.asset != symbol:
-        reasons.append(f"Ativo diferente: VEX {snapshot.asset} / análise {symbol}")
+        reasons.append(f"Ativo diferente: {platform} {snapshot.asset} / análise {symbol}")
     if snapshot.price and reference_price and reference_price > 0 and not reasons:
         distance = abs(snapshot.price - reference_price) / reference_price
         limit = 0.008 if market == Market.CRYPTO.value else 0.002
         if distance > limit:
-            reasons.append(f"Preço da VEX diverge {distance * 100:.2f}% da fonte pública")
+            reasons.append(f"Preço da {platform} diverge {distance * 100:.2f}% da fonte pública")
     return reasons
 
 
@@ -261,6 +274,9 @@ def merge_vex_quote(candle: Candle, snapshot: VexPlatformSnapshot,
                   snapshot.price, 0.0, closed=False)
 
 
+merge_platform_quote = merge_vex_quote
+
+
 def _is_loopback_endpoint(url: str, port: int) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in {"ws", "http"} and parsed.hostname in {"127.0.0.1", "localhost"} and parsed.port == port
@@ -285,10 +301,20 @@ def _browser_executable() -> str | None:
 class VexBrowserBridge:
     """Lê somente o painel já visível em um navegador local dedicado ao usuário."""
 
-    def __init__(self, profile_dir: Path, on_snapshot, on_status) -> None:
+    def __init__(self, profile_dir: Path, on_snapshot, on_status, *,
+                 platform_name: str = "VEX",
+                 traderoom_url: str = VEX_TRADEROOM_URL,
+                 allowed_hosts: set[str] | None = None,
+                 visible_script: str = VISIBLE_TRADEROOM_SCRIPT,
+                 snapshot_parser=snapshot_from_visible) -> None:
         self.profile_dir = Path(profile_dir)
         self.on_snapshot = on_snapshot
         self.on_status = on_status
+        self.platform_name = platform_name
+        self.traderoom_url = traderoom_url
+        self.allowed_hosts = allowed_hosts or {"vexinvest.com", "www.vexinvest.com"}
+        self.visible_script = visible_script
+        self.snapshot_parser = snapshot_parser
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._port: int | None = None
@@ -302,7 +328,7 @@ class VexBrowserBridge:
             return
         browser = _browser_executable()
         if not browser:
-            raise RuntimeError("Instale Google Chrome ou Microsoft Edge para conectar a VEX Invest.")
+            raise RuntimeError(f"Instale Google Chrome ou Microsoft Edge para conectar a {self.platform_name}.")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
             listener.bind(("127.0.0.1", 0))
             port = int(listener.getsockname()[1])
@@ -310,7 +336,7 @@ class VexBrowserBridge:
         arguments = [
             browser, f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
             f"--user-data-dir={self.profile_dir}", "--no-first-run", "--no-default-browser-check",
-            "--new-window", VEX_TRADEROOM_URL,
+            "--new-window", self.traderoom_url,
         ]
         kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if os.name == "nt":
@@ -318,7 +344,8 @@ class VexBrowserBridge:
         subprocess.Popen(arguments, **kwargs)
         self._port = port
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True, name="prime-vex-visible-sync")
+        thread_name = f"prime-{self.platform_name.lower()}-visible-sync".replace(" ", "-")
+        self._thread = threading.Thread(target=self._run, daemon=True, name=thread_name)
         self._thread.start()
 
     def stop(self) -> None:
@@ -329,7 +356,7 @@ class VexBrowserBridge:
             asyncio.run(self._observe())
         except Exception as exc:
             if not self._stop_event.is_set():
-                self.on_status(f"VEX temporariamente indisponível: {str(exc)[:90]}")
+                self.on_status(f"{self.platform_name} temporariamente indisponível: {str(exc)[:90]}")
 
     def _target(self) -> str | None:
         assert self._port is not None
@@ -339,7 +366,7 @@ class VexBrowserBridge:
         for item in targets:
             address = urlparse(str(item.get("url", "")))
             websocket = str(item.get("webSocketDebuggerUrl", ""))
-            if address.hostname in {"vexinvest.com", "www.vexinvest.com"} and _is_loopback_endpoint(websocket, self._port):
+            if address.hostname in self.allowed_hosts and _is_loopback_endpoint(websocket, self._port):
                 return websocket
         return None
 
@@ -352,7 +379,7 @@ class VexBrowserBridge:
             try:
                 target = await asyncio.to_thread(self._target)
                 if not target:
-                    status = "VEX aberta • faça login e entre no traderoom"
+                    status = f"{self.platform_name} aberta • faça login e entre na sala de negociação"
                     if status != announced:
                         self.on_status(status)
                         announced = status
@@ -365,7 +392,7 @@ class VexBrowserBridge:
                         identifier += 1
                         await channel.send(json.dumps({
                             "id": identifier, "method": "Runtime.evaluate",
-                            "params": {"expression": VISIBLE_TRADEROOM_SCRIPT, "returnByValue": True, "awaitPromise": False},
+                            "params": {"expression": self.visible_script, "returnByValue": True, "awaitPromise": False},
                         }))
                         while True:
                             message = json.loads(await asyncio.wait_for(channel.recv(), timeout=4))
@@ -373,12 +400,12 @@ class VexBrowserBridge:
                                 break
                         payload = message.get("result", {}).get("result", {}).get("value", {})
                         if isinstance(payload, dict):
-                            snapshot = snapshot_from_visible(payload)
+                            snapshot = self.snapshot_parser(payload)
                             if snapshot.authenticated:
                                 self.on_snapshot(snapshot)
                                 announced = ""
                             else:
-                                status = "VEX aberta • faça login diretamente no navegador"
+                                status = f"{self.platform_name} aberta • faça login diretamente no navegador"
                                 if status != announced:
                                     self.on_status(status)
                                     announced = status
@@ -387,5 +414,5 @@ class VexBrowserBridge:
                     websockets.WebSocketException):
                 attempts += 1
                 if attempts in {3, 10, 25}:
-                    self.on_status("Aguardando o navegador da VEX abrir e conectar…")
+                    self.on_status(f"Aguardando o navegador da {self.platform_name} abrir e conectar…")
                 await asyncio.sleep(min(2.0, 0.4 + attempts * 0.1))

@@ -37,6 +37,11 @@ class BacktestResult:
     expected_value: float = 0.0
     confidence_low: float = 0.0
     confidence_high: float = 1.0
+    stake_amount: float = 1.0
+    gross_profit: float = 0.0
+    gross_loss: float = 0.0
+    net_profit: float = 0.0
+    profit_factor: float | None = None
 
 
 def _longest(values: list[bool | None], target: bool) -> int:
@@ -100,7 +105,7 @@ class BacktestEngine:
     def run(self, features: pd.DataFrame, labels: pd.Series, model_name: str = "Logistic Regression",
             confidence_threshold: float = 0.58, probability_edge: float = 0.12,
             purge_size: int = 0, sensitivity: str = "EQUILIBRADO",
-            payout_percent: int = 80) -> BacktestResult:
+            payout_percent: int = 80, stake_amount: float = 1.0) -> BacktestResult:
         x, y = align_supervised_data(features, labels)
         if len(x) < 130:
             raise ValueError("Histórico insuficiente para backtest walk-forward.")
@@ -152,6 +157,11 @@ class BacktestEngine:
         payout = min(max(int(payout_percent or 80), 1), 200)
         break_even = 1 / (1 + payout / 100)
         expected_value = accuracy * payout / 100 - (1 - accuracy) if directional else 0.0
+        stake = float(stake_amount) if math.isfinite(float(stake_amount)) and float(stake_amount) > 0 else 1.0
+        gross_profit = wins * stake * payout / 100
+        gross_loss = losses * stake
+        net_profit = gross_profit - gross_loss
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else None
         confidence_low, confidence_high = _wilson_interval(wins, len(directional))
         quality = (
             "AMOSTRA EM FORMAÇÃO" if len(directional) < 20
@@ -181,4 +191,5 @@ class BacktestEngine:
             _longest(outcomes, True), _longest(outcomes, False), len(active) / unique_days,
             by_hour, len(first_train), validation, len(last_test), quality,
             payout, break_even, expected_value, confidence_low, confidence_high,
+            stake, gross_profit, gross_loss, net_profit, profit_factor,
         )

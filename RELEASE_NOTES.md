@@ -1,5 +1,30 @@
 # Release notes
 
+## 1.0.0 — 22/08/2026
+
+### BullEx segura e preservação da VEX
+
+- Seletor VEX/BULLEX adicionado sem remover a integração existente.
+- BullEx desabilitada por padrão, com aceite explícito do alerta da CVM e link para o Ato Declaratório CVM 23.539.
+- Perfil de navegador independente, leitura somente de textos visíveis, endpoint CDP aleatório limitado a `127.0.0.1` e hosts explicitamente permitidos.
+- Nenhuma senha, cookie, token, saldo, carteira, clique, ordem ou API privada é usada.
+
+### Estratégias, M1 e modelos
+
+- Schema 6 separa features de cripto e Forex. VWAP, OBV e volume relativo são zerados no Forex; cripto preserva volume/taker real da Binance.
+- Sessões de Tóquio, Londres e Nova York usam fusos IANA e horário de verão; ATR é normalizado pelo histórico do próprio par.
+- Confirmação 1m/1m recusa vela aberta, fonte atrasada, transição sem CHOCH e pullback sem rejeição/estrutura.
+- Contextos de modelo agora incluem mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e versão de features.
+- Walk-forward, purga temporal e proibição de look-ahead foram preservados.
+
+### Métricas e Windows
+
+- P&L por operação usa payout e valor da entrada; profit factor financeiro usa lucro bruto dividido por perda bruta.
+- Resultado manual observado substitui, sem confusão, o desfecho inferido pelo gráfico. Histórico agrupado por plataforma, ativo e estratégia.
+- Migração SQLite adiciona as novas colunas sem apagar histórico.
+- Build testa `tkinter.filedialog`, `messagebox` e `ttk`; o instalador final continua sendo Inno Setup nativo.
+- Suíte ampliada para 252 testes, mais o smoke test visual executado no runner Windows.
+
 ## 0.9.0 — 21/08/2026
 
 ### Leitura estrutural profissional em todos os perfis

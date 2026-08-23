@@ -1,10 +1,18 @@
 # PRIME AI TRADER
 
-Build automático da versão 0.9.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.0.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 0.9.0
+## Destaques da versão 1.0.0
+
+- Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
+- A BullEx fica desabilitada por padrão e exige aceite explícito do [alerta da CVM sobre Digital Smart LLC/BULLEX](https://www.gov.br/cvm/pt-br/assuntos/noticias/2025/cvm-alerta-para-atuacao-irregular-da-digital-smart-llc-bullex-e-seu-responsavel). O aplicativo não promove depósitos.
+- Estratégias e features agora são separadas: cripto usa volume real/taker da Binance e VWAP somente com volume válido; Forex ignora volume centralizado inexistente e usa sessões de Tóquio, Londres e Nova York com timezone IANA/DST.
+- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 6. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
+- M1/expiração M1 em confirmação exige candle fechado e contexto superior, recusa fonte atrasada, transição sem CHOCH, falso pullback sem rejeição, exaustão e entrada sem espaço até S/R.
+- Profit factor passa a ser financeiro por payout e valor de entrada. O histórico separa plataforma, ativo, estratégia e resultado observado manualmente de resultado inferido pelo gráfico.
+- O instalador voltou a ser Inno Setup nativo e o build valida `tkinter.filedialog`, `messagebox` e `ttk` antes do PyInstaller, corrigindo a falha do antigo `setup_entry.py`.
 
 - Motor estrutural profissional reconhece continuidade de tendência (BOS), mudança de caráter/tendência (CHOCH), pullback confirmado, correções profundas, exaustão e lateralização.
 - Divergências regulares e ocultas de RSI/MACD, rejeições, varreduras de liquidez e distância real até suporte/resistência qualificam os sinais.
@@ -68,7 +76,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Gráfico próprio de candles/volume com zoom, arraste, crosshair, EMAs, Bollinger, S/R e Fibonacci.
 - EMA 9/21/50, RSI, MACD, Bollinger, Stochastic, ADX/+DI/-DI, ATR, VWAP, OBV, CCI, Williams %R, volume relativo e volatilidade histórica.
 - Price Action com HH/HL/LH/LL, zonas, rompimento, falso rompimento e reteste.
-- Quatro modelos locais leves, persistidos por ativo/timeframe/horizonte/schema.
+- Quatro modelos locais leves, persistidos por mercado/ativo/timeframe/expiração/estratégia/sensibilidade/modo/schema.
 - Radar, backtest fora da amostra, SQLite, desempenho observado, voz pt-BR e logs rotativos.
 - Chaves protegidas pelo Windows DPAPI e nunca incluídas no código-fonte.
 
@@ -77,7 +85,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Windows 10/11 x64.
 - 8 GB de RAM.
 - Internet para dados ao vivo.
-- Google Chrome ou Microsoft Edge para a sincronização opcional com a VEX Invest.
+- Google Chrome ou Microsoft Edge para a sincronização visual opcional com VEX/BullEx.
 - Python 3.11–3.13 somente para executar o código-fonte; o instalador final inclui o runtime.
 
 ## APIs
@@ -97,15 +105,17 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 
 Por padrão, notícias, eventos e backtest fraco aparecem como avisos silenciosos na tela. O bloqueio automático de notícia/evento pode ser ativado no painel esquerdo; apenas um bloqueio realmente ativo pode gerar alerta de voz.
 
-## Sincronizar com a VEX Invest
+## Sincronizar com VEX ou BullEx
 
-1. Abra o aplicativo e clique em **CONECTAR VEX INVEST**.
-2. O Chrome ou Edge abrirá `https://vexinvest.com/traderoom` em um perfil separado.
+1. Selecione **VEX** ou **BULLEX** no painel e clique em conectar.
+2. O Chrome ou Edge abrirá a plataforma em um perfil separado.
 3. Faça login normalmente somente nessa janela do navegador.
-4. Selecione o ativo e a operação na VEX; o robô identifica os campos visíveis e atualiza payout, mercado, ativo, expiração e cronômetro.
-5. Clique em **INICIAR ANÁLISE** e mantenha a janela dedicada da VEX aberta.
+4. Selecione o ativo; o app identifica somente campos de mercado visíveis e atualiza payout, ativo, expiração e cronômetro quando disponíveis.
+5. Clique em **INICIAR ANÁLISE** e mantenha a janela dedicada aberta.
 
-A integração não usa senha digitada no robô, não lê cookies, saldo ou campos privados, não envia ordens e não representa uma API oficial da plataforma. Se um campo não estiver visível, ele não é inventado. O histórico anterior dos candles continua vindo das APIs públicas; quando disponível, somente o preço real visível da VEX atualiza a vela em formação.
+A integração não usa senha digitada no app, não lê cookies, tokens, saldo, carteira ou campos privados, não clica e não envia ordens. Ela não representa API oficial. Se um campo não estiver visível, ele não é inventado. O histórico continua vindo das fontes públicas; somente o preço real visível pode atualizar a vela em formação. A conexão de depuração fica restrita a `127.0.0.1` e ao perfil local dedicado.
+
+Na primeira tentativa de ativar BullEx, o aplicativo mostra o alerta regulatório e solicita confirmação consciente. A opção permanece desabilitada enquanto não houver aceite; nenhuma função promove cadastro, depósito ou execução.
 
 Após instalar uma versão com novo motor de análise, selecione o ativo, timeframe e expiração desejados e clique em **TREINAR IA**. Os modelos são separados por contexto e os modelos de versões anteriores não são apresentados incorretamente como compatíveis.
 
@@ -148,7 +158,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 0.8.0 possui 174 testes automatizados de matemática, ausência de look-ahead, purga temporal, modelos, backtest, payout, perfis calibrados, sinais rápidos, prioridades do áudio, banco, feeds públicos, fallback, calendário, notícias, limpeza segura, reconexão, threads da interface, desempenho do gráfico e comandos dos botões, incluindo 37 cenários de sincronização segura com a VEX, seis verificações de confiabilidade Windows, cronômetro, divergências, OTC, confluências independentes e montagem real da interface em Windows.
+A versão 1.0.0 possui 252 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 
@@ -160,6 +170,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - `models\` — modelos e relatórios separados por contexto;
 - `logs\app.log` — logs rotativos.
 - `vex-browser\` — perfil opcional e separado do navegador usado para abrir a VEX.
+- `bullex-browser\` — perfil opcional e separado, criado somente após aceite do alerta.
 
 ## Limitações honestas
 
@@ -172,6 +183,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 - Coinbase/Kraken podem usar par USD como referência para o ativo USDT; compare o preço com o da plataforma.
 - Ativos OTC/sintéticos e preços internos de corretoras podem divergir das APIs públicas e não devem ser tratados como feeds equivalentes.
 - A sincronização VEX depende de login realizado pelo próprio usuário, Chrome/Edge aberto e textos efetivamente visíveis; alterações no site podem exigir ajuste de compatibilidade.
+- A BullEx está sujeita ao alerta oficial da CVM citado acima e permanece opt-in; a sincronização não constitui recomendação, promoção ou autorização regulatória.
 - Backtest e desempenho passado não garantem resultado futuro.
 
 Consulte `docs/STRATEGY.md` para a lógica dos filtros e os limites da validação.

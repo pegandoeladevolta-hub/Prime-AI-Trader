@@ -96,6 +96,9 @@ class Signal:
     structure_event: str = ""
     pullback_state: str = ""
     timeframe_context: str = ""
+    strategy_name: str = ""
+    source_lag_seconds: float | None = None
+    confirmed_candle: bool = False
 
 
 @dataclass(slots=True)

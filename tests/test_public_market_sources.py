@@ -96,7 +96,8 @@ class PublicMarketSourceTests(unittest.TestCase):
         observed = int(datetime.now(timezone.utc).timestamp())
         mocked.return_value = {
             "chart": {"error": None, "result": [{
-                "meta": {"regularMarketPrice": 1.10567, "regularMarketTime": observed},
+                "meta": {"regularMarketPrice": 1.10567, "regularMarketTime": observed,
+                         "bid": 1.10565, "ask": 1.10569},
                 "timestamp": [observed - 30],
                 "indicators": {"quote": [{"close": [1.10541]}]},
             }]},
@@ -105,6 +106,7 @@ class PublicMarketSourceTests(unittest.TestCase):
         self.assertEqual(quote.symbol, "EUR/USD")
         self.assertAlmostEqual(quote.price, 1.10567)
         self.assertEqual(quote.observed_at, datetime.fromtimestamp(observed, timezone.utc))
+        self.assertAlmostEqual(quote.spread or 0, 0.00004)
         self.assertEqual(mocked.call_args.args[1]["range"], "1d")
 
     @patch("prime_ai_trader.forex.public.get_json")

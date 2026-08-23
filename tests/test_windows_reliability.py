@@ -51,6 +51,14 @@ class WindowsReliabilityTests(unittest.TestCase):
         requirements = (Path(__file__).parents[1] / "requirements-build.txt").read_text(encoding="utf-8")
         self.assertIn("pillow", requirements.lower())
 
+    def test_windows_build_validates_full_tkinter_before_packaging(self) -> None:
+        root = Path(__file__).parents[1]
+        script = (root / "build_windows.ps1").read_text(encoding="utf-8")
+        spec = (root / "PrimeAITrader.spec").read_text(encoding="utf-8")
+        self.assertIn("from tkinter import filedialog, messagebox, ttk", script)
+        self.assertIn('"tkinter.filedialog"', spec)
+        self.assertNotIn("setup_entry.py", (root / "installer" / "PrimeAITrader.iss").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

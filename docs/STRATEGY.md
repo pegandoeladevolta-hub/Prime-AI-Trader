@@ -19,6 +19,23 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
 
+## Separação por mercado
+
+### Criptomoedas
+
+- Volume real, volume relativo e taker buy da Binance são usados quando a Binance é a fonte.
+- VWAP/OBV só participam com volume válido; fontes alternativas sem esse dado não o inventam.
+- EMAs 9/21/50, RSI, MACD, ADX, ATR, BOS/CHOCH, pullback, rompimento/reteste, liquidez, divergência, exaustão e S/R têm regras simétricas para compra/venda.
+- Timeframe superior usa somente barras já concluídas.
+
+### Forex
+
+- Forex não recebe peso de volume centralizado ou VWAP fictício.
+- Tóquio, Londres e Nova York são calculadas em `Asia/Tokyo`, `Europe/London` e `America/New_York`, respeitando horário de verão.
+- ATR é comparado ao regime recente do próprio par. Eventos econômicos são filtrados pelas duas moedas do par.
+- Spread só aparece quando bid/ask reais existem na resposta da fonte; cotações atrasadas bloqueiam confirmação M1.
+- A referência diária Frankfurter não é transformada em candle de um minuto.
+
 ## Calibração por perfil
 
 | Perfil | Objetivo | Score | Confluências | Momentum | ADX |
@@ -37,8 +54,8 @@ Notícias e eventos permanecem informativos quando o bloqueio automático está 
 - A separação é temporal walk-forward.
 - Entre treino e teste existe uma purga proporcional ao horizonte previsto.
 - O modelo é escolhido pelo limite inferior de Wilson do acerto direcional seletivo, com requisitos de amostra e cobertura.
-- Cada mercado, ativo, timeframe, horizonte e versão das features possui modelo próprio.
-- O schema 5 inclui profundidade do pullback, impulso em ATR, posição estrutural, divergências, compressão, força do rompimento, varredura de liquidez e pressão de reversão; modelos antigos precisam ser treinados novamente.
+- Cada mercado, ativo, timeframe, horizonte, estratégia, sensibilidade, modo e versão das features possui modelo próprio.
+- O schema 6 adiciona validade/força do volume, tipo de mercado, sessões Forex e regime ATR por par; modelos antigos precisam ser treinados novamente.
 - A calibração real também é contextual e exige pelo menos 30 operações direcionais; uma amostra menor é mostrada como informativa, nunca como desempenho comprovado.
 - O backtest apresenta intervalo de confiança de Wilson, ponto de equilíbrio e expectativa compatível com o payout escolhido.
 
@@ -60,3 +77,5 @@ Essas pesquisas orientam princípios de tendência, controle de regime e valida�
 5. Escolha exatamente o payout exibido pela sua plataforma para aquele ativo.
 6. Considere custos, spread, slippage e diferenças entre o feed público e a cotação da sua corretora antes de operar manualmente.
 7. Quando conectada, a VEX pode atualizar apenas a vela em formação com o preço efetivamente visível; o histórico completo continua vindo das fontes públicas e não deve ser confundido com um feed oficial privado da corretora.
+8. VEX e BullEx nunca confirmam o fechamento: preço visual apenas atualiza a vela corrente. O encerramento confirmado continua vindo do feed de mercado.
+9. Registre WIN/LOSS/DRAW manualmente quando quiser medir o resultado efetivamente observado na plataforma; o resultado inferido fica identificado separadamente.

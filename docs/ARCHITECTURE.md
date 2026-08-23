@@ -13,8 +13,14 @@ Interface Tkinter
         │       ├── TwelveDataProvider / AlphaVantageForexProvider: opcionais
         │       └── FrankfurterReferenceProvider: referência diária
         ├── Indicadores / Price Action / Fibonacci
-        ├── Feature Builder
+        ├── Estratégias de mercado
+        │   ├── Crypto: volume/taker Binance, VWAP válido e estrutura
+        │   └── Forex: sessões IANA/DST, ATR por par e notícias das moedas
+        ├── Feature Builder (schema 6 por mercado)
         ├── ModelManager / SignalEngine / BacktestEngine
+        ├── Sincronização visual local
+        │   ├── VexBrowserBridge
+        │   └── BullexBrowserBridge (opt-in + alerta CVM)
         ├── CompositeNewsProvider: GDELT, Google News, Cointelegraph,
         │                            CoinDesk, FXStreet e ForexLive
         ├── ResilientEconomicCalendar: Forex Factory / Finnhub opcional
@@ -31,7 +37,8 @@ Interface Tkinter
 6. O motor combina o modelo com regras auditáveis, setup, payout e threshold da sensibilidade.
 7. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
 8. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket.
-9. Após o horizonte, o resultado é fechado pela vela de expiração observada; a calibração permanece separada por ativo, timeframe e horizonte.
+9. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
+10. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
 
 ## Separação de responsabilidades
 
@@ -42,6 +49,8 @@ Interface Tkinter
 | `news/`, `economic_calendar/` | Contexto e bloqueios |
 | `indicators/` | Matemática de indicadores |
 | `priceaction/`, `fibonacci/` | Estrutura de mercado |
+| `strategies/` | Políticas distintas de cripto e Forex |
+| `platform/` | VEX/BullEx visual local, sem execução |
 | `features/`, `ml/` | Features e modelos locais |
 | `signals/`, `backtest/`, `radar/` | Decisão e validação |
 | `database/`, `config/` | Persistência e segredos |
@@ -50,4 +59,4 @@ Interface Tkinter
 
 ## Auditoria do modelo
 
-O arquivo `%APPDATA%\PrimeAITrader\models\training_report.json` registra o modelo escolhido, versão, data, amostras e métricas de cada fold de cada candidato. O modelo ativo recebe uma versão imutável no formato `ml-AAAAMMDD-HHMMSS`.
+O arquivo `%APPDATA%\PrimeAITrader\models\training_report.json` registra o modelo escolhido, versão, data, amostras e métricas de cada fold. Os artefatos em `models\contexts` são identificados pelo hash de mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema. O modelo ativo recebe versão imutável `ml-AAAAMMDD-HHMMSS`.

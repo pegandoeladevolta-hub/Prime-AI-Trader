@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 root = Path(SPECPATH)
 
@@ -7,8 +8,11 @@ a = Analysis(
     [str(root / "run.py")],
     pathex=[str(root)],
     binaries=[],
-    datas=[(str(root / "assets" / "icon.ico"), "assets")],
-    hiddenimports=["sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree"],
+    datas=[(str(root / "assets" / "icon.ico"), "assets"), *collect_data_files("tzdata")],
+    hiddenimports=[
+        "sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree",
+        "tkinter.ttk", "tkinter.messagebox", "tkinter.filedialog",
+    ],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=["matplotlib"], noarchive=False,
 )
 pyz = PYZ(a.pure)

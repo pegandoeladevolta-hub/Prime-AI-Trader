@@ -4,4 +4,4 @@ scikit-learn>=1.6,<2
 joblib>=1.4,<2
 websockets>=14,<17
 cryptography>=44,<48
-
+tzdata>=2025.2,<2027

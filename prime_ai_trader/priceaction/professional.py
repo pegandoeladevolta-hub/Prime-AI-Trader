@@ -292,7 +292,13 @@ def detect_pullback(indicators: pd.DataFrame, structure: MarketStructure,
     if momentum:
         reasons.append("Momentum volta a favorecer a direção principal")
     confirmations = int(resumed) + int(rejection) + int(momentum) + int(support_hit)
-    confirmed = resumed and confirmations >= 2 and not invalidated
+    if policy.minutes <= 3:
+        # Em M1/M3 a simples volta acima/abaixo da média costuma ser ruído.
+        # Exigimos retomada, momentum e rejeição/estrutura para não classificar
+        # um pavio passageiro como pullback confirmado.
+        confirmed = resumed and momentum and (rejection or support_hit) and not invalidated
+    else:
+        confirmed = resumed and confirmations >= 2 and not invalidated
     return PullbackSignal(direction, round(retracement, 4), round(depth, 4), zone,
                           confirmed, invalidated or retracement > 0.82, tuple(reasons))
 

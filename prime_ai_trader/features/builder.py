@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from zoneinfo import ZoneInfo
 
+from ..core.models import Market
 from ..indicators.technical import calculate_all
 
 
@@ -21,12 +23,27 @@ FEATURE_COLUMNS = [
     "swing_position_20", "rsi_divergence_proxy", "macd_divergence_proxy",
     "compression_ratio", "breakout_strength_atr", "liquidity_sweep_code",
     "candle_sequence_4", "reversal_pressure",
+    "volume_valid", "taker_buy_ratio", "crypto_market", "forex_market",
+    "tokyo_session", "london_session", "new_york_session", "pair_atr_regime",
 ]
 
-FEATURE_SCHEMA_VERSION = 5
+FEATURE_SCHEMA_VERSION = 6
 
 
-def build_features(frame: pd.DataFrame) -> pd.DataFrame:
+def _session_mask(index: pd.DatetimeIndex, timezone_name: str,
+                  opening_hour: int, closing_hour: int) -> pd.Series:
+    if index.tz is None:
+        localized = index.tz_localize("UTC")
+    else:
+        localized = index.tz_convert("UTC")
+    local = localized.tz_convert(ZoneInfo(timezone_name))
+    values = ((local.hour >= opening_hour) & (local.hour < closing_hour)
+              & (local.dayofweek < 5)).astype(float)
+    return pd.Series(values, index=index)
+
+
+def build_features(frame: pd.DataFrame, market: str | None = None,
+                   symbol: str | None = None) -> pd.DataFrame:
     data = calculate_all(frame)
     if data.empty:
         return pd.DataFrame(columns=FEATURE_COLUMNS, index=data.index)
@@ -107,11 +124,25 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     output["body_pct"] = data["body"] / close
     output["upper_wick_pct"] = data["upper_wick"] / close
     output["lower_wick_pct"] = data["lower_wick"] / close
+    crypto_market = market == Market.CRYPTO.value
+    forex_market = market == Market.FOREX.value
+    valid_volume = data["volume"].fillna(0).gt(0)
+    output["volume_valid"] = valid_volume.astype(float) if not forex_market else 0.0
+    taker = data.get("taker_buy_volume", pd.Series(0.0, index=data.index)).fillna(0)
+    output["taker_buy_ratio"] = np.where(
+        valid_volume if not forex_market else False,
+        taker / data["volume"].replace(0, np.nan), 0.0,
+    )
+    output["crypto_market"] = float(crypto_market)
+    output["forex_market"] = float(forex_market)
     hours = pd.Series(data.index.hour, index=data.index)
     days = pd.Series(data.index.dayofweek, index=data.index)
     output["hour_sin"] = np.sin(2 * np.pi * hours / 24)
     output["hour_cos"] = np.cos(2 * np.pi * hours / 24)
     output["london_new_york_session"] = ((hours >= 7) & (hours <= 20)).astype(float)
+    output["tokyo_session"] = _session_mask(data.index, "Asia/Tokyo", 9, 18)
+    output["london_session"] = _session_mask(data.index, "Europe/London", 8, 17)
+    output["new_york_session"] = _session_mask(data.index, "America/New_York", 8, 17)
     output["day_sin"] = np.sin(2 * np.pi * days / 7)
     output["day_cos"] = np.cos(2 * np.pi * days / 7)
     # Proxies causais e vetorizadas. A implementação antiga executava análise
@@ -131,6 +162,16 @@ def build_features(frame: pd.DataFrame) -> pd.DataFrame:
     aligned_up = (data["ema_9"] > data["ema_21"]) & (data["ema_21"] > data["ema_50"])
     aligned_down = (data["ema_9"] < data["ema_21"]) & (data["ema_21"] < data["ema_50"])
     output["trend_code"] = np.select([aligned_up, aligned_down], [1.0, -1.0], default=0.0)
+    # O regime de ATR é calculado somente sobre o próprio histórico do par/ativo.
+    # Assim EUR/USD, GBP/USD e USD/JPY não compartilham uma escala absoluta.
+    pair_window = 240 if forex_market else 120
+    pair_median = output["atr_pct"].rolling(pair_window, min_periods=30).median().replace(0, np.nan)
+    output["pair_atr_regime"] = output["atr_pct"] / pair_median
+    if forex_market:
+        # Forex não tem volume centralizado. Nenhuma proxy de volume/VWAP entra
+        # no modelo como se fosse volume real de bolsa.
+        for column in ("vwap_distance", "obv_change", "volume_relative", "volume_impulse", "taker_buy_ratio"):
+            output[column] = 0.0
     return output.reindex(columns=FEATURE_COLUMNS).replace([np.inf, -np.inf], np.nan)
 
 

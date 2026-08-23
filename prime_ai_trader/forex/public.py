@@ -19,6 +19,9 @@ class ForexLiveQuote:
     price: float
     observed_at: datetime
     source: str
+    bid: float | None = None
+    ask: float | None = None
+    spread: float | None = None
 
 
 def merge_forex_quote(candle: Candle, quote: ForexLiveQuote, timeframe: str) -> Candle | None:
@@ -108,8 +111,17 @@ class YahooForexProvider(MarketDataProvider):
             raw_time, raw_price = latest
         if raw_time <= 0 or not math.isfinite(raw_price) or raw_price <= 0:
             raise ProviderError(f"Cotação Forex pública inválida para {symbol}.")
+        try:
+            bid = float(metadata.get("bid"))
+            ask = float(metadata.get("ask"))
+            if not (math.isfinite(bid) and math.isfinite(ask) and 0 < bid <= ask):
+                raise ValueError
+            spread = ask - bid
+        except (TypeError, ValueError):
+            bid = ask = spread = None
         quote = ForexLiveQuote(
             key, raw_price, datetime.fromtimestamp(raw_time, tz=timezone.utc), self.name,
+            bid, ask, spread,
         )
         with self._lock:
             self._quote_cache[key] = (time.monotonic(), quote)

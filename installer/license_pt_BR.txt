@@ -1,6 +1,6 @@
 PRIME AI TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 0.9.0
+Versão 1.0.0
 
 1. O PRIME AI TRADER é um assistente de análise. Ele não executa ordens automaticamente e não substitui orientação financeira profissional.
 
@@ -13,5 +13,9 @@ Versão 0.9.0
 5. As chaves de API informadas pelo usuário são armazenadas localmente com a proteção disponibilizada pelo Windows. Não informe chaves com permissão de saque ou execução de ordens, pois esta versão não precisa delas.
 
 6. O software é fornecido no estado em que se encontra, acompanhado de logs e resultados auditáveis. Nenhuma taxa de acerto fixa é prometida.
+
+7. A sincronização opcional com plataformas é somente visual e local. Ela não solicita senha, não lê cookies/tokens/saldo/carteira, não clica em compra ou venda e não executa operações.
+
+8. A BullEx permanece desabilitada por padrão. A CVM publicou alerta informando que Digital Smart LLC/BULLEX não possui autorização para intermediar valores mobiliários ou captar recursos de investidores no Brasil (Ato Declaratório CVM 23.539). O aplicativo não promove depósitos nem contorna restrições legais.
 
 Ao prosseguir com a instalação, o usuário declara que leu e aceitou estes termos.

@@ -25,6 +25,10 @@ Assert-NativeSuccess "Geração do ícone"
 Write-Host "[3/6] Executando testes"
 & ".\.build-venv\Scripts\python.exe" -m unittest discover -s tests -v
 Assert-NativeSuccess "Suíte completa de testes"
+& ".\.build-venv\Scripts\python.exe" -m compileall -q prime_ai_trader tests
+Assert-NativeSuccess "Compilação estática do código"
+& ".\.build-venv\Scripts\python.exe" -c "from tkinter import filedialog, messagebox, ttk; print('Tkinter completo')"
+Assert-NativeSuccess "Validação do Tkinter completo"
 
 Write-Host "[4/6] Gerando PrimeAITrader.exe"
 & ".\.build-venv\Scripts\pyinstaller.exe" --noconfirm --clean PrimeAITrader.spec
