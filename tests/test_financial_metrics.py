@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from prime_ai_trader.core.models import Direction, Signal, SignalState
@@ -51,19 +52,23 @@ class FinancialMetricTests(unittest.TestCase):
     def test_existing_version_090_database_is_migrated_without_data_loss(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "legacy.db"
-            with sqlite3.connect(path) as connection:
-                connection.execute("""CREATE TABLE signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
-                    market TEXT NOT NULL, symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
-                    horizon_minutes INTEGER NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL,
-                    score INTEGER NOT NULL, entry REAL, exit REAL, result TEXT,
-                    probabilities_json TEXT NOT NULL, indicators_json TEXT NOT NULL,
-                    confluences_json TEXT NOT NULL, model_version TEXT NOT NULL, mode TEXT NOT NULL)""")
-                connection.execute("""INSERT INTO signals(created_at, market, symbol, timeframe,
-                    horizon_minutes, direction, state, score, entry, exit, result,
-                    probabilities_json, indicators_json, confluences_json, model_version, mode)
-                    VALUES ('2026-08-20T10:00:00+00:00','Criptomoedas','BTC/USDT','1m',1,
-                    'COMPRA','SINAL CONFIRMADO',80,100,101,'WIN','{}','{}','[]','rules','CONFIRMAÇÃO')""")
+            # sqlite3.Connection.__exit__ commits, but it does not close the
+            # native handle.  Windows therefore keeps the temporary database
+            # locked unless the connection is closed explicitly.
+            with closing(sqlite3.connect(path)) as connection:
+                with connection:
+                    connection.execute("""CREATE TABLE signals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
+                        market TEXT NOT NULL, symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
+                        horizon_minutes INTEGER NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL,
+                        score INTEGER NOT NULL, entry REAL, exit REAL, result TEXT,
+                        probabilities_json TEXT NOT NULL, indicators_json TEXT NOT NULL,
+                        confluences_json TEXT NOT NULL, model_version TEXT NOT NULL, mode TEXT NOT NULL)""")
+                    connection.execute("""INSERT INTO signals(created_at, market, symbol, timeframe,
+                        horizon_minutes, direction, state, score, entry, exit, result,
+                        probabilities_json, indicators_json, confluences_json, model_version, mode)
+                        VALUES ('2026-08-20T10:00:00+00:00','Criptomoedas','BTC/USDT','1m',1,
+                        'COMPRA','SINAL CONFIRMADO',80,100,101,'WIN','{}','{}','[]','rules','CONFIRMAÇÃO')""")
             repository = Repository(path)
             row = repository.recent(1)[0]
         self.assertEqual(row["symbol"], "BTC/USDT")
