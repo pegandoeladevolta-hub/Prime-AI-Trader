@@ -8,6 +8,8 @@ chosen installation directory, so the 75 MiB runtime is not duplicated.
 from __future__ import annotations
 
 import base64
+import ctypes
+from ctypes import wintypes
 import hashlib
 import os
 from pathlib import Path
@@ -16,7 +18,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 import zlib
 
 try:
@@ -26,7 +28,7 @@ except ImportError:  # pragma: no cover - Windows-only executable
 
 
 APP_NAME = "Prime AI Trader"
-APP_VERSION = "0.9.1"
+APP_VERSION = "0.9.1.1"
 APP_EXE = "PrimeAITrader.exe"
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\PrimeAITrader"
 COOKIE_MAGIC = b"MEI\x0c\x0b\x0a\x0b\x0e"
@@ -34,7 +36,55 @@ COOKIE = struct.Struct("!8sIIII64s")
 TOC_HEADER = struct.Struct("!iIIIBc")
 ORIGINAL_RUN = base64.b64decode("__APP_RUN_PAYLOAD_B64__")
 
-README_TEXT = """Prime AI Trader 0.9.1 - Market Aware
+
+class _BrowseInfo(ctypes.Structure):
+    """Windows Shell folder-picker structure (avoids tkinter.filedialog)."""
+
+    _fields_ = [
+        ("hwndOwner", wintypes.HWND),
+        ("pidlRoot", ctypes.c_void_p),
+        ("pszDisplayName", wintypes.LPWSTR),
+        ("lpszTitle", wintypes.LPCWSTR),
+        ("ulFlags", wintypes.UINT),
+        ("lpfn", ctypes.c_void_p),
+        ("lParam", wintypes.LPARAM),
+        ("iImage", ctypes.c_int),
+    ]
+
+
+def _choose_directory(owner: int, title: str) -> str | None:
+    """Open the native Windows folder picker using APIs bundled with Windows."""
+    display_name = ctypes.create_unicode_buffer(260)
+    info = _BrowseInfo(
+        hwndOwner=owner,
+        pidlRoot=None,
+        pszDisplayName=display_name,
+        lpszTitle=title,
+        ulFlags=0x0001 | 0x0010 | 0x0040,
+        lpfn=None,
+        lParam=0,
+        iImage=0,
+    )
+    shell32 = ctypes.windll.shell32
+    shell32.SHBrowseForFolderW.argtypes = [ctypes.POINTER(_BrowseInfo)]
+    shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+    shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+    shell32.SHGetPathFromIDListW.restype = wintypes.BOOL
+    ole32 = ctypes.windll.ole32
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole32.CoTaskMemFree.restype = None
+    pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+    if not pidl:
+        return None
+    try:
+        selected = ctypes.create_unicode_buffer(32768)
+        if shell32.SHGetPathFromIDListW(pidl, selected):
+            return selected.value
+        return None
+    finally:
+        ole32.CoTaskMemFree(pidl)
+
+README_TEXT = """Prime AI Trader 0.9.1.1 - Market Aware
 
 Esta versão adiciona confirmação específica por mercado:
 
@@ -209,7 +259,7 @@ def install(installer_path: Path, install_dir: Path, desktop_shortcut: bool) -> 
 
     (install_dir / "LEIA-ME.txt").write_text(README_TEXT, encoding="utf-8")
     (install_dir / "VERSAO.txt").write_text(
-        "Prime AI Trader 0.9.1 Market-Aware\nFiltro CRIPTO/FOREX ativo.\n",
+        "Prime AI Trader 0.9.1.1 Market-Aware\nFiltro CRIPTO/FOREX ativo.\n",
         encoding="utf-8",
     )
     config_dir = install_dir / "config"
@@ -267,7 +317,7 @@ class SetupWindow:
         header.pack(fill="x")
         header.pack_propagate(False)
         tk.Label(header, text="PRIME AI TRADER", fg="#f2c761", bg="#0d2340", font=("Segoe UI", 22, "bold")).pack(anchor="w", padx=34, pady=(20, 0))
-        tk.Label(header, text="Versão 0.9.1 • Estratégias específicas para Cripto e Forex", fg="#d7e3f4", bg="#0d2340", font=("Segoe UI", 10)).pack(anchor="w", padx=36, pady=(2, 0))
+        tk.Label(header, text="Versão 0.9.1.1 • Estratégias específicas para Cripto e Forex", fg="#d7e3f4", bg="#0d2340", font=("Segoe UI", 10)).pack(anchor="w", padx=36, pady=(2, 0))
 
         body = tk.Frame(self.root, bg="#071426")
         body.pack(fill="both", expand=True, padx=34, pady=22)
@@ -305,7 +355,11 @@ class SetupWindow:
         self.install_button.pack(side="right", padx=34, pady=13)
 
     def _browse(self) -> None:
-        selected = filedialog.askdirectory(title="Escolha onde criar a pasta PrimeAITrader")
+        self.root.update_idletasks()
+        selected = _choose_directory(
+            self.root.winfo_id(),
+            "Escolha onde criar a pasta PrimeAITrader",
+        )
         if selected:
             parent = Path(selected)
             self.path_var.set(str(parent if parent.name.lower().replace(" ", "") == "primeaitrader" else parent / "PrimeAITrader"))
@@ -333,7 +387,7 @@ class SetupWindow:
     def _finished(self, target: Path, warnings: list[str]) -> None:
         self.progress.stop()
         self.status_var.set("Instalação concluída")
-        detail = "O Prime AI Trader 0.9.1 foi instalado com sucesso."
+        detail = "O Prime AI Trader 0.9.1.1 foi instalado com sucesso."
         if warnings:
             detail += "\n\nAviso: o aplicativo foi instalado, mas algum atalho não pôde ser criado."
         messagebox.showinfo("Instalação concluída", detail, parent=self.root)
