@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from ..core.models import Market
 from ..indicators.technical import calculate_all
+from ..priceaction.candles import candlestick_feature_frame
 
 
 FEATURE_COLUMNS = [
@@ -25,9 +26,11 @@ FEATURE_COLUMNS = [
     "candle_sequence_4", "reversal_pressure",
     "volume_valid", "taker_buy_ratio", "crypto_market", "forex_market",
     "tokyo_session", "london_session", "new_york_session", "pair_atr_regime",
+    "candlestick_bias", "candlestick_reversal", "candlestick_indecision",
+    "candlestick_exhaustion", "engulfing_code", "pinbar_code", "three_candle_code",
 ]
 
-FEATURE_SCHEMA_VERSION = 6
+FEATURE_SCHEMA_VERSION = 7
 
 
 def _session_mask(index: pd.DatetimeIndex, timezone_name: str,
@@ -118,6 +121,9 @@ def build_features(frame: pd.DataFrame, market: str | None = None,
         + output["macd_divergence_proxy"].fillna(0)
         + output["liquidity_sweep_code"].fillna(0) * 0.25
     )
+    candle_features = candlestick_feature_frame(data)
+    for column in candle_features.columns:
+        output[column] = candle_features[column]
     output["bb_position"] = (data["close"] - data["bb_lower"]) / (data["bb_upper"] - data["bb_lower"]).replace(0, np.nan)
     output["vwap_distance"] = (data["close"] - data["vwap"]) / close
     output["obv_change"] = data["obv"].pct_change().replace([np.inf, -np.inf], np.nan)

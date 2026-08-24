@@ -18,6 +18,17 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 10. **Regime estrutural** — tendência, transição, lateralização, compressão e exaustão recebem tratamentos diferentes; o mesmo indicador não representa várias confirmações independentes.
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
+13. **Padrões de candles** — padrões de uma, duas e três velas são normalizados por range/ATR, usados em qualquer timeframe e só entram como confirmação depois do fechamento.
+
+## Biblioteca de padrões de candles
+
+- Uma vela: doji, spinning top, martelo/pin bar, estrela cadente e marubozu.
+- Duas velas: engolfo comprador/vendedor, linha de perfuração, nuvem negra, harami, inside bar, outside bar e tweezers.
+- Três velas: estrela da manhã, estrela da tarde, três soldados brancos e três corvos negros.
+- Padrão direcional soma no máximo uma confluência de price action; nunca substitui tendência, momentum, estrutura ou volume válido.
+- Padrão contrário forte cancela a confirmação; doji/indecisão exige novo rompimento e fechamento; sequência esticada com perda de corpo/pavio contrário é marcada como exaustão.
+- Em M1/M3, um pullback precisa de retomada, momentum, rejeição/estrutura e fechamento aprovado pela biblioteca. Um pavio momentâneo não é tratado como retomada confirmada.
+- Durante WebSocket, a biblioteca pode informar `EM FORMAÇÃO`; esses dados não são gravados como sinal confirmado.
 
 ## Separação por mercado
 
@@ -55,7 +66,7 @@ Notícias e eventos permanecem informativos quando o bloqueio automático está 
 - Entre treino e teste existe uma purga proporcional ao horizonte previsto.
 - O modelo é escolhido pelo limite inferior de Wilson do acerto direcional seletivo, com requisitos de amostra e cobertura.
 - Cada mercado, ativo, timeframe, horizonte, estratégia, sensibilidade, modo e versão das features possui modelo próprio.
-- O schema 6 adiciona validade/força do volume, tipo de mercado, sessões Forex e regime ATR por par; modelos antigos precisam ser treinados novamente.
+- O schema 7 preserva a separação de mercado do schema 6 e adiciona viés, reversão, indecisão, exaustão, engolfo, pin bar e sequência de três candles; modelos antigos precisam ser treinados novamente.
 - A calibração real também é contextual e exige pelo menos 30 operações direcionais; uma amostra menor é mostrada como informativa, nunca como desempenho comprovado.
 - O backtest apresenta intervalo de confiança de Wilson, ponto de equilíbrio e expectativa compatível com o payout escolhido.
 

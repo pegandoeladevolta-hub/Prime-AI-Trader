@@ -1,6 +1,6 @@
-# Relatório de validação — PRIME AI TRADER 1.0.0
+# Relatório de validação — PRIME AI TRADER 1.1.0
 
-Data: 22/08/2026
+Data: 24/08/2026
 
 ## Auditoria concluída
 
@@ -15,14 +15,15 @@ Data: 22/08/2026
 | Preço VEX | Somente o preço realmente visível atualiza a vela corrente; histórico público, volume real e fechamento confirmado são preservados. |
 | Cronômetro | Usa relógio real visível na VEX ou criação original do sinal; atualizar gráfico/notícias não reinicia o vencimento. |
 | IA | Contexto completo por mercado/ativo/timeframe/expiração/estratégia/sensibilidade/modo/schema e seleção fora da amostra. |
-| Schema profissional | Features causais estruturais e específicas por mercado; schema 6 exige novo treinamento. |
+| Schema profissional | Features causais estruturais, específicas por mercado e padrões OHLC; schema 7 exige novo treinamento. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
-| Sinais | BOS, CHOCH, pullback comprador/vendedor, divergências regulares/ocultas, rompimento/reteste, liquidez/rejeição, engolfo e confirmação independente. |
+| Sinais | BOS, CHOCH, pullback, divergências, rompimento/reteste, liquidez e biblioteca de padrões de uma, duas e três velas. |
+| Padrões de candles | Doji, spinning top, pin bars, marubozu, engolfos, perfuração/nuvem, harami, inside/outside, tweezers, estrelas e sequências de três velas; somente candle fechado confirma. |
 | Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
 | Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
 | Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; momentum, IA e volatilidade independentes. |
 | Áudio | Avisos não bloqueantes ficam silenciosos; leitura rápida em formação e sinais confirmados têm prioridade; bloqueios reais têm cooldown de 300 segundos. |
-| Backtest | Walk-forward, filtros de extensão/eficiência/compressão/reversão, payout configurável, ponto de equilíbrio, expectativa e intervalo de Wilson. |
+| Backtest | Walk-forward, filtros de extensão/eficiência/compressão/reversão/padrões, payout, equilíbrio, expectativa e Wilson. |
 | Estatísticas | WIN/LOSS/DRAW, payout, entrada, P&L, profit factor financeiro, equilíbrio, expectativa, Wilson e origem manual/inferida. |
 | Cripto | Binance pública com espelhos oficiais; fallback Coinbase/Kraken; ativos da plataforma incluindo XLM. |
 | Forex | Sem volume centralizado fictício; sessões IANA/DST, ATR por par, cotação/atraso/spread quando disponíveis e referência diária separada. |
@@ -37,11 +38,11 @@ Data: 22/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **251 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **265 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
-Os testes cobrem indicadores, BOS/CHOCH, falsos pullbacks, exaustão, M1, timeframe superior, schema/invariância causal, purga, modelos separados, backtest, payout, exemplo financeiro 7/3, migração SQLite, resultado manual/inferido, VEX, BullEx, loopback, atraso, sessões Forex, providers, interface e instalador.
+Os testes cobrem indicadores, BOS/CHOCH, falsos pullbacks, exaustão, M1, biblioteca de candles em múltiplas escalas, padrões em formação/confirmados, schema/invariância causal, purga, modelos separados, backtest, payout, migração SQLite, VEX, BullEx, loopback, providers, interface e instalador.
 
 Em 80 cenários sintéticos compartilhados, o perfil rápido produziu 74 leituras, o equilibrado 66 e o conservador 44. Trata-se de uma verificação de frequência relativa, não de uma promessa de lucro ou acerto.
 
@@ -53,6 +54,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.0.0`.
+Identificador do candidato validado: `1.1.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 252 testes (251 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 266 testes (265 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.

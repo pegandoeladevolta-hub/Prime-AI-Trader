@@ -99,6 +99,9 @@ class Signal:
     strategy_name: str = ""
     source_lag_seconds: float | None = None
     confirmed_candle: bool = False
+    candlestick_patterns: list[str] = field(default_factory=list)
+    candlestick_context: str = ""
+    reversal_risk: str = ""
 
 
 @dataclass(slots=True)

@@ -80,6 +80,18 @@ def _directional_confluence(row: pd.Series, prediction: int,
     reversal = row.get("reversal_pressure")
     if pd.notna(reversal) and sign * float(reversal) < -0.32:
         return False
+    candle_reversal = row.get("candlestick_reversal")
+    if pd.notna(candle_reversal) and sign * float(candle_reversal) < -0.55:
+        return False
+    candle_bias = row.get("candlestick_bias")
+    if pd.notna(candle_bias) and sign * float(candle_bias) < -0.62:
+        return False
+    candle_indecision = row.get("candlestick_indecision")
+    if pd.notna(candle_indecision) and float(candle_indecision) >= 0.76:
+        return False
+    candle_exhaustion = row.get("candlestick_exhaustion")
+    if pd.notna(candle_exhaustion) and sign * float(candle_exhaustion) > 0.58:
+        return False
     votes = (
         sign * float(row.get("ema_distance_9_21", 0) or 0) > 0,
         sign * float(row.get("ema_distance_21_50", 0) or 0) > 0,

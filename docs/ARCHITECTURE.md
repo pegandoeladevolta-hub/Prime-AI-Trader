@@ -13,10 +13,11 @@ Interface Tkinter
         │       ├── TwelveDataProvider / AlphaVantageForexProvider: opcionais
         │       └── FrankfurterReferenceProvider: referência diária
         ├── Indicadores / Price Action / Fibonacci
+        │   └── Candlestick Library: padrões OHLC causais e normalizados por ATR/range
         ├── Estratégias de mercado
         │   ├── Crypto: volume/taker Binance, VWAP válido e estrutura
         │   └── Forex: sessões IANA/DST, ATR por par e notícias das moedas
-        ├── Feature Builder (schema 6 por mercado)
+        ├── Feature Builder (schema 7 por mercado e padrões de candles)
         ├── ModelManager / SignalEngine / BacktestEngine
         ├── Sincronização visual local
         │   ├── VexBrowserBridge
@@ -32,13 +33,14 @@ Interface Tkinter
 1. O provider carrega candles históricos.
 2. Os indicadores são calculados apenas com candles presentes e passados.
 3. A estrutura agrupa pivôs próximos em zonas.
-4. O Fibonacci seleciona um swing relevante.
-5. O modelo local fornece probabilidades das três classes, se estiver treinado.
-6. O motor combina o modelo com regras auditáveis, setup, payout e threshold da sensibilidade.
-7. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
-8. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket.
-9. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
-10. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
+4. A biblioteca de candles reconhece padrões na vela atual e nas duas anteriores; vela aberta permanece em formação.
+5. O Fibonacci seleciona um swing relevante.
+6. O modelo local fornece probabilidades das três classes, se estiver treinado.
+7. O motor combina o modelo com regras auditáveis, setup, payout, padrões confirmados e threshold da sensibilidade.
+8. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
+9. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket.
+10. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
+11. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
 
 ## Separação de responsabilidades
 
@@ -48,7 +50,7 @@ Interface Tkinter
 | `market/`, `crypto/`, `forex/` | Contratos e feeds |
 | `news/`, `economic_calendar/` | Contexto e bloqueios |
 | `indicators/` | Matemática de indicadores |
-| `priceaction/`, `fibonacci/` | Estrutura de mercado |
+| `priceaction/`, `fibonacci/` | Estrutura, biblioteca de candles e Fibonacci |
 | `strategies/` | Políticas distintas de cripto e Forex |
 | `platform/` | VEX/BullEx visual local, sem execução |
 | `features/`, `ml/` | Features e modelos locais |

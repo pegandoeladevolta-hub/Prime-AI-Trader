@@ -1,15 +1,22 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.0.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.1.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.0.0
+## Destaques da versão 1.1.0
+
+- Biblioteca causal de padrões de candles para todos os timeframes: doji, spinning top, martelo/pin bar, estrela cadente, marubozu, engolfos, linha de perfuração, nuvem negra, harami, inside/outside bar, tweezers, estrelas da manhã/tarde, três soldados e três corvos.
+- Uma vela aberta pode mostrar **padrão em formação**, mas nunca confirma o padrão nem o sinal. Somente o fechamento original do feed pode produzir confirmação.
+- No modo confirmação com gráfico/expiração 1m, padrão contrário, doji/indecisão, exaustão após sequência e pullback sem fechamento direcional passam a produzir `AGUARDAR`.
+- Os padrões não criam uma operação isoladamente: eles qualificam tendência, momentum, estrutura, volume válido e espaço até suporte/resistência.
+- Schema 7 adiciona sete features OHLC causais e separa os novos modelos pela estratégia `candles-v4`; treine novamente cada contexto após instalar.
+- Filtros de pullback, reversão, pavio e exaustão foram reforçados a partir de uma amostra operacional real, sem publicar dados privados da conta.
 
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
 - A BullEx fica desabilitada por padrão e exige aceite explícito do [alerta da CVM sobre Digital Smart LLC/BULLEX](https://www.gov.br/cvm/pt-br/assuntos/noticias/2025/cvm-alerta-para-atuacao-irregular-da-digital-smart-llc-bullex-e-seu-responsavel). O aplicativo não promove depósitos.
 - Estratégias e features agora são separadas: cripto usa volume real/taker da Binance e VWAP somente com volume válido; Forex ignora volume centralizado inexistente e usa sessões de Tóquio, Londres e Nova York com timezone IANA/DST.
-- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 6. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
+- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 7. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
 - M1/expiração M1 em confirmação exige candle fechado e contexto superior, recusa fonte atrasada, transição sem CHOCH, falso pullback sem rejeição, exaustão e entrada sem espaço até S/R.
 - Profit factor passa a ser financeiro por payout e valor de entrada. O histórico separa plataforma, ativo, estratégia e resultado observado manualmente de resultado inferido pelo gráfico.
 - O instalador voltou a ser Inno Setup nativo e o build valida `tkinter.filedialog`, `messagebox` e `ttk` antes do PyInstaller, corrigindo a falha do antigo `setup_entry.py`.
@@ -19,7 +26,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Leitura estrutural disponível em rápido, equilibrado e conservador; modos price action, confirmação e quantitativo; gráficos 1m, 3m, 5m, 15m, 30m, 1h e 4h.
 - Quando o preço real da VEX está visível, ele atualiza a vela atual do gráfico sem inventar candles antigos, volume, preço OTC ou confirmação de fechamento.
 - Reanálise incremental ajustada ao timeframe e à sensibilidade, evitando espera fixa desnecessária e mantendo a interface responsiva.
-- Doze features causais de pullback, rompimento, divergência, compressão, liquidez e reversão alimentam os modelos; após atualizar, clique em **TREINAR IA** no ativo/timeframe escolhido.
+- Features causais de pullback, padrões OHLC, rompimento, divergência, compressão, liquidez e reversão alimentam os modelos; após atualizar, clique em **TREINAR IA** no ativo/timeframe escolhido.
 - Backtest reforçado contra preço esticado, tendência oposta, compressão sem rompimento e pressão contrária de reversão, preservando a validação walk-forward.
 - Novo botão **CONECTAR VEX INVEST**: abre o traderoom em perfil dedicado do Chrome/Edge; o usuário entra diretamente no navegador e não informa senha ao robô.
 - Sincroniza automaticamente ativo, mercado, payout, expiração e tempo restante quando esses campos estão visíveis no traderoom da VEX.
@@ -158,7 +165,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.0.0 possui 252 testes automatizados cobrindo matemática, ausência de look-ahead, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.1.0 possui 266 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 

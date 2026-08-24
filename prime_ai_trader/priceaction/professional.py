@@ -7,6 +7,7 @@ import pandas as pd
 
 from ..core.models import Direction, TIMEFRAME_MINUTES
 from ..fibonacci.auto import FibonacciResult
+from .candles import CandlestickAssessment
 from .structure import MarketStructure
 
 
@@ -232,7 +233,8 @@ def _pullback_direction(indicators: pd.DataFrame, structure: MarketStructure) ->
 
 
 def detect_pullback(indicators: pd.DataFrame, structure: MarketStructure,
-                    fib: FibonacciResult | None, policy: TimeframePolicy) -> PullbackSignal | None:
+                    fib: FibonacciResult | None, policy: TimeframePolicy,
+                    candle_patterns: CandlestickAssessment | None = None) -> PullbackSignal | None:
     if len(indicators) < 25:
         return None
     direction = _pullback_direction(indicators, structure)
@@ -294,9 +296,34 @@ def detect_pullback(indicators: pd.DataFrame, structure: MarketStructure,
     confirmations = int(resumed) + int(rejection) + int(momentum) + int(support_hit)
     if policy.minutes <= 3:
         # Em M1/M3 a simples volta acima/abaixo da média costuma ser ruído.
-        # Exigimos retomada, momentum e rejeição/estrutura para não classificar
-        # um pavio passageiro como pullback confirmado.
-        confirmed = resumed and momentum and (rejection or support_hit) and not invalidated
+        # Além de retomada/momentum/rejeição, uma biblioteca OHLC causal precisa
+        # validar a qualidade do fechamento. Isso evita vender sobre pavio
+        # inferior ou comprar sobre pavio superior durante um falso pullback.
+        pattern_confirmation = True
+        pattern_conflict = False
+        if candle_patterns is not None:
+            same_strength = candle_patterns.directional_strength(direction)
+            pressure = (
+                candle_patterns.bullish_pressure if direction == Direction.BUY
+                else candle_patterns.bearish_pressure
+            )
+            opposite = Direction.SELL if direction == Direction.BUY else Direction.BUY
+            pattern_confirmation = (
+                candle_patterns.current_closed
+                and (same_strength >= 0.58 or pressure >= 0.34)
+            )
+            pattern_conflict = (
+                candle_patterns.directional_strength(opposite) >= 0.64
+                or candle_patterns.indecision >= 0.76
+                or (candle_patterns.exhaustion_direction == direction
+                    and candle_patterns.exhaustion_strength >= 0.64)
+            )
+            if pattern_confirmation:
+                reasons.append("Fechamento validado pela biblioteca de padrões de candles")
+        confirmed = (
+            resumed and momentum and (rejection or support_hit)
+            and pattern_confirmation and not pattern_conflict and not invalidated
+        )
     else:
         confirmed = resumed and confirmations >= 2 and not invalidated
     return PullbackSignal(direction, round(retracement, 4), round(depth, 4), zone,
@@ -376,13 +403,14 @@ def _liquidity_rejection(indicators: pd.DataFrame, structure: MarketStructure) -
 
 def assess_professional_market(indicators: pd.DataFrame, structure: MarketStructure,
                                fib: FibonacciResult | None = None,
-                               timeframe: str | None = None) -> ProfessionalAssessment:
+                               timeframe: str | None = None,
+                               candle_patterns: CandlestickAssessment | None = None) -> ProfessionalAssessment:
     policy = timeframe_policy(timeframe, indicators)
     regime = detect_market_regime(indicators)
     if indicators.empty:
         return ProfessionalAssessment(policy, regime, None, None, (), (), (), (), (), None, None, None, None)
     event = detect_structure_event(indicators, structure, policy)
-    pullback = detect_pullback(indicators, structure, fib, policy)
+    pullback = detect_pullback(indicators, structure, fib, policy, candle_patterns)
     divergences = detect_momentum_divergences(indicators, structure)
     support_room, resistance_room = _opposing_room(indicators, structure)
     buy_reasons: list[str] = []

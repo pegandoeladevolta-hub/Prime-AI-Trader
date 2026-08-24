@@ -162,7 +162,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.0.0", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.1.0", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 

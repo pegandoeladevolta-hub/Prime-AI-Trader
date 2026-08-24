@@ -1,5 +1,30 @@
 # Release notes
 
+## 1.1.0 — 24/08/2026
+
+### Biblioteca causal de padrões de candles
+
+- Detector normalizado por range/ATR funciona em 1m, 3m, 5m, 15m, 30m, 1h e 4h.
+- Padrões de uma vela: doji, spinning top, martelo/pin bar, estrela cadente e marubozu.
+- Padrões de duas velas: engolfos, linha de perfuração, nuvem negra, harami, inside/outside bar e tweezers.
+- Padrões de três velas: estrelas da manhã/tarde, três soldados brancos e três corvos negros.
+- Vela aberta mostra somente padrão em formação; nenhum padrão ou sinal é confirmado antes do fechamento original do feed.
+
+### Correções dirigidas pelas 36 operações demo
+
+- M1/expiração M1 bloqueia padrão contrário, doji/indecisão e sequência exaurida.
+- Pullback M1/M3 exige fechamento direcional aprovado pela biblioteca, além de retomada, momentum e rejeição/estrutura.
+- Venda sobre pavio inferior e compra sobre pavio superior recebem conflito explícito quando há pin bar/rejeição contrária.
+- Backtest usa os mesmos filtros de reversão, indecisão, viés e exaustão das novas features.
+- A amostra operacional usada no diagnóstico permanece privada; nenhuma taxa de acerto ou dado de banca é publicado no repositório.
+
+### Modelos, compatibilidade e preservação
+
+- Schema 7 adiciona sete features causais de candle e exige novo treinamento por contexto.
+- Estratégias passam a `crypto-structure-volume-candles-v4` e `forex-session-priceaction-candles-v4`.
+- Layout, VEX, BullEx opt-in, fontes públicas, segurança loopback, banco, voz, radar, backtest e instalador foram preservados.
+- Suíte ampliada para 266 testes, incluindo ausência de look-ahead e bloqueios de padrões no M1.
+
 ## 1.0.0 — 22/08/2026
 
 ### BullEx segura e preservação da VEX

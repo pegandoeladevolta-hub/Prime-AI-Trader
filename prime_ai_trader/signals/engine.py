@@ -8,6 +8,7 @@ import pandas as pd
 from ..core.models import Direction, Market, Signal, SignalState, TIMEFRAME_MINUTES
 from ..fibonacci.auto import FibonacciResult
 from ..ml.models import ModelManager
+from ..priceaction.candles import CandlestickAssessment, analyze_candlestick_patterns
 from ..priceaction.professional import ProfessionalAssessment, assess_professional_market
 from ..priceaction.structure import MarketStructure
 from ..strategies.context import forex_sessions, strategy_key
@@ -69,6 +70,7 @@ class RuleAssessment:
     sell_setup: str = "ANÁLISE EM FORMAÇÃO"
     higher_timeframe_bias: str = "INDEFINIDA"
     professional: ProfessionalAssessment | None = None
+    candlesticks: CandlestickAssessment | None = None
 
 
 def _number(value, default: float = 0.0) -> float:
@@ -115,7 +117,8 @@ class SignalEngine:
                      fib: FibonacciResult | None,
                      professional: ProfessionalAssessment | None = None,
                      mode: str = "CONFIRMAÇÃO", market: str | None = None,
-                     symbol: str | None = None) -> RuleAssessment:
+                     symbol: str | None = None,
+                     candlesticks: CandlestickAssessment | None = None) -> RuleAssessment:
         last = indicators.iloc[-1]
         previous = indicators.iloc[-2] if len(indicators) >= 2 else last
         buy = sell = 0
@@ -251,12 +254,23 @@ class SignalEngine:
                 sell += 14; sell_reasons.append("Varredura de liquidez e rejeição na resistência")
                 sell_setup = "LIQUIDEZ + REJEIÇÃO"
 
-        previous_open = _number(previous.get("open"))
-        previous_close = _number(previous.get("close"))
-        if previous_close < previous_open and close > opened and close >= previous_open and opened <= previous_close:
-            buy += 8; buy_reasons.append("Engolfo comprador confirmado")
-        elif previous_close > previous_open and close < opened and close <= previous_open and opened >= previous_close:
-            sell += 8; sell_reasons.append("Engolfo vendedor confirmado")
+        if candlesticks and candlesticks.current_closed:
+            for pattern_direction in (Direction.BUY, Direction.SELL):
+                pattern = candlesticks.strongest(pattern_direction)
+                if pattern is None or pattern.strength < 0.58:
+                    continue
+                points = round(4 + pattern.strength * 9)
+                reason = f"Padrão de candle: {pattern.name.lower()} ({pattern.strength * 100:.0f}%)"
+                if pattern_direction == Direction.BUY:
+                    buy += points
+                    buy_reasons.append(reason)
+                    if pattern.family in {"REVERSÃO", "REJEIÇÃO"}:
+                        buy_setup = f"PADRÃO {pattern.name} + CONTEXTO"
+                else:
+                    sell += points
+                    sell_reasons.append(reason)
+                    if pattern.family in {"REVERSÃO", "REJEIÇÃO"}:
+                        sell_setup = f"PADRÃO {pattern.name} + CONTEXTO"
 
         if structure.false_breakout:
             if "LIQUIDEZ" not in buy_setup:
@@ -302,7 +316,7 @@ class SignalEngine:
 
         return RuleAssessment(
             min(buy, 100), min(sell, 100), buy_reasons, sell_reasons,
-            buy_setup, sell_setup, higher_bias, professional,
+            buy_setup, sell_setup, higher_bias, professional, candlesticks,
         )
 
     @staticmethod
@@ -321,7 +335,7 @@ class SignalEngine:
                 categories.add("tendência")
             if any(word in text for word in ("rsi", "macd", "momentum", "adx", "+di", "-di", "estocástico", "divergência")):
                 categories.add("momentum")
-            if any(word in text for word in ("rompimento", "reteste", "pullback", "liquidez", "rejeição", "engolfo", "fibonacci", "retração", "vela")):
+            if any(word in text for word in ("rompimento", "reteste", "pullback", "liquidez", "rejeição", "engolfo", "fibonacci", "retração", "vela", "padrão de candle")):
                 categories.add("price action")
             if "volume" in text:
                 categories.add("volume")
@@ -352,8 +366,15 @@ class SignalEngine:
         market = str(model_context.get("market", "")) if model_context else ""
         symbol = str(model_context.get("symbol", "")) if model_context else ""
         selected_strategy = strategy_key(market)
-        professional = assess_professional_market(indicators, structure, fib, context_timeframe)
-        rules = self.assess_rules(indicators, structure, fib, professional, mode, market, symbol)
+        candle_patterns = analyze_candlestick_patterns(
+            indicators, current_closed=candle_closed, timeframe=context_timeframe,
+        )
+        professional = assess_professional_market(
+            indicators, structure, fib, context_timeframe, candle_patterns,
+        )
+        rules = self.assess_rules(
+            indicators, structure, fib, professional, mode, market, symbol, candle_patterns,
+        )
         technical_buy = self._technical_score(rules.buy_points, rules.sell_points, len(rules.buy_reasons))
         technical_sell = self._technical_score(rules.sell_points, rules.buy_points, len(rules.sell_reasons))
         model_ready = self.model_manager.is_compatible(model_context)
@@ -381,7 +402,7 @@ class SignalEngine:
                 "VENDA": (rules.sell_points + 10) / total,
                 "AGUARDAR": 20 / total,
             }
-            model_version = "rules-professional-v2"
+            model_version = "rules-professional-candles-v3"
 
         sensitivity_key = profile.name
         threshold = profile.score
@@ -442,6 +463,32 @@ class SignalEngine:
         strict_confirmation = (
             mode == "CONFIRMAÇÃO" and context_timeframe == "1m" and horizon_minutes <= 1
         )
+        opposite_direction = Direction.SELL if direction == Direction.BUY else Direction.BUY
+        opposite_pattern = candle_patterns.strongest(opposite_direction)
+        opposite_pattern_strength = candle_patterns.directional_strength(opposite_direction)
+        if not candle_closed and candle_patterns.primary is not None:
+            waiting.append(
+                f"Padrão {candle_patterns.primary.name.lower()} ainda está em formação; "
+                "aguarde o fechamento da vela"
+            )
+        if context_timeframe and candle_closed and opposite_pattern is not None and (
+            opposite_pattern_strength >= (0.64 if strict_confirmation else 0.86)
+        ):
+            waiting.append(
+                f"Padrão {opposite_pattern.name.lower()} contradiz a "
+                f"{direction.value.lower()} sugerida"
+            )
+        if context_timeframe and candle_closed and candle_patterns.indecision >= (
+            0.72 if strict_confirmation else 0.96
+        ):
+            waiting.append("Vela de indecisão confirmada; aguarde rompimento e novo fechamento")
+        if (context_timeframe and candle_closed
+                and candle_patterns.exhaustion_direction == direction
+                and candle_patterns.exhaustion_strength >= (0.58 if strict_confirmation else 0.72)):
+            waiting.append(
+                f"Sequência de {direction.value.lower()} mostra exaustão; "
+                "não entre no fim do movimento"
+            )
         if not profile.early_reading or strict_confirmation:
             against_higher = (
                 direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
@@ -532,6 +579,15 @@ class SignalEngine:
             "strategy_name": selected_strategy,
             "source_lag_seconds": source_lag_seconds,
             "confirmed_candle": candle_closed,
+            "candlestick_patterns": candle_patterns.labels[:5],
+            "candlestick_context": (
+                candle_patterns.primary.description if candle_patterns.primary else
+                "Nenhum padrão direcional forte na última vela"
+            ),
+            "reversal_risk": next((
+                reason for reason in waiting
+                if "Padrão" in reason or "indecisão" in reason or "exaustão" in reason
+            ), ""),
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,
