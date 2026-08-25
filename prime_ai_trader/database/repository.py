@@ -45,6 +45,37 @@ CREATE TABLE IF NOT EXISTS signals (
 );
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, timeframe);
+CREATE TABLE IF NOT EXISTS decision_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    signal_id INTEGER,
+    market TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    horizon_minutes INTEGER NOT NULL,
+    platform TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    sensitivity TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    state TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    payout_percent INTEGER NOT NULL,
+    stake_amount REAL NOT NULL,
+    pullback_state TEXT NOT NULL DEFAULT '',
+    market_regime TEXT NOT NULL DEFAULT '',
+    structure_event TEXT NOT NULL DEFAULT '',
+    reason_summary TEXT NOT NULL DEFAULT '',
+    technical_score INTEGER NOT NULL DEFAULT 0,
+    model_score INTEGER,
+    source_name TEXT NOT NULL DEFAULT '',
+    snapshot_json TEXT NOT NULL,
+    FOREIGN KEY(signal_id) REFERENCES signals(id)
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_created ON decision_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_decisions_context ON decision_history(symbol, timeframe, event_type);
+CREATE INDEX IF NOT EXISTS idx_decisions_signal ON decision_history(signal_id);
 """
 
 MIGRATION_COLUMNS = {
@@ -151,6 +182,99 @@ class Repository:
                 (effective_exit, result, payout, stake, profit_loss, source,
                  stamp.isoformat(), signal_id),
             )
+            signal_row = connection.execute(
+                "SELECT * FROM signals WHERE id=?", (signal_id,),
+            ).fetchone()
+            previous = connection.execute(
+                """SELECT snapshot_json FROM decision_history WHERE signal_id=?
+                   ORDER BY id DESC LIMIT 1""", (signal_id,),
+            ).fetchone()
+            snapshot = json.loads(previous["snapshot_json"]) if previous else {}
+            signal_data = dict(signal_row)
+            snapshot.update({
+                "created_at": stamp.isoformat(),
+                "event_type": "RESULTADO OBSERVADO" if source == "MANUAL" else "RESULTADO INFERIDO",
+                "signal_id": signal_id,
+                "market": signal_data["market"],
+                "symbol": signal_data["symbol"],
+                "timeframe": signal_data["timeframe"],
+                "horizon_minutes": signal_data["horizon_minutes"],
+                "platform": signal_data.get("platform") or "MANUAL",
+                "strategy": signal_data.get("strategy") or "",
+                "sensitivity": signal_data.get("sensitivity") or "",
+                "mode": signal_data["mode"],
+                "direction": signal_data["direction"],
+                "state": signal_data["state"],
+                "score": signal_data["score"],
+                "payout_percent": payout,
+                "stake_amount": stake,
+                "result": result,
+                "result_source": source,
+                "exit_price": effective_exit,
+                "profit_loss": profit_loss,
+                "result_observed_at": stamp.isoformat(),
+                "reason_summary": (
+                    f"{result} {'observado na plataforma' if source == 'MANUAL' else 'inferido pela fonte pública'} "
+                    f"• resultado R$ {profit_loss:+.2f}"
+                ),
+            })
+            self._insert_decision(connection, snapshot)
+
+    @staticmethod
+    def _insert_decision(connection: sqlite3.Connection, snapshot: dict) -> int:
+        created = snapshot.get("created_at") or datetime.now(timezone.utc).isoformat()
+        data = dict(snapshot)
+        data["created_at"] = created
+        raw = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        cursor = connection.execute(
+            """INSERT INTO decision_history(created_at, event_type, signal_id, market, symbol,
+               timeframe, horizon_minutes, platform, strategy, sensitivity, mode,
+               direction, state, score, payout_percent, stake_amount, pullback_state,
+               market_regime, structure_event, reason_summary, technical_score,
+               model_score, source_name, snapshot_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                created, str(data.get("event_type") or "ANÁLISE"), data.get("signal_id"),
+                str(data.get("market") or ""), str(data.get("symbol") or ""),
+                str(data.get("timeframe") or ""), int(data.get("horizon_minutes") or 1),
+                str(data.get("platform") or "MANUAL"), str(data.get("strategy") or ""),
+                str(data.get("sensitivity") or ""), str(data.get("mode") or ""),
+                str(data.get("direction") or "AGUARDAR"), str(data.get("state") or ""),
+                int(data.get("score") or 0), int(data.get("payout_percent") or 80),
+                float(data.get("stake_amount") or 1.0), str(data.get("pullback_state") or ""),
+                str(data.get("market_regime") or ""), str(data.get("structure_event") or ""),
+                str(data.get("reason_summary") or ""), int(data.get("technical_score") or 0),
+                data.get("model_score"), str(data.get("source_name") or ""), raw,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+    def record_decision(self, snapshot: dict) -> int:
+        """Persiste uma decisão real, inclusive espera, formação e resultados."""
+        with self.connect() as connection:
+            return self._insert_decision(connection, snapshot)
+
+    def decision_history(self, limit: int = 500, *, symbol: str | None = None,
+                         event_type: str | None = None) -> list[dict]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if symbol:
+            clauses.append("history.symbol=?")
+            params.append(symbol)
+        if event_type:
+            clauses.append("history.event_type=?")
+            params.append(event_type)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        maximum = min(max(int(limit), 1), 250_000)
+        params.append(maximum)
+        with self.connect() as connection:
+            return [dict(row) for row in connection.execute(
+                f"""SELECT history.*, signals.result, signals.exit AS exit_price,
+                       signals.profit_loss, signals.result_source, signals.result_observed_at
+                    FROM decision_history AS history
+                    LEFT JOIN signals ON signals.id=history.signal_id
+                    {where} ORDER BY history.id DESC LIMIT ?""", params,
+            )]
 
     def record_manual_result(self, signal_id: int, result: str, *,
                              payout_percent: int | None = None,

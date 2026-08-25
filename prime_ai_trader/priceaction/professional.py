@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import pandas as pd
@@ -66,6 +66,26 @@ class PullbackSignal:
 
 
 @dataclass(frozen=True, slots=True)
+class PullbackContext:
+    """Separa a direção da correção da direção esperada após a retomada."""
+
+    primary_direction: Direction
+    correction_direction: Direction
+    phase: str
+    correction_bars: int
+    depth_atr: float
+    resumed: bool
+    invalidated: bool
+
+    @property
+    def label(self) -> str:
+        return (
+            f"TENDÊNCIA {self.primary_direction.value} • CORREÇÃO "
+            f"{self.correction_direction.value} • {self.phase}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MomentumDivergence:
     direction: Direction
     oscillator: str
@@ -94,6 +114,7 @@ class ProfessionalAssessment:
     sell_setup: str | None
     support_room_atr: float | None
     resistance_room_atr: float | None
+    pullback_context: PullbackContext | None = None
 
 
 def _number(value, default: float = 0.0) -> float:
@@ -225,11 +246,103 @@ def detect_structure_event(indicators: pd.DataFrame, structure: MarketStructure,
 def _pullback_direction(indicators: pd.DataFrame, structure: MarketStructure) -> Direction:
     last = indicators.iloc[-1]
     ema_9, ema_21, ema_50 = (_number(last.get(name)) for name in ("ema_9", "ema_21", "ema_50"))
-    if ema_9 >= ema_21 and ema_21 > ema_50 and structure.trend != "BAIXA":
+    close = _number(last.get("close"))
+    atr = max(_number(last.get("atr_14")), abs(close) * 1e-8, 1e-10)
+    # A EMA 9 pode cruzar temporariamente a EMA 21 durante uma correção
+    # saudável. O sentido do pullback continua sendo o da estrutura principal;
+    # usar o cruzamento rápido para inverter COMPRA/VENDA cria sinais espelhados.
+    if (ema_21 > ema_50 and structure.trend != "BAIXA"
+            and ema_9 >= ema_21 - atr * 0.60):
         return Direction.BUY
-    if ema_9 <= ema_21 and ema_21 < ema_50 and structure.trend != "ALTA":
+    if (ema_21 < ema_50 and structure.trend != "ALTA"
+            and ema_9 <= ema_21 + atr * 0.60):
         return Direction.SELL
     return Direction.WAIT
+
+
+def assess_pullback_context(indicators: pd.DataFrame, structure: MarketStructure,
+                            policy: TimeframePolicy,
+                            event: StructureEvent | None = None,
+                            candle_patterns: CandlestickAssessment | None = None
+                            ) -> PullbackContext | None:
+    """Identifica correção temporária sem confundi-la com mudança de tendência.
+
+    O viés primário vem da estrutura e das EMAs 21/50. A EMA 9 e o corpo da
+    última vela descrevem a correção, mas nunca invertem sozinhos o sentido.
+    Um CHOCH fechado ou uma perda real da EMA 50 libera a hipótese de reversão.
+    """
+    if len(indicators) < 25:
+        return None
+    last = indicators.iloc[-1]
+    close = _number(last.get("close"))
+    atr = max(_number(last.get("atr_14")), abs(close) * 1e-8, 1e-10)
+    ema_21 = _number(last.get("ema_21"), close)
+    ema_50 = _number(last.get("ema_50"), close)
+    separation = (ema_21 - ema_50) / atr
+    if structure.trend == "ALTA" and separation > 0.04:
+        primary = Direction.BUY
+    elif structure.trend == "BAIXA" and separation < -0.04:
+        primary = Direction.SELL
+    elif structure.trend == "LATERAL" and abs(separation) >= 0.28:
+        closes = indicators["close"].tail(16).astype(float)
+        travelled = float(closes.diff().abs().sum())
+        efficiency = abs(float(closes.iloc[-1] - closes.iloc[0])) / travelled if travelled else 0.0
+        if efficiency < 0.24:
+            return None
+        primary = Direction.BUY if separation > 0 else Direction.SELL
+    else:
+        return None
+
+    opposite = Direction.SELL if primary == Direction.BUY else Direction.BUY
+    if event and event.direction == opposite and event.kind == "CHOCH" and event.confirmed:
+        return PullbackContext(primary, opposite, "REVERSÃO ESTRUTURAL CONFIRMADA",
+                               0, 0.0, False, True)
+
+    sign = 1.0 if primary == Direction.BUY else -1.0
+    recent = indicators.iloc[-min(policy.pullback_bars, 7):]
+    moves = sign * recent["close"].astype(float).diff().dropna() / atr
+    adverse = moves[moves <= -0.055]
+    if len(adverse) < 2 and not (len(adverse) == 1 and float(adverse.iloc[-1]) <= -0.30):
+        return None
+
+    if primary == Direction.BUY:
+        impulse = float(recent["high"].max())
+        correction = float(recent["low"].min())
+        depth = (impulse - correction) / atr
+        macro_broken = close < ema_50 - atr * 0.32
+        close_quality = _number(last.get("close_position"), 0.5) >= 0.56
+        opposite_wick = _number(last.get("upper_wick"))
+        recovery = (close - correction) / atr
+    else:
+        impulse = float(recent["low"].min())
+        correction = float(recent["high"].max())
+        depth = (correction - impulse) / atr
+        macro_broken = close > ema_50 + atr * 0.32
+        close_quality = _number(last.get("close_position"), 0.5) <= 0.44
+        opposite_wick = _number(last.get("lower_wick"))
+        recovery = (correction - close) / atr
+    if depth < 0.24:
+        return None
+    if macro_broken:
+        return PullbackContext(primary, opposite, "ESTRUTURA PRINCIPAL INVALIDADA",
+                               int(len(adverse)), round(depth, 4), False, True)
+
+    opened = _number(last.get("open"), close)
+    body_atr = sign * (close - opened) / atr
+    body = max(abs(close - opened), atr * 0.06)
+    prior = indicators.iloc[-2]
+    macd_turn = sign * (_number(last.get("macd_hist")) - _number(prior.get("macd_hist")))
+    rsi_turn = sign * (_number(last.get("rsi_14"), 50.0) - _number(prior.get("rsi_14"), 50.0))
+    momentum_recovers = macd_turn >= -atr * 0.006 or rsi_turn >= 0.4
+    closed = candle_patterns.current_closed if candle_patterns is not None else True
+    resumed = (
+        closed and body_atr >= 0.10 and close_quality and recovery >= 0.18
+        and opposite_wick <= max(body * 1.15, atr * 0.20)
+        and momentum_recovers
+    )
+    phase = "RETOMADA CONFIRMADA" if resumed else "CORREÇÃO EM ANDAMENTO"
+    return PullbackContext(primary, opposite, phase, int(len(adverse)),
+                           round(depth, 4), resumed, False)
 
 
 def detect_pullback(indicators: pd.DataFrame, structure: MarketStructure,
@@ -411,6 +524,11 @@ def assess_professional_market(indicators: pd.DataFrame, structure: MarketStruct
         return ProfessionalAssessment(policy, regime, None, None, (), (), (), (), (), None, None, None, None)
     event = detect_structure_event(indicators, structure, policy)
     pullback = detect_pullback(indicators, structure, fib, policy, candle_patterns)
+    pullback_context = assess_pullback_context(indicators, structure, policy, event, candle_patterns)
+    if (pullback_context and pullback and pullback.confirmed
+            and pullback.direction == pullback_context.primary_direction
+            and not pullback_context.invalidated):
+        pullback_context = replace(pullback_context, phase="RETOMADA CONFIRMADA", resumed=True)
     divergences = detect_momentum_divergences(indicators, structure)
     support_room, resistance_room = _opposing_room(indicators, structure)
     buy_reasons: list[str] = []
@@ -418,6 +536,27 @@ def assess_professional_market(indicators: pd.DataFrame, structure: MarketStruct
     buy_penalties: list[str] = []
     sell_penalties: list[str] = []
     buy_setup = sell_setup = None
+    if pullback_context and not pullback_context.invalidated:
+        primary_penalties = (
+            buy_penalties if pullback_context.primary_direction == Direction.BUY
+            else sell_penalties
+        )
+        correction_penalties = (
+            sell_penalties if pullback_context.primary_direction == Direction.BUY
+            else buy_penalties
+        )
+        if not pullback_context.resumed:
+            primary_penalties.append(
+                f"Correção de {pullback_context.correction_direction.value.lower()} "
+                f"ainda não confirmou retomada de "
+                f"{pullback_context.primary_direction.value.lower()}"
+            )
+        correction_penalties.append(
+            f"Correção de {pullback_context.correction_direction.value.lower()} "
+            f"é pullback da tendência de "
+            f"{pullback_context.primary_direction.value.lower()}; "
+            "não confundir correção com reversão"
+        )
     if event:
         target = buy_reasons if event.direction == Direction.BUY else sell_reasons
         target.append(f"{event.label} confirmada com {event.displacement_atr:.2f} ATR")
@@ -470,4 +609,5 @@ def assess_professional_market(indicators: pd.DataFrame, structure: MarketStruct
     return ProfessionalAssessment(policy, regime, event, pullback, divergences,
                                   tuple(dict.fromkeys(buy_reasons)), tuple(dict.fromkeys(sell_reasons)),
                                   tuple(dict.fromkeys(buy_penalties)), tuple(dict.fromkeys(sell_penalties)),
-                                  buy_setup, sell_setup, support_room, resistance_room)
+                                  buy_setup, sell_setup, support_room, resistance_room,
+                                  pullback_context)

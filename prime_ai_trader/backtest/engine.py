@@ -77,6 +77,19 @@ def _directional_confluence(row: pd.Series, prediction: int,
         pd.isna(breakout) or sign * float(breakout) <= 0
     ):
         return False
+    primary = row.get("primary_trend_code")
+    correction = row.get("pullback_correction_code")
+    resumption = row.get("pullback_resumption_score")
+    if (pd.notna(primary) and pd.notna(correction)
+            and float(primary) and float(correction)):
+        macro = float(primary)
+        correction_side = float(correction)
+        confirmed_break = pd.notna(breakout) and sign * float(breakout) >= 0.22
+        if sign * macro < 0 and sign * correction_side > 0 and not confirmed_break:
+            return False
+        if (sign * macro > 0 and sign * correction_side < 0
+                and pd.notna(resumption) and float(resumption) <= 0.08):
+            return False
     reversal = row.get("reversal_pressure")
     if pd.notna(reversal) and sign * float(reversal) < -0.32:
         return False

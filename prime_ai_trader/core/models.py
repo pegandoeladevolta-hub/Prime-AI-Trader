@@ -106,6 +106,22 @@ class Signal:
     technical_target: float | None = None
     technical_room_ratio: float | None = None
     technical_levels_note: str = ""
+    buy_rule_points: int = 0
+    sell_rule_points: int = 0
+    buy_score: int = 0
+    sell_score: int = 0
+    buy_reasons: list[str] = field(default_factory=list)
+    sell_reasons: list[str] = field(default_factory=list)
+    independent_confirmations: list[str] = field(default_factory=list)
+    momentum_votes: int = 0
+    higher_timeframe_bias: str = "INDEFINIDA"
+    pullback_primary_direction: str = ""
+    pullback_correction_direction: str = ""
+    pullback_phase: str = ""
+    pullback_depth_atr: float | None = None
+    reversal_votes: int = 0
+    reversal_reasons: list[str] = field(default_factory=list)
+    all_waiting_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

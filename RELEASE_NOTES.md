@@ -1,5 +1,29 @@
 # Release notes
 
+## 1.2.4 — 25/08/2026
+
+### Correção da direção de pullbacks
+
+- A tendência principal passa a ser determinada pela estrutura e pelas EMAs 21/50; o cruzamento temporário da EMA 9 durante a correção não inverte mais compra e venda.
+- Uma tendência de alta com correção vendedora aguarda retomada de compra; uma tendência de baixa com correção compradora aguarda retomada de venda.
+- A regra simplificada de pullback deixou de conceder pontos ao lado contrário quando as EMAs 21/50 e a estrutura preservam a direção original.
+- O contexto explicita tendência principal, direção da correção, quantidade de candles, profundidade em ATR, fase da retomada e invalidação.
+- CHOCH confirmado e perda relevante da EMA 50 continuam autorizando a hipótese de mudança estrutural; reversão real não é rotulada como simples pullback.
+- Schema 9 adiciona direção estrutural, direção da correção e força de retomada; a profundidade do pullback passa a usar a EMA 21 no sentido correto.
+- O backtest reproduz a mesma proteção contra correção invertida e só aceita mudança contrária quando existe rompimento relevante.
+- Estratégias `crypto-structure-orderflow-pullback-v10` e `forex-session-priceaction-pullback-v10` separam modelos antigos; após instalar, treine novamente o contexto utilizado.
+
+### Histórico auditável e Excel
+
+- Adiciona tabela SQLite `decision_history` por migração aditiva e índices por data, ativo/timeframe e sinal, sem apagar sinais anteriores.
+- Registra configurações alteradas, análise/aguardar, sinal em formação, sinal confirmado, bloqueios, resultado inferido e resultado observado manualmente.
+- Cada decisão contém mercado, ativo, timeframe, expiração, perfil, modo, estratégia, payout, entrada, plataforma visível, scores de compra/venda e justificativas dos dois lados.
+- Preserva RSI, MACD, EMAs, ADX, ATR, volume disponível, todas as features, padrões, estrutura, Fibonacci, risco de reversão, contexto de notícias/calendário e oito velas recentes.
+- Novo botão **HISTÓRICO COMPLETO / EXCEL** apresenta filtros, tabela, detalhamento completo e exportação em thread separada para preservar a fluidez da interface.
+- Exporta `.xlsx` real com abas de resumo, operações, decisões, indicadores/features, configurações, velas/pullbacks e notícias/eventos.
+- Acerto, equilíbrio financeiro e P&L observado usam somente resultados informados pelo usuário; dados inferidos permanecem separados.
+- Notícias externas não são interpretadas como fórmulas Excel. API keys, senhas, cookies, tokens e saldo não entram no histórico.
+
 ## 1.2.3 — 25/08/2026
 
 ### Auditoria de falsos sinais e entradas próximas do vencimento

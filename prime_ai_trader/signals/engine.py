@@ -136,6 +136,8 @@ def professional_penalty_is_blocking(reason: str, policy: DecisionPolicy,
                                      professional: ProfessionalAssessment,
                                      direction: Direction) -> bool:
     text = reason.lower()
+    if "não confundir correção com reversão" in text or "ainda não confirmou retomada" in text:
+        return True
     if "estrutura acabou de confirmar" in text or "retração profunda" in text:
         return True
     if "resistência muito próxima" in text or "suporte muito próximo" in text:
@@ -380,10 +382,16 @@ class SignalEngine:
             sell += 12; sell_reasons.append("Reteste confirmado na tendência de baixa")
             sell_setup = "ROMPIMENTO + RETESTE"
 
-        if atr > 0 and ema_9 >= ema_21 and _number(last.get("low")) <= ema_21 + atr * 0.40 and close > ema_21 and close > opened:
+        if (atr > 0 and ema_9 >= ema_21 - atr * 0.60 and ema_21 > ema_50
+                and structure.trend != "BAIXA"
+                and _number(last.get("low")) <= ema_21 + atr * 0.40
+                and close > ema_21 and close > opened):
             buy += 12; buy_reasons.append("Pullback na EMA 21 com rejeição compradora")
             buy_setup = "PULLBACK DE TENDÊNCIA"
-        elif atr > 0 and ema_9 <= ema_21 and _number(last.get("high")) >= ema_21 - atr * 0.40 and close < ema_21 and close < opened:
+        elif (atr > 0 and ema_9 <= ema_21 + atr * 0.60 and ema_21 < ema_50
+                and structure.trend != "ALTA"
+                and _number(last.get("high")) >= ema_21 - atr * 0.40
+                and close < ema_21 and close < opened):
             sell += 12; sell_reasons.append("Pullback na EMA 21 com rejeição vendedora")
             sell_setup = "PULLBACK DE TENDÊNCIA"
 
@@ -600,6 +608,20 @@ class SignalEngine:
         analysis_advisories: list[str] = []
 
         waiting: list[str] = []
+        pullback_context = professional.pullback_context
+        if pullback_context and not pullback_context.invalidated:
+            if direction == pullback_context.correction_direction:
+                waiting.append(
+                    f"Pullback invertido: {direction.value.lower()} é apenas a correção; "
+                    f"a tendência principal pede "
+                    f"{pullback_context.primary_direction.value.lower()} após retomada"
+                )
+            elif direction == pullback_context.primary_direction and not pullback_context.resumed:
+                waiting.append(
+                    f"Pullback de {pullback_context.correction_direction.value.lower()} "
+                    f"ainda em andamento; aguarde fechamento de "
+                    f"{pullback_context.primary_direction.value.lower()}"
+                )
         unconfirmed_pullback = bool(
             candle_closed and professional.pullback is not None
             and professional.pullback.direction == direction
@@ -843,7 +865,11 @@ class SignalEngine:
             "expected_value": expected_value if model_ready else None,
             "market_regime": professional.regime.name,
             "structure_event": professional.event.label if professional.event else "",
-            "pullback_state": professional.pullback.label if professional.pullback else "",
+            "pullback_state": (
+                professional.pullback.label if professional.pullback
+                else professional.pullback_context.label
+                if professional.pullback_context else ""
+            ),
             "timeframe_context": professional.policy.timeframe,
             "strategy_name": selected_strategy,
             "source_lag_seconds": source_lag_seconds,
@@ -856,7 +882,8 @@ class SignalEngine:
             "reversal_risk": next((
                 reason for reason in waiting
                 if ("Padrão" in reason or "indecisão" in reason or "exaustão" in reason
-                    or "reversão" in reason or "Pullback sem retomada" in reason)
+                    or "reversão" in reason or "Pullback sem retomada" in reason
+                    or "Pullback invertido" in reason or "ainda em andamento" in reason)
             ), ""),
             "warnings": list(dict.fromkeys(analysis_advisories))[:5],
             "technical_stop": technical_levels.invalidation if technical_levels else None,
@@ -867,6 +894,26 @@ class SignalEngine:
                 f"alvo {technical_levels.target_basis}. Não executa ordens."
                 if technical_levels else ""
             ),
+            "buy_rule_points": rules.buy_points,
+            "sell_rule_points": rules.sell_points,
+            "buy_score": buy_score,
+            "sell_score": sell_score,
+            "buy_reasons": rules.buy_reasons[:20],
+            "sell_reasons": rules.sell_reasons[:20],
+            "independent_confirmations": sorted(independent),
+            "momentum_votes": sum(momentum_votes),
+            "higher_timeframe_bias": rules.higher_timeframe_bias,
+            "pullback_primary_direction": (
+                pullback_context.primary_direction.value if pullback_context else ""
+            ),
+            "pullback_correction_direction": (
+                pullback_context.correction_direction.value if pullback_context else ""
+            ),
+            "pullback_phase": pullback_context.phase if pullback_context else "",
+            "pullback_depth_atr": pullback_context.depth_atr if pullback_context else None,
+            "reversal_votes": reversal.votes,
+            "reversal_reasons": list(reversal.reasons),
+            "all_waiting_reasons": list(dict.fromkeys(waiting)),
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,

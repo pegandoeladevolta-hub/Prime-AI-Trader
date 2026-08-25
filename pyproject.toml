@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prime-ai-trader"
-version = "1.2.3"
+version = "1.2.4"
 description = "Assistente quantitativo desktop para criptomoedas e Forex"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -15,6 +15,7 @@ dependencies = [
   "joblib>=1.4,<2",
   "websockets>=14,<17",
   "cryptography>=44,<48",
+  "openpyxl>=3.1,<4",
   "tzdata>=2025.2,<2027",
 ]
 

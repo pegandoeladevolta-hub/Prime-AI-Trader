@@ -27,7 +27,7 @@ from ..signals.timing import preserve_recent_confirmed_signal
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
 from .dialogs import (
-    ApiSettingsDialog, BacktestDialog, HealthDialog, ManualResultDialog,
+    ApiSettingsDialog, BacktestDialog, DecisionHistoryDialog, HealthDialog, ManualResultDialog,
     PerformanceDialog, RadarDialog,
 )
 from .theme import COLORS, configure_style
@@ -166,7 +166,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.2.3", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.2.4", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -251,6 +251,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Button(tools, text="LOGS", style="Tool.TButton", command=self.open_logs).pack(side="left", fill="x", expand=True)
         ttk.Button(tools, text="RESULTADOS", style="Tool.TButton", command=self.open_performance).pack(side="left", fill="x", expand=True)
         ttk.Button(panel, text="REGISTRAR RESULTADO OBSERVADO", style="Secondary.TButton", command=self.open_manual_result).pack(fill="x", pady=(2, 3))
+        ttk.Button(panel, text="HISTÓRICO COMPLETO / EXCEL", style="Secondary.TButton", command=self.open_decision_history).pack(fill="x", pady=(2, 3))
         ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self.open_health).pack(fill="x", pady=(2, 3))
         ttk.Button(panel, text="LIMPAR CACHE / MODELOS ANTIGOS", style="Tool.TButton", command=self.clean_cache).pack(fill="x", pady=(2, 0))
 
@@ -1132,6 +1133,16 @@ class PrimeAITraderApp(tk.Tk):
         self._run_task(
             "Calculando desempenho real…", self.controller.repository.statistics,
             lambda stats: (self.status_var.set("Desempenho atualizado"), PerformanceDialog(self, stats)),
+        )
+
+    def open_decision_history(self) -> None:
+        self._run_task(
+            "Carregando histórico operacional completo…",
+            lambda: self.controller.repository.decision_history(1000),
+            lambda rows: (
+                self.status_var.set(f"Histórico operacional: {len(rows)} eventos carregados"),
+                DecisionHistoryDialog(self, self.controller.repository, rows),
+            ),
         )
 
     def open_manual_result(self) -> None:

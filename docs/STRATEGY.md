@@ -23,6 +23,16 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 15. **Níveis da operação** — stop técnico e alvo combinam ATR, expiração, pivôs e zona oposta. Espaço curto é avisado; os níveis não representam ordens executadas pela plataforma.
 16. **Reversão de curto horizonte** — a última vela concluída é confrontada com microtendência, MACD/RSI, pavio contrário, EMA 9, divergência e agressão real. Duas evidências independentes já suspendem uma entrada com vencimento curto.
 17. **Validade temporal** — o sinal perde validade se a nova cotação inverter materialmente, cruzar a invalidação técnica ou se a VEX/BullEx estiver nos últimos segundos do vencimento real.
+18. **Direção real do pullback** — EMAs 21/50 e estrutura definem a tendência principal; a correção temporária tem direção oposta e só libera entrada após retomada fechada. Cruzamento isolado da EMA 9 não transforma pullback em reversão.
+
+## Pullback, correção e mudança de tendência
+
+- Em tendência de alta, um deslocamento vendedor pode ser somente a correção. A entrada coerente é **COMPRA após retomada**; a correção por si só não autoriza VENDA.
+- Em tendência de baixa, um deslocamento comprador pode ser somente a correção. A entrada coerente é **VENDA após retomada**; a correção por si só não autoriza COMPRA.
+- A retomada exige corpo na direção principal, posição de fechamento adequada, recuperação mínima normalizada por ATR, ausência de rejeição contrária e estabilização do momentum.
+- A fase da correção é auditável: direção principal, direção temporária, número de candles contrários, profundidade por ATR e confirmação ou invalidação.
+- Um CHOCH concluído ou a perda relevante da EMA 50 descaracteriza a hipótese de correção saudável e permite investigar uma mudança estrutural real.
+- O modo rápido continua mais ágil, mas não ignora inversão evidente entre a direção do pullback e a direção da tendência.
 
 ## Stop técnico, alvo e suporte/resistência
 
@@ -84,7 +94,7 @@ Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 s
 
 Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
-Na versão 1.2.3, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Além disso, o contexto não pode apresentar um pullback incompleto nem múltiplos sinais independentes de reversão iminente.
+Na versão 1.2.4, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Além disso, ela não pode representar a correção temporária de um pullback preservado, apresentar retomada incompleta nem acumular sinais independentes de reversão iminente.
 
 A versão 1.2.1 usa como referência o build oficial 0.9.0 do commit `a16d551d`. Nos perfis marcados como contextuais, um doji fechado só deixa de ser veto isolado quando o regime concorda e a estrutura não contradiz a direção, a eficiência mínima e o momentum são suficientes, o timeframe superior não está contrário e não existe transição ou exaustão. Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido usam essa regra; o Quantitativo também exige apoio do modelo. Os demais cruzamentos permanecem rígidos.
 
@@ -97,7 +107,7 @@ Notícias e eventos permanecem informativos quando o bloqueio automático está 
 - Entre treino e teste existe uma purga proporcional ao horizonte previsto.
 - O modelo é escolhido pelo limite inferior de Wilson do acerto direcional seletivo, com requisitos de amostra e cobertura.
 - Cada mercado, ativo, timeframe, horizonte, estratégia, sensibilidade, modo e versão das features possui modelo próprio.
-- O schema 8 preserva os padrões do schema 7 e adiciona microtendência por ATR, virada de momentum, distância da EMA 9, validade do taker e desequilíbrio real de agressão; modelos antigos precisam ser treinados novamente.
+- O schema 9 preserva os indicadores causais anteriores e adiciona direção principal, direção temporária da correção e força da retomada; a profundidade passa a respeitar as EMAs 21/50. Modelos antigos precisam ser treinados novamente.
 - A calibração real também é contextual e exige pelo menos 30 operações direcionais; uma amostra menor é mostrada como informativa, nunca como desempenho comprovado.
 - O backtest apresenta intervalo de confiança de Wilson, ponto de equilíbrio e expectativa compatível com o payout escolhido.
 

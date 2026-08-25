@@ -1,6 +1,6 @@
 PRIME AI TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 1.2.3
+Versão 1.2.4
 
 1. O PRIME AI TRADER é um assistente de análise. Ele não executa ordens automaticamente e não substitui orientação financeira profissional.
 

@@ -11,7 +11,7 @@ a = Analysis(
     datas=[(str(root / "assets" / "icon.ico"), "assets"), *collect_data_files("tzdata")],
     hiddenimports=[
         "sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree",
-        "tkinter.ttk", "tkinter.messagebox", "tkinter.filedialog",
+        "tkinter.ttk", "tkinter.messagebox", "tkinter.filedialog", "openpyxl",
     ],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=["matplotlib"], noarchive=False,
 )

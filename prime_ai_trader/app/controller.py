@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -88,9 +88,41 @@ class TradingController:
         self.last_radar_note = ""
         self.websocket_online = False
         self.platform_snapshot: VexPlatformSnapshot | None = None
+        self._last_settings_signature = json.dumps(
+            asdict(self.settings), sort_keys=True, ensure_ascii=False,
+        )
 
     def save_settings(self) -> None:
         self.settings_store.save(self.settings)
+        signature = json.dumps(asdict(self.settings), sort_keys=True, ensure_ascii=False)
+        if signature != self._last_settings_signature:
+            self._last_settings_signature = signature
+            try:
+                self.repository.record_decision({
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "event_type": "CONFIGURAÇÃO ALTERADA",
+                    "market": self.settings.market,
+                    "symbol": self.symbol(),
+                    "timeframe": self.settings.timeframe,
+                    "horizon_minutes": self.settings.horizon_minutes,
+                    "platform": self.settings.platform_name,
+                    "strategy": strategy_key(self.settings.market),
+                    "sensitivity": self.settings.sensitivity,
+                    "mode": self.settings.mode,
+                    "direction": "AGUARDAR",
+                    "state": "CONFIGURAÇÃO",
+                    "score": 0,
+                    "payout_percent": self.settings.payout_percent,
+                    "stake_amount": self.settings.stake_amount,
+                    "reason_summary": (
+                        f"{self.settings.market} • {self.symbol()} • "
+                        f"{self.settings.timeframe}/{self.settings.horizon_minutes}m • "
+                        f"{self.settings.sensitivity} • {self.settings.mode}"
+                    ),
+                    "settings": asdict(self.settings),
+                })
+            except Exception:
+                self.logger.exception("Não foi possível registrar a alteração de configuração")
 
     def save_secrets(self, values: dict[str, str]) -> None:
         self.secrets.update(values)
@@ -253,24 +285,25 @@ class TradingController:
         )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
-        self._record_signal(signal, market, symbol, timeframe, candles, indicators, mode)
+        signal_id = self._record_signal(signal, market, symbol, timeframe, candles, indicators, mode)
+        self._record_decision(snapshot, signal_id=signal_id)
         self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         return snapshot
 
     def _record_signal(self, signal: Signal, market: str, symbol: str,
                        timeframe: str, candles: list[Candle],
-                       indicators: pd.DataFrame, mode: str) -> None:
+                       indicators: pd.DataFrame, mode: str) -> int | None:
         if signal.state != SignalState.CONFIRMED or signal.direction == Direction.WAIT or not candles:
-            return
+            return None
         signature = (symbol, timeframe, candles[-1].open_time, signal.direction.value)
         if signature == self._last_saved_signature:
-            return
+            return None
         last = indicators.iloc[-1]
         values = {key: self._value(last.get(key)) for key in (
             "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di",
             "atr_14", "vwap", "obv", "cci_20", "williams_r", "volume_relative",
         )}
-        self.repository.save_signal(
+        signal_id = self.repository.save_signal(
             signal, market, symbol, timeframe, values, mode,
             platform=self.settings.platform_name,
             strategy=strategy_key(market), sensitivity=self.settings.sensitivity,
@@ -279,6 +312,103 @@ class TradingController:
         self._last_saved_signature = signature
         self.logger.info("Sinal salvo | %s %s score=%s setup=%s", symbol,
                          signal.direction.value, signal.score, signal.setup_name)
+        return signal_id
+
+    @staticmethod
+    def _history_json(value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if is_dataclass(value) and not isinstance(value, type):
+            return TradingController._history_json(asdict(value))
+        if isinstance(value, dict):
+            return {str(key): TradingController._history_json(item)
+                    for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [TradingController._history_json(item) for item in value]
+        if hasattr(value, "item") and not isinstance(value, (str, bytes)):
+            return TradingController._history_json(value.item())
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, (str, int, bool)) or value is None:
+            return value
+        return str(value)
+
+    def _record_decision(self, snapshot: AnalysisSnapshot, *,
+                         signal_id: int | None = None) -> int | None:
+        """Grava a leitura completa sem expor chaves, cookies ou dados de conta."""
+        signal = snapshot.signal
+        settings = asdict(self.settings)
+        reasons = signal.waiting_reasons or signal.blockers or signal.confluences
+        platform = self.platform_snapshot
+        visible_platform = None
+        if platform is not None:
+            visible_platform = {
+                "platform_name": platform.platform_name,
+                "observed_at": platform.observed_at,
+                "authenticated": platform.authenticated,
+                "fresh": platform.fresh(),
+                "asset": platform.asset,
+                "market": platform.market,
+                "payout_percent": platform.payout_percent,
+                "remaining_seconds": platform.remaining_seconds,
+                "horizon_minutes": platform.horizon_minutes,
+                "price": platform.price,
+                "otc": platform.otc,
+            }
+        if signal.state == SignalState.CONFIRMED:
+            event_type = "SINAL CONFIRMADO" if signal_id is not None else "REAVALIAÇÃO DO SINAL"
+        elif signal.state == SignalState.FORMING:
+            event_type = "SINAL EM FORMAÇÃO"
+        elif signal.state == SignalState.BLOCKED:
+            event_type = "ANÁLISE BLOQUEADA"
+        else:
+            event_type = "ANÁLISE / AGUARDAR"
+
+        signal_data = asdict(signal)
+        payload = self._history_json({
+            "created_at": snapshot.generated_at,
+            "event_type": event_type,
+            "signal_id": signal_id,
+            "market": snapshot.market,
+            "symbol": snapshot.symbol,
+            "timeframe": snapshot.timeframe,
+            "horizon_minutes": signal.horizon_minutes,
+            "platform": settings.get("platform_name") or "MANUAL",
+            "strategy": signal.strategy_name or strategy_key(snapshot.market),
+            "sensitivity": settings.get("sensitivity", ""),
+            "mode": settings.get("mode", ""),
+            "direction": signal.direction.value,
+            "state": signal.state.value,
+            "score": signal.score,
+            "payout_percent": signal.payout_percent,
+            "stake_amount": settings.get("stake_amount", 1.0),
+            "pullback_state": signal.pullback_state,
+            "market_regime": signal.market_regime,
+            "structure_event": signal.structure_event,
+            "reason_summary": " | ".join(str(item) for item in reasons[:4]),
+            "technical_score": signal.technical_score,
+            "model_score": signal.model_score,
+            "source_name": snapshot.data_source,
+            "settings": settings,
+            "signal": signal_data,
+            "indicators": snapshot.indicators.iloc[-1].to_dict(),
+            "features": snapshot.features.iloc[-1].to_dict() if not snapshot.features.empty else {},
+            "structure": asdict(snapshot.structure),
+            "fibonacci": asdict(snapshot.fibonacci) if snapshot.fibonacci else None,
+            "recent_candles": [item.as_dict() for item in snapshot.candles[-8:]],
+            "news": [asdict(item) for item in snapshot.news[:12]],
+            "economic_events": [asdict(item) for item in snapshot.calendar_events[:12]],
+            "visible_platform": visible_platform,
+            "source_lag_seconds": signal.source_lag_seconds,
+            "forex_reference_rate": snapshot.forex_reference_rate,
+            "analysis_candles": len(snapshot.candles),
+            "training_candles": len(snapshot.history_candles or snapshot.candles),
+        })
+        try:
+            return self.repository.record_decision(payload)
+        except Exception:
+            self.logger.exception("Não foi possível registrar a decisão operacional")
+            return None
 
     def _settle_pending(self, symbol: str, timeframe: str, current_price: float,
                         candles: list[Candle] | None = None) -> None:
@@ -369,8 +499,9 @@ class TradingController:
             history_candles,
         )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
-        self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
-                            candles, indicators, self.settings.mode)
+        signal_id = self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
+                                        candles, indicators, self.settings.mode)
+        self._record_decision(self.snapshot, signal_id=signal_id)
         self._settle_pending(snapshot.symbol, snapshot.timeframe,
                              float(indicators["close"].iloc[-1]), candles)
         return self.snapshot

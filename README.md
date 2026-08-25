@@ -1,17 +1,28 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.3 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.4 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.2.3
+## Destaques da versão 1.2.4
+
+- A direção principal do pullback vem da estrutura e das EMAs 21/50: uma correção temporária de venda na alta não é mais confundida com sinal de venda, e a correção de compra na baixa não vira sinal de compra.
+- Cada leitura separa **tendência principal**, **direção da correção**, **retomada confirmada**, **profundidade em ATR** e **CHOCH/invalidação real**; o cruzamento isolado da EMA 9 não inverte o contexto.
+- O botão **HISTÓRICO COMPLETO / EXCEL** registra análises, sinais em formação/confirmados, motivos de espera, mudanças de configuração, resultados manuais e resultados apenas inferidos.
+- A auditoria inclui ativo, mercado, gráfico, expiração, sensibilidade, modo, payout, entrada, plataforma, scores de compra/venda, justificativas dos dois lados, indicadores, features, padrões, reversão, notícias e as oito velas recentes.
+- A exportação `.xlsx` cria sete abas: **Resumo**, **Operações**, **Decisões da IA**, **Indicadores e features**, **Configurações**, **Velas e pullbacks** e **Notícias e eventos**.
+- Resultados observados manualmente são separados dos resultados inferidos; o resumo calcula acerto, payout de equilíbrio e resultado financeiro usando somente o que o usuário confirmou na plataforma.
+- O schema 9 ensina a IA a distinguir tendência principal, correção e retomada; as estratégias `pullback-v10` separam modelos antigos. Depois de instalar, treine novamente cada ativo/timeframe/expiração que usar.
+- O histórico fica no SQLite existente por migração aditiva. Chaves de API, senhas, cookies, tokens e saldo nunca são registrados ou exportados. Layout e integrações da versão 1.2.3 permanecem preservados.
+
+## Recursos preservados da versão 1.2.3
 
 - Pullback incompleto não soma confirmações falsas e não gera entrada confirmada em M1/M3; o modo **CONFIRMAÇÃO** exige retomada real em todos os gráficos.
 - O risco de reversão é avaliado por evidências independentes: sequência de preços, MACD + RSI, pavio contrário, perda da EMA 9, divergência e fluxo comprador/vendedor real.
 - Volume taker ausente em Coinbase/Kraken não é mais interpretado como pressão vendedora de 100%; Forex continua sem volume centralizado inventado.
 - Sinais são invalidados se o preço virar contra a entrada ou tocar o stop técnico antes da execução manual. VEX/BullEx não liberam entradas nos últimos segundos do vencimento visível.
 - Alertas de voz de pré-sinal respeitam a opção desativada; por padrão, somente sinais confirmados são anunciados.
-- Schema 8 e estratégias `reversal-v9` separam modelos antigos. Depois de instalar, clique em **TREINAR IA** para cada ativo/timeframe/expiração usado.
+- Na versão 1.2.3, schema 8 e estratégias `reversal-v9` separavam modelos antigos; a versão atual evolui para schema 9 e `pullback-v10` e exige novo treinamento por contexto.
 
 ## Recursos preservados da versão 1.2.2
 
@@ -47,7 +58,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
 - A BullEx fica desabilitada por padrão e exige aceite explícito do [alerta da CVM sobre Digital Smart LLC/BULLEX](https://www.gov.br/cvm/pt-br/assuntos/noticias/2025/cvm-alerta-para-atuacao-irregular-da-digital-smart-llc-bullex-e-seu-responsavel). O aplicativo não promove depósitos.
 - Estratégias e features agora são separadas: cripto usa volume real/taker da Binance e VWAP somente com volume válido; Forex ignora volume centralizado inexistente e usa sessões de Tóquio, Londres e Nova York com timezone IANA/DST.
-- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 8. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
+- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 9. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
 - M1/expiração M1 exige candle fechado para confirmação, recusa fonte atrasada e aplica severidade progressiva a transição, falso pullback, exaustão e espaço até S/R conforme modo/perfil.
 - Profit factor passa a ser financeiro por payout e valor de entrada. O histórico separa plataforma, ativo, estratégia e resultado observado manualmente de resultado inferido pelo gráfico.
 - O instalador voltou a ser Inno Setup nativo e o build valida `tkinter.filedialog`, `messagebox` e `ttk` antes do PyInstaller, corrigindo a falha do antigo `setup_entry.py`.
@@ -167,6 +178,17 @@ Após instalar uma versão com novo motor de análise, selecione o ativo, timefr
 
 Uma leitura rápida em formação não é apresentada como sinal já confirmado. Nenhum perfil promete taxa fixa de acerto.
 
+## Histórico operacional e exportação Excel
+
+1. Configure mercado, ativo, timeframe, expiração, sensibilidade, modo, payout e valor da entrada.
+2. Clique em **INICIAR ANÁLISE**; cada leitura, sinal de espera, mudança de contexto e sinal confirmado passa a ser gravado localmente.
+3. Depois de executar uma operação na plataforma, clique em **REGISTRAR RESULTADO OBSERVADO** e informe `WIN`, `LOSS` ou `DRAW`, payout e entrada reais.
+4. Abra **HISTÓRICO COMPLETO / EXCEL** para filtrar o ativo ou tipo de evento e selecionar qualquer decisão.
+5. Confira os scores e motivos de compra/venda, a tendência principal, a direção temporária do pullback, os indicadores, o risco de reversão e o contexto da plataforma.
+6. Clique em **EXPORTAR EXCEL (.XLSX)** e escolha onde salvar. A planilha pode ser compartilhada para investigar falsos sinais sem incluir chaves, credenciais ou saldo.
+
+Somente resultados registrados pelo usuário representam o que realmente ocorreu na plataforma. Resultados inferidos são identificados separadamente e nunca entram na taxa de acerto observada.
+
 ## Executar pelo código-fonte
 
 ```powershell
@@ -196,7 +218,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.3 amplia a suíte automatizada com regressões de pullback incompleto, reversões de compra/venda, fluxo taker ausente, sinais invalidados, proteção no vencimento, pré-sinal por voz e cobertura baseada em qualidade. Os testes anteriores de matemática, ausência de look-ahead, janela de candles, stop/alvo, S/R, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativos.
+A versão 1.2.4 amplia a suíte com casos espelhados de pullback invertido, cruzamento temporário da EMA 9, retomadas, CHOCH real, histórico completo, alterações de configuração, resultados observados/inferidos, Excel de sete abas, indicadores e proteção contra fórmulas externas. As regressões anteriores de reversão, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativas.
 
 ## Dados locais
 
@@ -204,7 +226,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 
 - `settings.json` — preferências sem segredos;
 - `secrets.dat` — chaves protegidas por DPAPI;
-- `prime_ai_trader.db` — sinais e resultados;
+- `prime_ai_trader.db` — sinais, resultados, decisões completas e histórico de configurações;
 - `models\` — modelos e relatórios separados por contexto;
 - `logs\app.log` — logs rotativos.
 - `vex-browser\` — perfil opcional e separado do navegador usado para abrir a VEX.

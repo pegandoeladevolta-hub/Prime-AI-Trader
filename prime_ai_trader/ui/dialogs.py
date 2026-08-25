@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import threading
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from datetime import datetime
+from tkinter import filedialog, messagebox, ttk
 
 from ..backtest.engine import BacktestResult
 from ..core.models import HealthStatus
@@ -243,6 +246,225 @@ class PerformanceDialog:
             rate = (group.get("wins") or 0) / directional if directional else 0
             tree.insert("", "end", values=(group.get("platform", "MANUAL"), group["symbol"], group["timeframe"], group.get("strategy") or group["mode"], group["total"], f"{rate * 100:.2f}%" if directional else "—"))
         ttk.Button(outer, text="FECHAR", command=self.window.destroy).pack(anchor="e", pady=(10, 0))
+
+
+class DecisionHistoryDialog:
+    """Exibe sinais, esperas, configuração e a justificativa completa da IA."""
+
+    def __init__(self, parent, repository, rows: list[dict]) -> None:
+        self.parent = parent
+        self.repository = repository
+        self.rows = rows
+        self.window = centered_window(parent, "Histórico operacional completo", "1320x780")
+        self.window.minsize(1030, 650)
+        outer = ttk.Frame(self.window, style="Panel.TFrame", padding=16)
+        outer.pack(fill="both", expand=True, padx=10, pady=10)
+        ttk.Label(outer, text="HISTÓRICO OPERACIONAL E DECISÕES DA IA",
+                  style="Panel.TLabel", font=("Segoe UI Semibold", 15)).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="Registra análises, espera, configuração, compra/venda, pullbacks, "
+                 "payout, entradas, indicadores e resultados observados ou inferidos.",
+            style="Muted.TLabel", wraplength=1170,
+        ).pack(anchor="w", pady=(4, 10))
+
+        filters = ttk.Frame(outer, style="Panel.TFrame")
+        filters.pack(fill="x", pady=(0, 8))
+        ttk.Label(filters, text="Ativo", style="Panel.TLabel").pack(side="left")
+        self.symbol_var = tk.StringVar(value="TODOS")
+        self.symbol_combo = ttk.Combobox(filters, textvariable=self.symbol_var,
+                                         state="readonly", width=17)
+        self.symbol_combo.pack(side="left", padx=(6, 14))
+        self.symbol_combo.bind("<<ComboboxSelected>>", lambda _: self._populate())
+        ttk.Label(filters, text="Evento", style="Panel.TLabel").pack(side="left")
+        self.event_var = tk.StringVar(value="TODOS")
+        self.event_combo = ttk.Combobox(filters, textvariable=self.event_var,
+                                        state="readonly", width=26)
+        self.event_combo.pack(side="left", padx=(6, 14))
+        self.event_combo.bind("<<ComboboxSelected>>", lambda _: self._populate())
+        self.counter_var = tk.StringVar(value="")
+        ttk.Label(filters, textvariable=self.counter_var, style="Muted.TLabel").pack(side="right")
+
+        frame = ttk.Frame(outer, style="Panel.TFrame")
+        frame.pack(fill="both", expand=True)
+        columns = ("time", "event", "asset", "timeframe", "profile", "mode", "direction",
+                   "result", "score", "pullback", "payout", "stake")
+        self.tree = ttk.Treeview(frame, columns=columns, show="headings", height=13)
+        definitions = (
+            ("time", "HORÁRIO", 150), ("event", "EVENTO", 160), ("asset", "ATIVO", 104),
+            ("timeframe", "TF/EXP.", 75), ("profile", "PERFIL", 94), ("mode", "MODO", 108),
+            ("direction", "DIREÇÃO", 78), ("result", "RESULTADO", 88),
+            ("score", "SCORE", 60), ("pullback", "PULLBACK / FASE", 250),
+            ("payout", "PAYOUT", 70), ("stake", "ENTRADA", 80),
+        )
+        for key, title, width in definitions:
+            self.tree.heading(key, text=title)
+            self.tree.column(key, width=width, minwidth=55, anchor="center",
+                             stretch=key in {"event", "pullback"})
+        vertical = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        horizontal = ttk.Scrollbar(frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        self.tree.bind("<<TreeviewSelect>>", self._show_detail)
+
+        ttk.Label(outer, text="DETALHES DA DECISÃO SELECIONADA", style="Panel.TLabel",
+                  font=("Segoe UI Semibold", 10)).pack(anchor="w", pady=(12, 4))
+        details = ttk.Frame(outer, style="Panel.TFrame")
+        details.pack(fill="both", expand=True)
+        self.detail = tk.Text(details, height=10, bg=COLORS["card_alt"], fg=COLORS["text"],
+                              insertbackground=COLORS["text"], relief="flat", wrap="word",
+                              font=("Consolas", 9), padx=10, pady=8)
+        detail_scroll = ttk.Scrollbar(details, orient="vertical", command=self.detail.yview)
+        self.detail.configure(yscrollcommand=detail_scroll.set)
+        self.detail.pack(side="left", fill="both", expand=True)
+        detail_scroll.pack(side="right", fill="y")
+
+        actions = ttk.Frame(outer, style="Panel.TFrame")
+        actions.pack(fill="x", pady=(10, 0))
+        self.refresh_button = ttk.Button(actions, text="ATUALIZAR HISTÓRICO", command=self.refresh)
+        self.refresh_button.pack(side="left")
+        self.export_button = ttk.Button(actions, text="EXPORTAR EXCEL (.XLSX)",
+                                        style="Accent.TButton", command=self.export)
+        self.export_button.pack(side="left", padx=8)
+        ttk.Button(actions, text="FECHAR", command=self.window.destroy).pack(side="right")
+        self._update_filters()
+        self._populate()
+
+    def _update_filters(self) -> None:
+        assets = sorted({str(row.get("symbol")) for row in self.rows if row.get("symbol")})
+        events = sorted({str(row.get("event_type")) for row in self.rows if row.get("event_type")})
+        self.symbol_combo.configure(values=["TODOS", *assets])
+        self.event_combo.configure(values=["TODOS", *events])
+        if self.symbol_var.get() not in {"TODOS", *assets}:
+            self.symbol_var.set("TODOS")
+        if self.event_var.get() not in {"TODOS", *events}:
+            self.event_var.set("TODOS")
+
+    def _populate(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        visible = [row for row in self.rows
+                   if (self.symbol_var.get() == "TODOS" or row.get("symbol") == self.symbol_var.get())
+                   and (self.event_var.get() == "TODOS" or row.get("event_type") == self.event_var.get())]
+        for row in visible:
+            try:
+                when = datetime.fromisoformat(str(row.get("created_at", "")).replace("Z", "+00:00"))
+                stamp = when.astimezone().strftime("%d/%m %H:%M:%S") if when.tzinfo else when.strftime("%d/%m %H:%M:%S")
+            except (TypeError, ValueError):
+                stamp = str(row.get("created_at") or "—")[:19]
+            self.tree.insert("", "end", iid=str(row["id"]), values=(
+                stamp, row.get("event_type"), row.get("symbol"),
+                f"{row.get('timeframe', '')}/{row.get('horizon_minutes', '')}m",
+                row.get("sensitivity") or "—", row.get("mode") or "—",
+                row.get("direction") or "—", row.get("result") or "—",
+                row.get("score") or 0, row.get("pullback_state") or row.get("reason_summary") or "—",
+                f"{row.get('payout_percent') or 0}%", f"R$ {float(row.get('stake_amount') or 0):.2f}",
+            ))
+        self.counter_var.set(f"{len(visible)} eventos exibidos • {len(self.rows)} carregados")
+        if visible:
+            self.tree.selection_set(str(visible[0]["id"]))
+            self._show_detail()
+        else:
+            self._set_detail("Nenhuma decisão disponível para os filtros selecionados.")
+
+    def _set_detail(self, text: str) -> None:
+        self.detail.configure(state="normal")
+        self.detail.delete("1.0", "end")
+        self.detail.insert("end", text)
+        self.detail.configure(state="disabled")
+
+    def _show_detail(self, _event=None) -> None:
+        selected = self.tree.selection()
+        if not selected:
+            return
+        row = next((item for item in self.rows if int(item["id"]) == int(selected[0])), None)
+        if row is None:
+            return
+        try:
+            payload = json.loads(row.get("snapshot_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        signal = payload.get("signal", {})
+        settings = payload.get("settings", {})
+        summary = [
+            f"EVENTO: {row.get('event_type')}   ATIVO: {row.get('symbol')}   RESULTADO: {row.get('result') or '—'}",
+            f"CONFIGURAÇÃO: {row.get('timeframe')} / expiração {row.get('horizon_minutes')} min / "
+            f"{row.get('sensitivity')} / {row.get('mode')} / payout {row.get('payout_percent')}% / "
+            f"entrada R$ {float(row.get('stake_amount') or 0):.2f}",
+            f"DIREÇÃO FINAL: {row.get('direction')}   SCORE COMPRA: {signal.get('buy_score', '—')}   "
+            f"SCORE VENDA: {signal.get('sell_score', '—')}   TÉCNICO: {signal.get('technical_score', '—')}",
+            f"PULLBACK: tendência {signal.get('pullback_primary_direction') or '—'} / "
+            f"correção {signal.get('pullback_correction_direction') or '—'} / "
+            f"fase {signal.get('pullback_phase') or '—'}",
+            f"MOTIVOS COMPRA: {' | '.join(signal.get('buy_reasons', [])) or '—'}",
+            f"MOTIVOS VENDA: {' | '.join(signal.get('sell_reasons', [])) or '—'}",
+            f"AGUARDAR/BLOQUEIOS: {' | '.join((signal.get('all_waiting_reasons') or signal.get('waiting_reasons', [])) + signal.get('blockers', [])) or '—'}",
+            f"RISCO REVERSÃO: {' | '.join(signal.get('reversal_reasons', [])) or '—'}",
+            f"CONFIGURAÇÕES COMPLETAS: {json.dumps(settings, ensure_ascii=False, sort_keys=True)}",
+            "\nREGISTRO TÉCNICO COMPLETO:\n" + json.dumps(payload, ensure_ascii=False, indent=2),
+        ]
+        self._set_detail("\n".join(summary))
+
+    def refresh(self) -> None:
+        self.refresh_button.configure(state="disabled")
+
+        def worker() -> None:
+            try:
+                rows = self.repository.decision_history(1000)
+                self.parent._post_ui(self._refresh_ready, rows, None)
+            except Exception as exc:
+                self.parent._post_ui(self._refresh_ready, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True, name="prime-history-refresh").start()
+
+    def _refresh_ready(self, rows: list[dict] | None, error: str | None) -> None:
+        if not self.window.winfo_exists():
+            return
+        self.refresh_button.configure(state="normal")
+        if error:
+            messagebox.showerror("Histórico", error, parent=self.window)
+            return
+        self.rows = rows or []
+        self._update_filters()
+        self._populate()
+
+    def export(self) -> None:
+        destination = filedialog.asksaveasfilename(
+            parent=self.window, title="Exportar histórico operacional",
+            defaultextension=".xlsx", filetypes=[("Planilha Excel", "*.xlsx")],
+            initialfile=f"PrimeAITrader-Historico-{datetime.now():%Y-%m-%d_%H-%M}.xlsx",
+        )
+        if not destination:
+            return
+        self.export_button.configure(state="disabled", text="EXPORTANDO EXCEL…")
+
+        def worker() -> None:
+            try:
+                from ..history.export import export_operation_history
+                output = export_operation_history(self.repository, destination)
+                self.parent._post_ui(self._export_ready, str(output), None)
+            except Exception as exc:
+                self.parent._post_ui(self._export_ready, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True, name="prime-history-excel").start()
+
+    def _export_ready(self, output: str | None, error: str | None) -> None:
+        if not self.window.winfo_exists():
+            return
+        self.export_button.configure(state="normal", text="EXPORTAR EXCEL (.XLSX)")
+        if error:
+            messagebox.showerror("Exportar Excel", error, parent=self.window)
+            return
+        self.parent.status_var.set("Histórico operacional exportado com sucesso")
+        messagebox.showinfo(
+            "Excel exportado",
+            "Arquivo Excel criado com as abas Resumo, Operações, Decisões da IA, "
+            f"Indicadores e features, Configurações, Velas e pullbacks e Notícias e eventos.\n\n{output}",
+            parent=self.window,
+        )
 
 
 class HealthDialog:

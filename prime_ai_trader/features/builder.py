@@ -30,9 +30,10 @@ FEATURE_COLUMNS = [
     "candlestick_exhaustion", "engulfing_code", "pinbar_code", "three_candle_code",
     "micro_trend_atr", "momentum_turn_score", "ema9_distance_atr",
     "taker_buy_valid", "orderflow_imbalance",
+    "primary_trend_code", "pullback_correction_code", "pullback_resumption_score",
 ]
 
-FEATURE_SCHEMA_VERSION = 8
+FEATURE_SCHEMA_VERSION = 9
 
 
 def _session_mask(index: pd.DatetimeIndex, timezone_name: str,
@@ -90,13 +91,28 @@ def build_features(frame: pd.DataFrame, market: str | None = None,
         + output["rsi_slope"].div(18)
         + output["stoch_spread"].div(60)
     ).clip(-2.0, 2.0)
-    bullish_alignment = data["ema_9"] >= data["ema_21"]
+    bullish_alignment = data["ema_21"] >= data["ema_50"]
+    primary_direction = np.where(data["ema_21"] > data["ema_50"], 1.0,
+                                 np.where(data["ema_21"] < data["ema_50"], -1.0, 0.0))
     output["pullback_depth_atr"] = np.where(
         bullish_alignment,
-        (data["ema_9"] - data["low"]) / atr_safe,
-        (data["high"] - data["ema_9"]) / atr_safe,
+        (data["ema_21"] - data["low"]) / atr_safe,
+        (data["high"] - data["ema_21"]) / atr_safe,
     )
     output["impulse_strength_atr"] = (data["close"] - data["open"]) / atr_safe
+    output["primary_trend_code"] = primary_direction
+    opposite_body = primary_direction * output["impulse_strength_atr"] <= -0.06
+    opposite_fast_average = primary_direction * output["ema9_distance_atr"] <= -0.08
+    output["pullback_correction_code"] = np.where(
+        opposite_body & opposite_fast_average, -primary_direction, 0.0,
+    )
+    output["pullback_resumption_score"] = (
+        primary_direction * (
+            output["impulse_strength_atr"]
+            + output["macd_acceleration"].div(atr_safe).mul(3)
+            + output["rsi_slope"].div(20)
+        )
+    ).clip(-2.0, 2.0)
     range_low = data["low"].shift(1).rolling(20, min_periods=10).min()
     range_high = data["high"].shift(1).rolling(20, min_periods=10).max()
     output["swing_position_20"] = (data["close"] - range_low) / (range_high - range_low).replace(0, np.nan)
