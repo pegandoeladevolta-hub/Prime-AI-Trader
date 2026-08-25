@@ -13,8 +13,8 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 5. **Qualidade da entrada** — rejeição de preço excessivamente distante da EMA 21, VWAP, amplitude da vela e espaço até a zona contrária.
 6. **Liquidez** — volume relativo e impulso de volume para criptomoedas; sessões de Londres e Nova York como contexto para Forex.
 7. **Confluência e sensibilidade** — os perfis rápido, equilibrado e conservador exigem quantidades progressivas de confirmações técnicas.
-8. **Probabilidade e payout** — a decisão considera o ponto de equilíbrio `1 / (1 + payout)`, a probabilidade estimada e a expectativa matemática; payout de 80% exige mais de 55,56% de acerto para expectativa positiva.
-9. **Confiança do modelo** — regras e modelo são combinados sem apagar uma confluência técnica legítima quando o histórico ainda está em formação.
+8. **Payout e equilíbrio** — o ponto de equilíbrio `1 / (1 + payout)` qualifica resultados observados; a saída bruta do classificador não é apresentada como probabilidade calibrada nem como expectativa financeira.
+9. **Score do modelo** — regras e modelo são combinados. Em `RÁPIDO + CONFIRMAÇÃO`, divergência isolada do modelo reduz o score e gera aviso, sem apagar uma confluência técnica forte; o veto permanece nos perfis seletivos e no modo quantitativo.
 10. **Regime estrutural** — tendência, transição, lateralização, compressão e exaustão recebem tratamentos diferentes; o mesmo indicador não representa várias confirmações independentes.
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
@@ -56,6 +56,8 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 | RÁPIDO | Direção ágil com leitura antecipada. | 57 | 2 | 1 | 10 |
 
 Os perfis também possuem faixas próprias de volatilidade, distância máxima da EMA 21, peso da IA, vantagem sobre a direção oposta e margem acima do ponto de equilíbrio do payout. O perfil rápido pode anunciar uma leitura durante a vela atual; essa leitura é apresentada honestamente como **em formação**, e somente o fechamento da vela produz um sinal confirmado.
+
+No M1 rápido confirmado, um sinal recém-confirmado permanece visível por 8 segundos no começo da vela seguinte. Essa janela não reaproveita padrão em formação e não prolonga um sinal antigo; serve apenas para impedir que o primeiro tick novo apague a confirmação antes que o usuário consiga vê-la.
 
 Notícias e eventos permanecem informativos quando o bloqueio automático está desligado. Nessa situação, não devem interromper a análise nem gerar alertas de voz repetidos.
 

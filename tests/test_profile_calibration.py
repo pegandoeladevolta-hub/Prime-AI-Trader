@@ -107,7 +107,7 @@ class ProfileCalibrationTests(unittest.TestCase):
             model_context={"symbol": "BTC/USDT"}, payout_percent=80,
         )
         self.assertEqual(signal.direction, Direction.WAIT)
-        self.assertTrue(any("mínimo 55.8%" in reason for reason in signal.waiting_reasons))
+        self.assertTrue(any("mínimo técnico 55.8/100" in reason for reason in signal.waiting_reasons))
 
     def test_conservative_requires_higher_probability_than_fast(self) -> None:
         frame = candles_frame(synthetic_candles(220, seed=3))
@@ -126,7 +126,7 @@ class ProfileCalibrationTests(unittest.TestCase):
                                        model_context={"symbol": "BTC/USDT"}, payout_percent=80)
         self.assertEqual(fast.direction, Direction.BUY)
         self.assertEqual(conservative.direction, Direction.WAIT)
-        self.assertTrue(any("mínimo 70.0%" in reason for reason in conservative.waiting_reasons))
+        self.assertTrue(any("mínimo técnico 70.0/100" in reason for reason in conservative.waiting_reasons))
 
     def test_non_blocking_risk_warning_never_speaks(self) -> None:
         signal = self._signal(warnings=["Notícia de alto risco: FED"])

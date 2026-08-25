@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 1.1.0
+# Relatório de validação — PRIME AI TRADER 1.1.1
 
 Data: 24/08/2026
 
@@ -14,14 +14,14 @@ Data: 24/08/2026
 | Alinhamento | Divergência de ativo, mercado, preço público e ativos OTC recebe motivo explícito antes de qualquer sinal. |
 | Preço VEX | Somente o preço realmente visível atualiza a vela corrente; histórico público, volume real e fechamento confirmado são preservados. |
 | Cronômetro | Usa relógio real visível na VEX ou criação original do sinal; atualizar gráfico/notícias não reinicia o vencimento. |
-| IA | Contexto completo por mercado/ativo/timeframe/expiração/estratégia/sensibilidade/modo/schema e seleção fora da amostra. |
+| IA | Contexto completo por mercado/ativo/timeframe/expiração/estratégia/sensibilidade/modo/schema e seleção fora da amostra; saída bruta não é expectativa financeira calibrada. |
 | Schema profissional | Features causais estruturais, específicas por mercado e padrões OHLC; schema 7 exige novo treinamento. |
 | Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
 | Sinais | BOS, CHOCH, pullback, divergências, rompimento/reteste, liquidez e biblioteca de padrões de uma, duas e três velas. |
 | Padrões de candles | Doji, spinning top, pin bars, marubozu, engolfos, perfuração/nuvem, harami, inside/outside, tweezers, estrelas e sequências de três velas; somente candle fechado confirma. |
 | Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
 | Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
-| Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; momentum, IA e volatilidade independentes. |
+| Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; no rápido confirmado, divergência isolada da IA é consultiva e o fechamento confirmado permanece visível por 8 segundos. |
 | Áudio | Avisos não bloqueantes ficam silenciosos; leitura rápida em formação e sinais confirmados têm prioridade; bloqueios reais têm cooldown de 300 segundos. |
 | Backtest | Walk-forward, filtros de extensão/eficiência/compressão/reversão/padrões, payout, equilíbrio, expectativa e Wilson. |
 | Estatísticas | WIN/LOSS/DRAW, payout, entrada, P&L, profit factor financeiro, equilíbrio, expectativa, Wilson e origem manual/inferida. |
@@ -38,7 +38,7 @@ Data: 24/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **265 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **272 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -54,6 +54,6 @@ O motor foi tornado mais seletivo para tentar reduzir sinais frágeis. Isso pode
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.1.0`.
+Identificador do candidato validado: `1.1.1`.
 
-O candidato Windows deve repetir obrigatoriamente os 266 testes (265 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 273 testes (272 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.

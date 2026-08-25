@@ -22,6 +22,7 @@ from ..forex.public import merge_forex_quote
 from ..platform.bullex import BULLEX_CVM_ALERT_URL, BullexBrowserBridge
 from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market, merge_vex_quote
 from ..priceaction.professional import live_refresh_interval
+from ..signals.timing import preserve_recent_confirmed_signal
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
 from .dialogs import (
@@ -162,7 +163,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.1.0", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.1.1", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -434,7 +435,7 @@ class PrimeAITraderApp(tk.Tk):
         self.signal_direction.pack(side="left")
         confidence = ttk.Frame(hero, style="Inset.TFrame", padding=(8, 7))
         confidence.pack(fill="x", pady=(0, 8))
-        self.signal_score = ttk.Label(confidence, text="Confiança: — / 100", style="Inset.TLabel", font=("Segoe UI Semibold", 10), wraplength=264)
+        self.signal_score = ttk.Label(confidence, text="Score combinado: — / 100", style="Inset.TLabel", font=("Segoe UI Semibold", 10), wraplength=264)
         self.signal_score.pack(anchor="w")
         self.score_bar = ttk.Progressbar(confidence, style="Score.Horizontal.TProgressbar", maximum=100, variable=self.score_var)
         self.score_bar.pack(fill="x", pady=(7, 1))
@@ -883,6 +884,16 @@ class PrimeAITraderApp(tk.Tk):
     def _process_live(self, candle, token: int, context: tuple[str, str, str]) -> None:
         if self._stop_event.is_set() or self._task_running or token != self._analysis_token:
             return
+        current_snapshot = self.controller.snapshot
+        if current_snapshot and preserve_recent_confirmed_signal(
+            current_snapshot.signal,
+            candle_closed=candle.closed,
+            timeframe=current_snapshot.timeframe,
+            horizon_minutes=self.controller.settings.horizon_minutes,
+            sensitivity=self.controller.settings.sensitivity,
+            mode=self.controller.settings.mode,
+        ):
+            return
         def ready(snapshot) -> None:
             current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
             if snapshot and token == self._analysis_token and context == current:
@@ -1258,15 +1269,15 @@ class PrimeAITraderApp(tk.Tk):
         self.signal_state.configure(text=signal.state.value)
         self.signal_direction.configure(text=signal.direction.value, foreground=color)
         self.signal_orb.itemconfigure("orb", fill=color)
-        score_detail = f"Confiança: {signal.score}/100 • técnica {signal.technical_score}"
+        score_detail = f"Score combinado: {signal.score}/100 • técnico {signal.technical_score}"
         if signal.model_score is not None:
-            score_detail += f" • IA {signal.model_score}%"
+            score_detail += f" • IA {signal.model_score}/100"
         self.signal_score.configure(text=score_detail)
         self.score_var.set(signal.score)
         ordered = sorted(signal.probabilities.items(), key=lambda item: item[1], reverse=True)
         if ordered and signal.model_score is not None:
-            self.probability_high_label.configure(text=f"Cenário dominante: {ordered[0][0]} {ordered[0][1] * 100:.1f}%")
-            self.probability_low_label.configure(text=f"Cenário secundário: {ordered[-1][0]} {ordered[-1][1] * 100:.1f}%")
+            self.probability_high_label.configure(text=f"Distribuição IA: {ordered[0][0]} {ordered[0][1] * 100:.1f}%")
+            self.probability_low_label.configure(text=f"Menor classe IA: {ordered[-1][0]} {ordered[-1][1] * 100:.1f}%")
         elif ordered:
             self.probability_high_label.configure(text=f"Força técnica dominante: {ordered[0][0]} • {signal.technical_score}/100")
             self.probability_low_label.configure(text="IA probabilística: treine para este ativo e horizonte")

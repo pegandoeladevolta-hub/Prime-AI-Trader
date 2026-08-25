@@ -53,6 +53,19 @@ def sensitivity_profile(name: str) -> SensitivityProfile:
     return SENSITIVITY_PROFILES.get(str(name or "").upper(), SENSITIVITY_PROFILES["EQUILIBRADO"])
 
 
+def model_disagreement_is_blocking(mode: str, sensitivity: str) -> bool:
+    """Define quando a saída não calibrada do modelo pode vetar a operação.
+
+    No perfil RÁPIDO + CONFIRMAÇÃO, o modelo participa da pontuação, mas não
+    anula sozinho uma leitura técnica forte. O veto probabilístico permanece no
+    modo QUANTITATIVO e nos perfis de confirmação mais seletivos.
+    """
+    return not (
+        str(mode).upper() == "CONFIRMAÇÃO"
+        and str(sensitivity).upper() == "RÁPIDO"
+    )
+
+
 THRESHOLDS = {name: profile.score for name, profile in SENSITIVITY_PROFILES.items()}
 PROBABILITY_FLOORS = {name: profile.probability_floor for name, profile in SENSITIVITY_PROFILES.items()}
 PROBABILITY_EDGES = {name: profile.probability_edge for name, profile in SENSITIVITY_PROFILES.items()}
@@ -443,7 +456,11 @@ class SignalEngine:
         chosen = probabilities.get(direction.value, 0.0)
         opposite = probabilities.get(Direction.SELL.value if direction == Direction.BUY else Direction.BUY.value, 0.0)
         probability_floor = max(profile.probability_floor, break_even + profile.payout_margin)
-        expected_value = chosen * payout / 100 - (1 - chosen)
+        # A saída bruta do classificador não é uma probabilidade calibrada pelo
+        # histórico real da plataforma. A expectativa financeira observada é
+        # calculada no relatório de desempenho, depois de WIN/LOSS manual.
+        expected_value = None
+        model_advisories: list[str] = []
 
         waiting: list[str] = []
         if score < threshold:
@@ -555,13 +572,23 @@ class SignalEngine:
             if reason not in waiting:
                 waiting.append(reason)
         if model_ready:
+            model_reasons: list[str] = []
             if chosen < probability_floor:
-                waiting.append(
-                    f"IA indica {chosen * 100:.1f}%; mínimo {probability_floor * 100:.1f}% "
-                    f"para payout de {payout}%"
+                model_reasons.append(
+                    f"Score IA {chosen * 100:.1f}/100 abaixo do mínimo técnico "
+                    f"{probability_floor * 100:.1f}/100 para payout de {payout}%"
                 )
             if chosen - opposite < profile.probability_edge:
-                waiting.append("A previsão ainda não tem vantagem suficiente sobre o lado oposto")
+                model_reasons.append("Modelo ainda não separa suficientemente os dois lados")
+            if model_reasons and model_disagreement_is_blocking(mode, sensitivity_key):
+                # Motivos que vetam a operação precisam aparecer antes das
+                # penalidades secundárias e não podem sumir no corte da UI.
+                waiting[0:0] = model_reasons
+            elif model_reasons:
+                model_advisories.append(
+                    "Modelo diverge da leitura técnica; no perfil rápido ele reduz o score, "
+                    "mas não veta sozinho uma confirmação forte"
+                )
 
         kwargs = {
             "confluences": confluences[:8],
@@ -588,6 +615,7 @@ class SignalEngine:
                 reason for reason in waiting
                 if "Padrão" in reason or "indecisão" in reason or "exaustão" in reason
             ), ""),
+            "warnings": model_advisories,
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,

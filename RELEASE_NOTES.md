@@ -1,5 +1,18 @@
 # Release notes
 
+## 1.1.1 — 24/08/2026
+
+### Correção do excesso de `AGUARDAR` no M1 rápido
+
+- No perfil `RÁPIDO + CONFIRMAÇÃO`, divergência isolada do modelo passa a ser consultiva: ainda reduz o score combinado e gera aviso, mas não anula sozinha uma leitura técnica forte.
+- O veto do modelo permanece nos perfis equilibrado/conservador e no modo quantitativo.
+- Um sinal confirmado no fechamento fica visível por uma janela de 8 segundos e não é apagado pelo primeiro tick da vela seguinte.
+- Vela aberta continua proibida de confirmar sinal; padrão contrário, doji forte, exaustão, fonte atrasada, estrutura e momentum continuam ativos.
+- Motivos de veto do modelo recebem prioridade visual; a interface diferencia `Score combinado`, `score técnico` e distribuição não calibrada da IA.
+- Expectativa financeira deixou de ser inferida da saída bruta não calibrada do classificador; o indicador financeiro continua baseado nos resultados observados.
+- Estratégias passam a `crypto-structure-volume-candles-v5` e `forex-session-priceaction-candles-v5`.
+- Sete testes de regressão cobrem a janela M1, expiração da janela, reprocessamento de candle fechado e prioridade consultiva/bloqueante do modelo.
+
 ## 1.1.0 — 24/08/2026
 
 ### Biblioteca causal de padrões de candles

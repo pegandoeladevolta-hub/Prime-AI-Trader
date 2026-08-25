@@ -1,16 +1,23 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.1.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.1.1 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.1.0
+## Destaques da versão 1.1.1
+
+- Correção dirigida por evidência visual do M1: no perfil **RÁPIDO + CONFIRMAÇÃO**, o modelo continua reduzindo o score quando diverge, mas não veta sozinho uma leitura técnica forte.
+- O primeiro tick da vela nova não apaga imediatamente um sinal acabado de confirmar; a interface preserva uma janela operacional de 8 segundos, sem confirmar vela aberta.
+- Motivos realmente bloqueantes agora aparecem primeiro. `Confiança` foi renomeada para **Score combinado**, e a saída não calibrada da IA deixou de produzir expectativa financeira fictícia.
+- Estratégia `candles-v5` separa o comportamento corrigido dos modelos anteriores; treine novamente cada contexto depois de instalar.
+
+## Biblioteca introduzida na versão 1.1.0
 
 - Biblioteca causal de padrões de candles para todos os timeframes: doji, spinning top, martelo/pin bar, estrela cadente, marubozu, engolfos, linha de perfuração, nuvem negra, harami, inside/outside bar, tweezers, estrelas da manhã/tarde, três soldados e três corvos.
 - Uma vela aberta pode mostrar **padrão em formação**, mas nunca confirma o padrão nem o sinal. Somente o fechamento original do feed pode produzir confirmação.
 - No modo confirmação com gráfico/expiração 1m, padrão contrário, doji/indecisão, exaustão após sequência e pullback sem fechamento direcional passam a produzir `AGUARDAR`.
 - Os padrões não criam uma operação isoladamente: eles qualificam tendência, momentum, estrutura, volume válido e espaço até suporte/resistência.
-- Schema 7 adiciona sete features OHLC causais e separa os novos modelos pela estratégia `candles-v4`; treine novamente cada contexto após instalar.
+- Schema 7 adiciona sete features OHLC causais; a estratégia atual é `candles-v5`.
 - Filtros de pullback, reversão, pavio e exaustão foram reforçados a partir de uma amostra operacional real, sem publicar dados privados da conta.
 
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
@@ -165,7 +172,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.1.0 possui 266 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.1.1 possui 273 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, janela do sinal M1, prioridade consultiva da IA rápida, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 
