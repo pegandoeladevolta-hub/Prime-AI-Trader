@@ -7,17 +7,21 @@ from ..core.models import Direction, Signal, SignalState
 
 def confirmed_entry_window_seconds(timeframe: str, horizon_minutes: int,
                                    sensitivity: str, mode: str) -> float:
-    """Janela curta para o usuário enxergar e executar manualmente um sinal M1.
+    """Janela curta para o usuário enxergar e executar manualmente um sinal.
 
     A análise continua sendo feita somente depois do fechamento real da vela.
     A janela apenas evita que o primeiro tick da vela nova apague imediatamente
-    um sinal que acabou de ser confirmado.
+    um sinal que acabou de ser confirmado. Vale para todos os modos/perfis.
     """
-    if (str(timeframe).lower() == "1m" and int(horizon_minutes) <= 1
-            and str(sensitivity).upper() == "RÁPIDO"
-            and str(mode).upper() == "CONFIRMAÇÃO"):
-        return 8.0
-    return 0.0
+    try:
+        horizon_seconds = max(1, int(horizon_minutes)) * 60
+    except (TypeError, ValueError):
+        return 0.0
+    timeframe_key = str(timeframe or "").lower()
+    if timeframe_key not in {"1m", "3m", "5m", "15m", "30m", "1h", "4h"}:
+        return 0.0
+    base = 8.0 if timeframe_key == "1m" else 10.0 if timeframe_key in {"3m", "5m"} else 12.0
+    return min(base, horizon_seconds * 0.15)
 
 
 def preserve_recent_confirmed_signal(signal: Signal | None, *, candle_closed: bool,

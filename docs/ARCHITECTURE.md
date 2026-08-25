@@ -36,9 +36,9 @@ Interface Tkinter
 4. A biblioteca de candles reconhece padrões na vela atual e nas duas anteriores; vela aberta permanece em formação.
 5. O Fibonacci seleciona um swing relevante.
 6. O modelo local fornece probabilidades das três classes, se estiver treinado.
-7. O motor combina score do modelo com regras auditáveis, setup, payout, padrões confirmados e threshold da sensibilidade. Em `RÁPIDO + CONFIRMAÇÃO`, divergência isolada do modelo é consultiva; nos perfis seletivos e no quantitativo, pode vetar.
+7. O motor combina score do modelo com regras auditáveis, setup, payout, padrões confirmados e uma `DecisionPolicy` própria para cada um dos nove cruzamentos de modo/sensibilidade. O modelo é consultivo em Price Action/Confirmação e obrigatório no Quantitativo.
 8. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
-9. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket. No M1 rápido, `signals/timing.py` impede que o primeiro tick aberto apague a confirmação durante a janela operacional de 8 segundos.
+9. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket. `signals/timing.py` impede que o primeiro tick aberto apague a confirmação durante uma janela de 8 a 12 segundos em todos os modos/timeframes.
 10. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
 11. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
 

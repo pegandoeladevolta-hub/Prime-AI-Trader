@@ -142,7 +142,7 @@ class CandlestickLibraryTests(unittest.TestCase):
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
         context = {
             "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v5",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
             "sensitivity": "RÁPIDO", "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
         }
         with tempfile.TemporaryDirectory() as temporary:
@@ -171,7 +171,7 @@ class CandlestickLibraryTests(unittest.TestCase):
 
         context = {
             "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v5",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
             "sensitivity": "RÁPIDO", "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
         }
         with tempfile.TemporaryDirectory() as temporary, patch.object(

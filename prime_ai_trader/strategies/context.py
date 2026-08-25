@@ -34,7 +34,7 @@ def forex_sessions(observed_at: datetime) -> tuple[str, ...]:
 
 def strategy_key(market: str) -> str:
     if market == Market.CRYPTO.value:
-        return "crypto-structure-volume-candles-v5"
+        return "crypto-structure-volume-candles-v6"
     if market == Market.FOREX.value:
-        return "forex-session-priceaction-candles-v5"
-    return "market-generic-candles-v5"
+        return "forex-session-priceaction-candles-v6"
+    return "market-generic-candles-v6"

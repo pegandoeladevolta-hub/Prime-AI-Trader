@@ -14,7 +14,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 6. **Liquidez** — volume relativo e impulso de volume para criptomoedas; sessões de Londres e Nova York como contexto para Forex.
 7. **Confluência e sensibilidade** — os perfis rápido, equilibrado e conservador exigem quantidades progressivas de confirmações técnicas.
 8. **Payout e equilíbrio** — o ponto de equilíbrio `1 / (1 + payout)` qualifica resultados observados; a saída bruta do classificador não é apresentada como probabilidade calibrada nem como expectativa financeira.
-9. **Score do modelo** — regras e modelo são combinados. Em `RÁPIDO + CONFIRMAÇÃO`, divergência isolada do modelo reduz o score e gera aviso, sem apagar uma confluência técnica forte; o veto permanece nos perfis seletivos e no modo quantitativo.
+9. **Score do modelo** — regras e modelo são combinados. Em Price Action e Confirmação, divergência isolada reduz o score e gera aviso; no Quantitativo, modelo treinado é obrigatório e piso/vantagem podem vetar.
 10. **Regime estrutural** — tendência, transição, lateralização, compressão e exaustão recebem tratamentos diferentes; o mesmo indicador não representa várias confirmações independentes.
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
@@ -57,7 +57,17 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 
 Os perfis também possuem faixas próprias de volatilidade, distância máxima da EMA 21, peso da IA, vantagem sobre a direção oposta e margem acima do ponto de equilíbrio do payout. O perfil rápido pode anunciar uma leitura durante a vela atual; essa leitura é apresentada honestamente como **em formação**, e somente o fechamento da vela produz um sinal confirmado.
 
-No M1 rápido confirmado, um sinal recém-confirmado permanece visível por 8 segundos no começo da vela seguinte. Essa janela não reaproveita padrão em formação e não prolonga um sinal antigo; serve apenas para impedir que o primeiro tick novo apague a confirmação antes que o usuário consiga vê-la.
+Um sinal recém-confirmado permanece visível por uma janela de 8 a 12 segundos, conforme timeframe, em todos os modos e perfis. Essa janela não reaproveita padrão em formação e não prolonga um sinal antigo; serve apenas para impedir que o primeiro tick novo apague a confirmação antes que o usuário consiga vê-la.
+
+## Matriz de decisão
+
+| Modo | Papel da IA | Estrutura e candles | Confirmações independentes |
+|---|---|---|---|
+| PRICE ACTION | Consultiva; reduz o score, sem veto isolado. | Elemento principal; padrão aberto é somente formação. | A pontuação e o perfil controlam a cobertura. |
+| CONFIRMAÇÃO | Consultiva; concordância aumenta o score. | Padrões contrários e contexto recebem severidade progressiva. | Rápido 1, equilibrado 2, conservador 3 categorias. |
+| QUANTITATIVO | Obrigatória; piso e vantagem podem vetar. | Filtros críticos continuam protegendo a entrada. | Rápido/equilibrado 1, conservador 2 categorias. |
+
+Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura oposta recém-confirmada, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
 Notícias e eventos permanecem informativos quando o bloqueio automático está desligado. Nessa situação, não devem interromper a análise nem gerar alertas de voz repetidos.
 

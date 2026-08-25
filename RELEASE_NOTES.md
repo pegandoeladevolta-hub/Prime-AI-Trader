@@ -1,5 +1,20 @@
 # Release notes
 
+## 1.2.0 — 24/08/2026
+
+### Política global de sinais baseada na referência estável
+
+- O instalador de referência anexado foi identificado por hash como o build oficial 0.7.0 (`718280a`), apesar de ter sido lembrado como versão 0.9.
+- A comparação mostrou que a versão estável usava indicadores e contexto principalmente na pontuação; versões novas acumularam bloqueios de transição, pullback, vela, divergência, S/R, timeframe superior e IA.
+- Uma matriz explícita passa a governar os nove cruzamentos de modo e sensibilidade, com exigência progressiva em vez de um filtro M1 isolado.
+- Price Action não recebe veto isolado do modelo; Confirmação combina modelo e categorias técnicas; Quantitativo exige modelo treinado e mantém piso/vantagem do modelo.
+- Padrão em vela aberta é aviso de formação, nunca confirmação nem veto automático da direção em formação.
+- Transição pode prosseguir quando fechamento, momentum ou padrão confirmado superam o mínimo do perfil; CHOCH continua sendo a confirmação estrutural mais forte.
+- Penalidades profissionais secundárias viram avisos nos perfis compatíveis; estrutura oposta recém-confirmada, retração profunda e espaço criticamente curto continuam bloqueando.
+- Sinais confirmados ficam visíveis por 8 a 12 segundos em todos os modos/timeframes; candle fechado sempre é reprocessado e sinal antigo não é prolongado.
+- Estratégias passam a `crypto-structure-volume-candles-v6` e `forex-session-priceaction-candles-v6`.
+- Teste determinístico com vinte cenários compartilhados impede que qualquer uma das nove combinações volte a cobertura zero e confirma progressão rápido ≥ equilibrado ≥ conservador.
+
 ## 1.1.1 — 24/08/2026
 
 ### Correção do excesso de `AGUARDAR` no M1 rápido

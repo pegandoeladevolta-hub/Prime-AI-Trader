@@ -33,6 +33,21 @@ class SensitivityProfile:
     early_reading: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionPolicy:
+    mode: str
+    sensitivity: str
+    model_required: bool
+    model_gate: bool
+    higher_timeframe_gate: bool
+    last_candle_gate: bool
+    minimum_independent: int
+    opposite_pattern_threshold: float
+    indecision_threshold: float
+    exhaustion_threshold: float
+    transition_support_threshold: float
+
+
 SENSITIVITY_PROFILES = {
     "CONSERVADOR": SensitivityProfile(
         "CONSERVADOR", "ALTA CONFIRMAÇÃO • menos sinais e maior exigência",
@@ -53,17 +68,87 @@ def sensitivity_profile(name: str) -> SensitivityProfile:
     return SENSITIVITY_PROFILES.get(str(name or "").upper(), SENSITIVITY_PROFILES["EQUILIBRADO"])
 
 
+def decision_policy(mode: str, sensitivity: str) -> DecisionPolicy:
+    """Política explícita para cada cruzamento de modo e sensibilidade.
+
+    A versão 0.7.0 usava os indicadores principalmente como pontuação. Versões
+    posteriores transformaram diversas leituras secundárias em vetos cumulativos.
+    Esta matriz restaura cobertura sem desligar fonte, fechamento, estrutura,
+    padrões contrários fortes ou os requisitos próprios do quantitativo.
+    """
+    selected_mode = str(mode or "CONFIRMAÇÃO").upper()
+    selected_sensitivity = sensitivity_profile(sensitivity).name
+    rank = {"RÁPIDO": 0, "EQUILIBRADO": 1, "CONSERVADOR": 2}[selected_sensitivity]
+
+    if selected_mode == "PRICE ACTION":
+        independent = 0
+        higher_gate = rank == 2
+        last_gate = rank == 2
+        pattern_adjustment = 0.02
+        transition_adjustment = 0.00
+    elif selected_mode == "QUANTITATIVO":
+        independent = (1, 1, 2)[rank]
+        higher_gate = rank >= 1
+        last_gate = rank >= 1
+        pattern_adjustment = 0.02
+        transition_adjustment = 0.12
+    else:
+        selected_mode = "CONFIRMAÇÃO"
+        independent = (1, 2, 3)[rank]
+        higher_gate = rank >= 1
+        last_gate = rank >= 1
+        pattern_adjustment = -0.02
+        transition_adjustment = 0.08
+
+    return DecisionPolicy(
+        selected_mode,
+        selected_sensitivity,
+        model_required=selected_mode == "QUANTITATIVO",
+        model_gate=selected_mode == "QUANTITATIVO",
+        higher_timeframe_gate=higher_gate,
+        last_candle_gate=last_gate,
+        minimum_independent=independent,
+        opposite_pattern_threshold=(0.76, 0.69, 0.63)[rank] + pattern_adjustment,
+        indecision_threshold=(0.90, 0.83, 0.77)[rank] + pattern_adjustment,
+        exhaustion_threshold=(0.74, 0.68, 0.62)[rank] + pattern_adjustment,
+        transition_support_threshold=(0.38, 0.55, 0.72)[rank] + transition_adjustment,
+    )
+
+
 def model_disagreement_is_blocking(mode: str, sensitivity: str) -> bool:
     """Define quando a saída não calibrada do modelo pode vetar a operação.
 
-    No perfil RÁPIDO + CONFIRMAÇÃO, o modelo participa da pontuação, mas não
-    anula sozinho uma leitura técnica forte. O veto probabilístico permanece no
-    modo QUANTITATIVO e nos perfis de confirmação mais seletivos.
+    Price Action e Confirmação combinam o modelo no score, sem transformá-lo em
+    veto isolado. O modo Quantitativo é o único em que o modelo é obrigatório e
+    pode vetar, independentemente da sensibilidade selecionada.
     """
-    return not (
-        str(mode).upper() == "CONFIRMAÇÃO"
-        and str(sensitivity).upper() == "RÁPIDO"
-    )
+    return decision_policy(mode, sensitivity).model_gate
+
+
+def professional_penalty_is_blocking(reason: str, policy: DecisionPolicy,
+                                     professional: ProfessionalAssessment,
+                                     direction: Direction) -> bool:
+    text = reason.lower()
+    if "estrutura acabou de confirmar" in text or "retração profunda" in text:
+        return True
+    if "resistência muito próxima" in text or "suporte muito próximo" in text:
+        room = (professional.resistance_room_atr if direction == Direction.BUY
+                else professional.support_room_atr)
+        critical = professional.policy.minimum_room_atr * 0.45
+        if room is not None and room < critical:
+            return True
+        return policy.sensitivity != "RÁPIDO" and policy.mode != "PRICE ACTION"
+    if "compressão lateral" in text:
+        return policy.sensitivity == "CONSERVADOR" or (
+            policy.mode == "CONFIRMAÇÃO" and policy.sensitivity == "EQUILIBRADO"
+        )
+    if "divergência" in text:
+        return policy.sensitivity == "CONSERVADOR"
+    if "pullback identificado" in text:
+        return policy.mode == "CONFIRMAÇÃO" and policy.sensitivity != "RÁPIDO"
+    if "exaust" in text:
+        return policy.sensitivity != "RÁPIDO"
+    return policy.sensitivity == "CONSERVADOR"
 
 
 THRESHOLDS = {name: profile.score for name, profile in SENSITIVITY_PROFILES.items()}
@@ -366,6 +451,7 @@ class SignalEngine:
         payout = min(max(int(payout_percent or 80), 1), 200)
         break_even = 1 / (1 + payout / 100)
         profile = sensitivity_profile(sensitivity)
+        policy = decision_policy(mode, sensitivity)
         blockers = blockers or []
         if blockers:
             return Signal(
@@ -386,7 +472,7 @@ class SignalEngine:
             indicators, structure, fib, context_timeframe, candle_patterns,
         )
         rules = self.assess_rules(
-            indicators, structure, fib, professional, mode, market, symbol, candle_patterns,
+            indicators, structure, fib, professional, policy.mode, market, symbol, candle_patterns,
         )
         technical_buy = self._technical_score(rules.buy_points, rules.sell_points, len(rules.buy_reasons))
         technical_sell = self._technical_score(rules.sell_points, rules.buy_points, len(rules.sell_reasons))
@@ -398,7 +484,7 @@ class SignalEngine:
                 "AGUARDAR": raw.get(0, 0.0),
             }
             base_model_weight = {"PRICE ACTION": 0.30, "CONFIRMAÇÃO": 0.45,
-                                 "QUANTITATIVO": 0.65}.get(mode, 0.45)
+                                 "QUANTITATIVO": 0.65}.get(policy.mode, 0.45)
             model_weight = min(0.85, max(0.12, base_model_weight * profile.model_weight_factor))
             buy_agreement = 7 if probabilities["COMPRA"] > probabilities["VENDA"] and technical_buy >= 60 else 0
             sell_agreement = 7 if probabilities["VENDA"] > probabilities["COMPRA"] and technical_sell >= 60 else 0
@@ -415,7 +501,7 @@ class SignalEngine:
                 "VENDA": (rules.sell_points + 10) / total,
                 "AGUARDAR": 20 / total,
             }
-            model_version = "rules-professional-candles-v3"
+            model_version = "rules-professional-candles-v4"
 
         sensitivity_key = profile.name
         threshold = profile.score
@@ -460,7 +546,7 @@ class SignalEngine:
         # histórico real da plataforma. A expectativa financeira observada é
         # calculada no relatório de desempenho, depois de WIN/LOSS manual.
         expected_value = None
-        model_advisories: list[str] = []
+        analysis_advisories: list[str] = []
 
         waiting: list[str] = []
         if score < threshold:
@@ -477,62 +563,91 @@ class SignalEngine:
             waiting.append("Volatilidade fora da faixa operacional")
         if overextended:
             waiting.append("Preço esticado; aguarde pullback ou reteste")
-        strict_confirmation = (
-            mode == "CONFIRMAÇÃO" and context_timeframe == "1m" and horizon_minutes <= 1
-        )
         opposite_direction = Direction.SELL if direction == Direction.BUY else Direction.BUY
         opposite_pattern = candle_patterns.strongest(opposite_direction)
         opposite_pattern_strength = candle_patterns.directional_strength(opposite_direction)
         if not candle_closed and candle_patterns.primary is not None:
-            waiting.append(
+            analysis_advisories.append(
                 f"Padrão {candle_patterns.primary.name.lower()} ainda está em formação; "
-                "aguarde o fechamento da vela"
+                "não é confirmação"
             )
         if context_timeframe and candle_closed and opposite_pattern is not None and (
-            opposite_pattern_strength >= (0.64 if strict_confirmation else 0.86)
+            opposite_pattern_strength >= policy.opposite_pattern_threshold
         ):
             waiting.append(
                 f"Padrão {opposite_pattern.name.lower()} contradiz a "
                 f"{direction.value.lower()} sugerida"
             )
-        if context_timeframe and candle_closed and candle_patterns.indecision >= (
-            0.72 if strict_confirmation else 0.96
-        ):
+        if (context_timeframe and candle_closed
+                and candle_patterns.indecision >= policy.indecision_threshold):
             waiting.append("Vela de indecisão confirmada; aguarde rompimento e novo fechamento")
         if (context_timeframe and candle_closed
                 and candle_patterns.exhaustion_direction == direction
-                and candle_patterns.exhaustion_strength >= (0.58 if strict_confirmation else 0.72)):
+                and candle_patterns.exhaustion_strength >= policy.exhaustion_threshold):
             waiting.append(
                 f"Sequência de {direction.value.lower()} mostra exaustão; "
                 "não entre no fim do movimento"
             )
-        if not profile.early_reading or strict_confirmation:
-            against_higher = (
-                direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
-                or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
-            )
-            reversal_event = bool(
-                professional.event and professional.event.direction == direction
-                and professional.event.kind == "CHOCH"
-            )
-            if against_higher and not reversal_event:
+        against_higher = (
+            direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
+            or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
+        )
+        reversal_event = bool(
+            professional.event and professional.event.direction == direction
+            and professional.event.kind == "CHOCH"
+        )
+        if against_higher and not reversal_event:
+            if policy.higher_timeframe_gate:
                 waiting.append("Direção contraria a tendência confirmada no timeframe superior")
-            candle_delta = close_value - _number(last.get("open"), close_value)
-            meaningful_candle = atr_value <= 0 or abs(candle_delta) >= atr_value * 0.03
-            reversal_setup = "LIQUIDEZ" in setup_name or reversal_event
-            if meaningful_candle and direction_sign * candle_delta < 0 and not reversal_setup:
-                waiting.append("A última vela fechada não confirma a direção sugerida")
-            independent = self._independent_confirmations(confluences)
-            minimum_independent = 3 if profile.name == "CONSERVADOR" else 2
-            if len(independent) < minimum_independent:
-                waiting.append(
-                    f"Confirmações independentes insuficientes: "
-                    f"{len(independent)}/{minimum_independent}"
+            else:
+                analysis_advisories.append(
+                    "Timeframe superior diverge; o perfil selecionado mantém a leitura como risco"
                 )
+        candle_delta = close_value - _number(last.get("open"), close_value)
+        meaningful_candle = atr_value <= 0 or abs(candle_delta) >= atr_value * 0.03
+        reversal_setup = "LIQUIDEZ" in setup_name or reversal_event
+        opposite_body_atr = (
+            max(0.0, -direction_sign * candle_delta / atr_value) if atr_value > 0 else
+            (1.0 if direction_sign * candle_delta < 0 else 0.0)
+        )
+        if (candle_closed and meaningful_candle and direction_sign * candle_delta < 0
+                and not reversal_setup):
+            if policy.last_candle_gate or opposite_body_atr >= 0.45:
+                waiting.append("A última vela fechada não confirma a direção sugerida")
+            else:
+                analysis_advisories.append(
+                    "Última vela fechou levemente contra a leitura; direção permanece em observação"
+                )
+        independent = self._independent_confirmations(confluences)
+        if policy.minimum_independent and len(independent) < policy.minimum_independent:
+            waiting.append(
+                f"Confirmações independentes insuficientes: "
+                f"{len(independent)}/{policy.minimum_independent}"
+            )
         if professional.regime.transition and not (
             professional.event and professional.event.kind == "CHOCH"
         ):
-            waiting.append("Mudança de tendência em formação; aguarde CHOCH confirmado")
+            same_pattern_strength = candle_patterns.directional_strength(direction)
+            directional_body_atr = (
+                max(0.0, direction_sign * candle_delta / atr_value) if atr_value > 0 else
+                (0.5 if direction_sign * candle_delta > 0 else 0.0)
+            )
+            momentum_support = sum(momentum_votes) / max(len(momentum_votes), 1)
+            transition_support = min(1.0, max(
+                same_pattern_strength,
+                directional_body_atr * 0.75 + momentum_support * 0.35,
+            ))
+            if not candle_closed:
+                analysis_advisories.append("Mudança de tendência ainda está em formação")
+            elif transition_support < policy.transition_support_threshold:
+                waiting.append(
+                    f"Transição sem confirmação suficiente "
+                    f"({transition_support * 100:.0f}/{policy.transition_support_threshold * 100:.0f})"
+                )
+            else:
+                analysis_advisories.append(
+                    "Transição sustentada por fechamento e momentum; CHOCH ainda não confirmado"
+                )
         if market == Market.FOREX.value:
             feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
             session_active = any(_number(feature_row.get(name)) > 0 for name in (
@@ -540,7 +655,12 @@ class SignalEngine:
             ))
             pair_atr_regime = _number(feature_row.get("pair_atr_regime"), 1.0)
             if context_timeframe == "1m" and not session_active:
-                waiting.append("Fora das sessões de Tóquio, Londres e Nova York")
+                if policy.mode == "PRICE ACTION" and policy.sensitivity == "RÁPIDO":
+                    analysis_advisories.append(
+                        "Fora das sessões principais; liquidez Forex pode estar reduzida"
+                    )
+                else:
+                    waiting.append("Fora das sessões de Tóquio, Londres e Nova York")
             if pair_atr_regime and not 0.28 <= pair_atr_regime <= 3.8:
                 waiting.append(f"ATR fora do regime recente deste par ({pair_atr_regime:.2f}x)")
         if source_lag_seconds is not None:
@@ -569,8 +689,13 @@ class SignalEngine:
                 continue
             if "DIVERGÊNCIA" in reason and profile.early_reading and same_direction_event:
                 continue
-            if reason not in waiting:
-                waiting.append(reason)
+            if professional_penalty_is_blocking(reason, policy, professional, direction):
+                if reason not in waiting:
+                    waiting.append(reason)
+            elif reason not in analysis_advisories:
+                analysis_advisories.append(reason)
+        if policy.model_required and not model_ready:
+            waiting.insert(0, "Modo quantitativo exige IA treinada para este contexto")
         if model_ready:
             model_reasons: list[str] = []
             if chosen < probability_floor:
@@ -580,14 +705,14 @@ class SignalEngine:
                 )
             if chosen - opposite < profile.probability_edge:
                 model_reasons.append("Modelo ainda não separa suficientemente os dois lados")
-            if model_reasons and model_disagreement_is_blocking(mode, sensitivity_key):
+            if model_reasons and policy.model_gate:
                 # Motivos que vetam a operação precisam aparecer antes das
                 # penalidades secundárias e não podem sumir no corte da UI.
                 waiting[0:0] = model_reasons
             elif model_reasons:
-                model_advisories.append(
-                    "Modelo diverge da leitura técnica; no perfil rápido ele reduz o score, "
-                    "mas não veta sozinho uma confirmação forte"
+                analysis_advisories.append(
+                    "Modelo diverge da leitura técnica; neste modo ele reduz o score, "
+                    "mas não veta sozinho a leitura"
                 )
 
         kwargs = {
@@ -615,7 +740,7 @@ class SignalEngine:
                 reason for reason in waiting
                 if "Padrão" in reason or "indecisão" in reason or "exaustão" in reason
             ), ""),
-            "warnings": model_advisories,
+            "warnings": list(dict.fromkeys(analysis_advisories))[:5],
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,

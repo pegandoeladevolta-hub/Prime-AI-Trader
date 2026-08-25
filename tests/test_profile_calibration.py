@@ -92,7 +92,7 @@ class ProfileCalibrationTests(unittest.TestCase):
         self.assertFalse(_directional_confluence(row, 1, "EQUILIBRADO"))
         self.assertFalse(_directional_confluence(row, 1, "CONSERVADOR"))
 
-    def test_fast_profile_still_rejects_probability_below_payout_break_even(self) -> None:
+    def test_price_action_treats_model_disagreement_as_advisory(self) -> None:
         frame = candles_frame(synthetic_candles(220, seed=3))
         indicators = calculate_all(frame)
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
@@ -106,27 +106,33 @@ class ProfileCalibrationTests(unittest.TestCase):
             1, "RÁPIDO", True, mode="PRICE ACTION",
             model_context={"symbol": "BTC/USDT"}, payout_percent=80,
         )
-        self.assertEqual(signal.direction, Direction.WAIT)
-        self.assertTrue(any("mínimo técnico 55.8/100" in reason for reason in signal.waiting_reasons))
+        self.assertEqual(signal.direction, Direction.BUY)
+        self.assertTrue(any("Modelo diverge" in reason for reason in signal.warnings))
+        self.assertFalse(any("mínimo técnico" in reason for reason in signal.waiting_reasons))
 
-    def test_conservative_requires_higher_probability_than_fast(self) -> None:
+    def test_quantitative_keeps_model_floor_for_every_sensitivity(self) -> None:
         frame = candles_frame(synthetic_candles(220, seed=3))
         indicators = calculate_all(frame)
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
         manager = SimpleNamespace(
             is_compatible=lambda context: True,
-            predict_proba=lambda rows: {1: 0.60, -1: 0.04, 0: 0.36},
+            predict_proba=lambda rows: {1: 0.55, -1: 0.04, 0: 0.41},
             report=SimpleNamespace(version="profile-test"),
         )
         engine = SignalEngine(manager)
         values = (indicators, build_features(frame), structure, automatic_fibonacci(frame))
-        fast = engine.generate(*values, 1, "RÁPIDO", True, mode="PRICE ACTION",
-                               model_context={"symbol": "BTC/USDT"}, payout_percent=80)
-        conservative = engine.generate(*values, 1, "CONSERVADOR", True, mode="PRICE ACTION",
-                                       model_context={"symbol": "BTC/USDT"}, payout_percent=80)
-        self.assertEqual(fast.direction, Direction.BUY)
-        self.assertEqual(conservative.direction, Direction.WAIT)
-        self.assertTrue(any("mínimo técnico 70.0/100" in reason for reason in conservative.waiting_reasons))
+        for sensitivity, floor in (("RÁPIDO", "55.8/100"),
+                                   ("EQUILIBRADO", "60.0/100"),
+                                   ("CONSERVADOR", "70.0/100")):
+            with self.subTest(sensitivity=sensitivity):
+                signal = engine.generate(
+                    *values, 1, sensitivity, True, mode="QUANTITATIVO",
+                    model_context={"symbol": "BTC/USDT"}, payout_percent=80,
+                )
+                self.assertEqual(signal.direction, Direction.WAIT)
+                self.assertTrue(any(
+                    f"mínimo técnico {floor}" in reason for reason in signal.waiting_reasons
+                ))
 
     def test_non_blocking_risk_warning_never_speaks(self) -> None:
         signal = self._signal(warnings=["Notícia de alto risco: FED"])

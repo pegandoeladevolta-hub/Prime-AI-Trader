@@ -1,15 +1,19 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.1.1 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.0 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.1.1
+## Destaques da versão 1.2.0
 
-- Correção dirigida por evidência visual do M1: no perfil **RÁPIDO + CONFIRMAÇÃO**, o modelo continua reduzindo o score quando diverge, mas não veta sozinho uma leitura técnica forte.
-- O primeiro tick da vela nova não apaga imediatamente um sinal acabado de confirmar; a interface preserva uma janela operacional de 8 segundos, sem confirmar vela aberta.
-- Motivos realmente bloqueantes agora aparecem primeiro. `Confiança` foi renomeada para **Score combinado**, e a saída não calibrada da IA deixou de produzir expectativa financeira fictícia.
-- Estratégia `candles-v5` separa o comportamento corrigido dos modelos anteriores; treine novamente cada contexto depois de instalar.
+- Auditoria comparativa com o build oficial 0.7.0 identifica a regressão de cobertura: condições que antes pontuavam passaram a atuar como vários vetos cumulativos.
+- Os nove cruzamentos de **Price Action / Confirmação / Quantitativo** com **Rápido / Equilibrado / Conservador** agora possuem política explícita e progressiva.
+- Price Action prioriza estrutura e candles; Confirmação exige categorias técnicas independentes; Quantitativo exige modelo treinado e mantém o veto da IA.
+- Em Price Action e Confirmação, divergência isolada do modelo reduz o score e gera aviso, mas não anula sozinha uma leitura técnica forte.
+- Padrão da vela aberta volta a ser leitura **EM FORMAÇÃO**, sem transformar toda atualização do WebSocket em `AGUARDAR` e sem confirmar antes do fechamento.
+- Transição, timeframe superior, divergência, compressão, pullback e proximidade de S/R usam severidade conforme modo/perfil; estrutura contrária confirmada, retração profunda, fonte atrasada e padrão contrário crítico permanecem vetos.
+- Todo sinal confirmado fica visível por uma janela curta de 8 a 12 segundos em qualquer modo e timeframe, evitando que o primeiro tick da vela nova o apague.
+- Estratégia `candles-v6` separa os modelos desta política global; treine novamente cada contexto depois de instalar.
 
 ## Biblioteca introduzida na versão 1.1.0
 
@@ -17,14 +21,14 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Uma vela aberta pode mostrar **padrão em formação**, mas nunca confirma o padrão nem o sinal. Somente o fechamento original do feed pode produzir confirmação.
 - No modo confirmação com gráfico/expiração 1m, padrão contrário, doji/indecisão, exaustão após sequência e pullback sem fechamento direcional passam a produzir `AGUARDAR`.
 - Os padrões não criam uma operação isoladamente: eles qualificam tendência, momentum, estrutura, volume válido e espaço até suporte/resistência.
-- Schema 7 adiciona sete features OHLC causais; a estratégia atual é `candles-v5`.
+- Schema 7 adiciona sete features OHLC causais; a estratégia atual é `candles-v6`.
 - Filtros de pullback, reversão, pavio e exaustão foram reforçados a partir de uma amostra operacional real, sem publicar dados privados da conta.
 
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
 - A BullEx fica desabilitada por padrão e exige aceite explícito do [alerta da CVM sobre Digital Smart LLC/BULLEX](https://www.gov.br/cvm/pt-br/assuntos/noticias/2025/cvm-alerta-para-atuacao-irregular-da-digital-smart-llc-bullex-e-seu-responsavel). O aplicativo não promove depósitos.
 - Estratégias e features agora são separadas: cripto usa volume real/taker da Binance e VWAP somente com volume válido; Forex ignora volume centralizado inexistente e usa sessões de Tóquio, Londres e Nova York com timezone IANA/DST.
 - O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 7. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
-- M1/expiração M1 em confirmação exige candle fechado e contexto superior, recusa fonte atrasada, transição sem CHOCH, falso pullback sem rejeição, exaustão e entrada sem espaço até S/R.
+- M1/expiração M1 exige candle fechado para confirmação, recusa fonte atrasada e aplica severidade progressiva a transição, falso pullback, exaustão e espaço até S/R conforme modo/perfil.
 - Profit factor passa a ser financeiro por payout e valor de entrada. O histórico separa plataforma, ativo, estratégia e resultado observado manualmente de resultado inferido pelo gráfico.
 - O instalador voltou a ser Inno Setup nativo e o build valida `tkinter.filedialog`, `messagebox` e `ttk` antes do PyInstaller, corrigindo a falha do antigo `setup_entry.py`.
 
@@ -172,7 +176,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.1.1 possui 273 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, janela do sinal M1, prioridade consultiva da IA rápida, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.2.0 possui 276 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, matriz de nove políticas, cobertura progressiva, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 
