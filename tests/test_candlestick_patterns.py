@@ -142,7 +142,7 @@ class CandlestickLibraryTests(unittest.TestCase):
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
         context = {
             "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
             "sensitivity": "RÁPIDO", "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
         }
         with tempfile.TemporaryDirectory() as temporary:
@@ -154,6 +154,35 @@ class CandlestickLibraryTests(unittest.TestCase):
         self.assertEqual(signal.state, SignalState.WAITING)
         self.assertTrue(any("indecisão" in reason for reason in signal.waiting_reasons))
         self.assertTrue(signal.candlestick_patterns)
+
+    def test_fast_contextual_doji_preserves_aligned_trend_but_balanced_blocks(self) -> None:
+        frame = candles_frame(synthetic_candles(260, seed=3))
+        indicators = calculate_all(frame)
+        features = build_features(frame, Market.CRYPTO.value, "BTC/USDT")
+        structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
+        base_context = {
+            "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
+            "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            engine = SignalEngine(ModelManager(Path(temporary)))
+            fast = engine.generate(
+                indicators, features, structure, automatic_fibonacci(frame),
+                1, "RÁPIDO", True, mode="CONFIRMAÇÃO",
+                model_context={**base_context, "sensitivity": "RÁPIDO"},
+            )
+            balanced = engine.generate(
+                indicators, features, structure, automatic_fibonacci(frame),
+                1, "EQUILIBRADO", True, mode="CONFIRMAÇÃO",
+                model_context={**base_context, "sensitivity": "EQUILIBRADO"},
+            )
+        self.assertEqual(fast.direction, Direction.BUY)
+        self.assertTrue(any("indecisão dentro de tendência alinhada" in item
+                            for item in fast.warnings))
+        self.assertEqual(balanced.direction, Direction.WAIT)
+        self.assertTrue(any("indecisão sem contexto direcional seguro" in item
+                            for item in balanced.waiting_reasons))
 
     def test_strict_one_minute_mode_blocks_pattern_opposite_to_suggested_side(self) -> None:
         frame = _frame([(10, 10.4, 9.8, 10.2), (10.5, 10.6, 9.8, 10.0), (9.9, 10.8, 9.7, 10.7)])
@@ -171,7 +200,7 @@ class CandlestickLibraryTests(unittest.TestCase):
 
         context = {
             "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
             "sensitivity": "RÁPIDO", "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
         }
         with tempfile.TemporaryDirectory() as temporary, patch.object(

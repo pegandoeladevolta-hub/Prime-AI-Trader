@@ -1,5 +1,19 @@
 # Release notes
 
+## 1.2.1 — 24/08/2026
+
+### Recalibração com o instalador 0.9.0 correto
+
+- O novo instalador anexado possui `FileVersion`/`ProductVersion` 0.9.0 e SHA-256 `e8e2e0bc...c881f`.
+- O hash coincide exatamente com o segundo build oficial 0.9.0 do commit `a16d551d`, workflow `32508062287`; não é apenas um arquivo diferente com o mesmo número de versão.
+- Em quarenta cenários determinísticos sem modelo, o 0.9.0 produziu 30/12/9 leituras por modo nos perfis rápido/equilibrado/conservador. Com modelo sintético alinhado, produziu 27/12/10 em Price Action, 29/12/9 em Confirmação e 29/12/8 em Quantitativo.
+- A comparação mostrou que a biblioteca moderna estava transformando toda indecisão confirmada em veto, inclusive quando tendência, momentum e estrutura permaneciam alinhados.
+- Doji/indecisão agora é contextual nos perfis compatíveis: continua bloqueando lateralização, transição, exaustão, estrutura oposta, timeframe superior contrário e momentum insuficiente; em tendência alinhada gera aviso de risco sem apagar isoladamente a leitura.
+- Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido recebem a exceção contextual. Conservador permanece rígido; Confirmação/Quantitativo equilibrados também mantêm o veto.
+- O suporte mínimo de transição rápida foi aproximado do comportamento do 0.9.0, mantendo CHOCH, fechamento, momentum e padrão confirmado como evidência principal.
+- Estratégias passam a `crypto-structure-volume-candles-v7` e `forex-session-priceaction-candles-v7`, exigindo novo treinamento por contexto.
+- A biblioteca de candles, filtros críticos, fontes separadas, VEX/BullEx, histórico, métricas, segurança e layout permanecem preservados.
+
 ## 1.2.0 — 24/08/2026
 
 ### Política global de sinais baseada na referência estável

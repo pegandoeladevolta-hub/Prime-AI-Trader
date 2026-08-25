@@ -1,19 +1,20 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.0 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.1 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.2.0
+## Destaques da versão 1.2.1
 
-- Auditoria comparativa com o build oficial 0.7.0 identifica a regressão de cobertura: condições que antes pontuavam passaram a atuar como vários vetos cumulativos.
+- O instalador correto indicado pelo usuário foi confirmado pelo hash como o segundo build oficial 0.9.0, commit `a16d551d`; ele substitui o 0.7.0 como referência de cobertura.
+- A comparação determinística confirma a regressão: o 0.9.0 preservava mais leituras rápidas porque indecisão e transição não atuavam como vetos isolados em todos os contextos.
 - Os nove cruzamentos de **Price Action / Confirmação / Quantitativo** com **Rápido / Equilibrado / Conservador** agora possuem política explícita e progressiva.
 - Price Action prioriza estrutura e candles; Confirmação exige categorias técnicas independentes; Quantitativo exige modelo treinado e mantém o veto da IA.
 - Em Price Action e Confirmação, divergência isolada do modelo reduz o score e gera aviso, mas não anula sozinha uma leitura técnica forte.
-- Padrão da vela aberta volta a ser leitura **EM FORMAÇÃO**, sem transformar toda atualização do WebSocket em `AGUARDAR` e sem confirmar antes do fechamento.
+- Padrão da vela aberta continua como leitura **EM FORMAÇÃO**, sem confirmar antes do fechamento. Doji fechado bloqueia lateralização, transição, conflito estrutural e momentum fraco; dentro de tendência alinhada passa a ser aviso nos perfis compatíveis.
 - Transição, timeframe superior, divergência, compressão, pullback e proximidade de S/R usam severidade conforme modo/perfil; estrutura contrária confirmada, retração profunda, fonte atrasada e padrão contrário crítico permanecem vetos.
 - Todo sinal confirmado fica visível por uma janela curta de 8 a 12 segundos em qualquer modo e timeframe, evitando que o primeiro tick da vela nova o apague.
-- Estratégia `candles-v6` separa os modelos desta política global; treine novamente cada contexto depois de instalar.
+- Estratégia `candles-v7` separa os modelos desta calibração baseada no 0.9.0; treine novamente cada contexto depois de instalar.
 
 ## Biblioteca introduzida na versão 1.1.0
 
@@ -21,7 +22,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Uma vela aberta pode mostrar **padrão em formação**, mas nunca confirma o padrão nem o sinal. Somente o fechamento original do feed pode produzir confirmação.
 - No modo confirmação com gráfico/expiração 1m, padrão contrário, doji/indecisão, exaustão após sequência e pullback sem fechamento direcional passam a produzir `AGUARDAR`.
 - Os padrões não criam uma operação isoladamente: eles qualificam tendência, momentum, estrutura, volume válido e espaço até suporte/resistência.
-- Schema 7 adiciona sete features OHLC causais; a estratégia atual é `candles-v6`.
+- Schema 7 adiciona sete features OHLC causais; a estratégia atual é `candles-v7`.
 - Filtros de pullback, reversão, pavio e exaustão foram reforçados a partir de uma amostra operacional real, sem publicar dados privados da conta.
 
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
@@ -176,7 +177,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.0 possui 276 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, matriz de nove políticas, cobertura progressiva, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.2.1 possui 277 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, matriz de nove políticas, cobertura progressiva baseada no 0.9.0, indecisão contextual, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 

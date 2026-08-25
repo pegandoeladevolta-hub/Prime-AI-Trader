@@ -69,6 +69,8 @@ Um sinal recém-confirmado permanece visível por uma janela de 8 a 12 segundos,
 
 Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura oposta recém-confirmada, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
+A versão 1.2.1 usa como referência o build oficial 0.9.0 do commit `a16d551d`. Nos perfis marcados como contextuais, um doji fechado só deixa de ser veto isolado quando o regime concorda e a estrutura não contradiz a direção, a eficiência mínima e o momentum são suficientes, o timeframe superior não está contrário e não existe transição ou exaustão. Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido usam essa regra; o Quantitativo também exige apoio do modelo. Os demais cruzamentos permanecem rígidos.
+
 Notícias e eventos permanecem informativos quando o bloqueio automático está desligado. Nessa situação, não devem interromper a análise nem gerar alertas de voz repetidos.
 
 ## Treinamento sem atalhos

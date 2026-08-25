@@ -44,6 +44,7 @@ class DecisionPolicy:
     minimum_independent: int
     opposite_pattern_threshold: float
     indecision_threshold: float
+    contextual_indecision: bool
     exhaustion_threshold: float
     transition_support_threshold: float
 
@@ -86,12 +87,14 @@ def decision_policy(mode: str, sensitivity: str) -> DecisionPolicy:
         last_gate = rank == 2
         pattern_adjustment = 0.02
         transition_adjustment = 0.00
+        contextual_indecision = rank < 2
     elif selected_mode == "QUANTITATIVO":
         independent = (1, 1, 2)[rank]
         higher_gate = rank >= 1
         last_gate = rank >= 1
         pattern_adjustment = 0.02
         transition_adjustment = 0.12
+        contextual_indecision = rank == 0
     else:
         selected_mode = "CONFIRMAÇÃO"
         independent = (1, 2, 3)[rank]
@@ -99,6 +102,7 @@ def decision_policy(mode: str, sensitivity: str) -> DecisionPolicy:
         last_gate = rank >= 1
         pattern_adjustment = -0.02
         transition_adjustment = 0.08
+        contextual_indecision = rank == 0
 
     return DecisionPolicy(
         selected_mode,
@@ -110,8 +114,9 @@ def decision_policy(mode: str, sensitivity: str) -> DecisionPolicy:
         minimum_independent=independent,
         opposite_pattern_threshold=(0.76, 0.69, 0.63)[rank] + pattern_adjustment,
         indecision_threshold=(0.90, 0.83, 0.77)[rank] + pattern_adjustment,
+        contextual_indecision=contextual_indecision,
         exhaustion_threshold=(0.74, 0.68, 0.62)[rank] + pattern_adjustment,
-        transition_support_threshold=(0.38, 0.55, 0.72)[rank] + transition_adjustment,
+        transition_support_threshold=(0.30, 0.52, 0.70)[rank] + transition_adjustment,
     )
 
 
@@ -149,6 +154,43 @@ def professional_penalty_is_blocking(reason: str, policy: DecisionPolicy,
     if "exaust" in text:
         return policy.sensitivity != "RÁPIDO"
     return policy.sensitivity == "CONSERVADOR"
+
+
+def indecision_is_blocking(policy: DecisionPolicy, professional: ProfessionalAssessment,
+                           direction: Direction, momentum_votes: tuple[bool, ...],
+                           against_higher: bool, structure_trend: str, *, model_ready: bool,
+                           chosen: float, opposite: float,
+                           probability_floor: float,
+                           probability_edge: float) -> bool:
+    """Diferencia doji de reversão provável de pausa dentro de tendência forte.
+
+    O build estável 0.9.0 não vetava indecisão isoladamente. A biblioteca de
+    candles continua protegendo contexto lateral, transição e conflito, mas nos
+    perfis compatíveis uma única vela curta não apaga toda a estrutura já
+    confirmada. O Quantitativo só recebe a exceção com apoio real do modelo.
+    """
+    if not policy.contextual_indecision:
+        return True
+    regime = professional.regime
+    minimum_efficiency = 0.10 if policy.sensitivity == "RÁPIDO" else 0.25
+    minimum_momentum = 2 if policy.sensitivity == "RÁPIDO" else 3
+    directional_regime = regime.direction == direction
+    opposite_structure = "BAIXA" if direction == Direction.BUY else "ALTA"
+    structure_aligned = structure_trend != opposite_structure
+    stable_context = not regime.transition and not regime.exhausted
+    technical_support = (
+        directional_regime
+        and structure_aligned
+        and stable_context
+        and regime.efficiency >= minimum_efficiency
+        and sum(momentum_votes) >= minimum_momentum
+        and not against_higher
+    )
+    if policy.mode == "QUANTITATIVO":
+        technical_support = technical_support and model_ready and (
+            chosen >= probability_floor and chosen - opposite >= probability_edge
+        )
+    return not technical_support
 
 
 THRESHOLDS = {name: profile.score for name, profile in SENSITIVITY_PROFILES.items()}
@@ -501,7 +543,7 @@ class SignalEngine:
                 "VENDA": (rules.sell_points + 10) / total,
                 "AGUARDAR": 20 / total,
             }
-            model_version = "rules-professional-candles-v4"
+            model_version = "rules-professional-candles-v5"
 
         sensitivity_key = profile.name
         threshold = profile.score
@@ -566,6 +608,10 @@ class SignalEngine:
         opposite_direction = Direction.SELL if direction == Direction.BUY else Direction.BUY
         opposite_pattern = candle_patterns.strongest(opposite_direction)
         opposite_pattern_strength = candle_patterns.directional_strength(opposite_direction)
+        against_higher = (
+            direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
+            or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
+        )
         if not candle_closed and candle_patterns.primary is not None:
             analysis_advisories.append(
                 f"Padrão {candle_patterns.primary.name.lower()} ainda está em formação; "
@@ -580,7 +626,22 @@ class SignalEngine:
             )
         if (context_timeframe and candle_closed
                 and candle_patterns.indecision >= policy.indecision_threshold):
-            waiting.append("Vela de indecisão confirmada; aguarde rompimento e novo fechamento")
+            if indecision_is_blocking(
+                policy, professional, direction, momentum_votes, against_higher,
+                structure.trend,
+                model_ready=model_ready, chosen=chosen, opposite=opposite,
+                probability_floor=probability_floor,
+                probability_edge=profile.probability_edge,
+            ):
+                waiting.append(
+                    "Vela de indecisão sem contexto direcional seguro; "
+                    "aguarde rompimento e novo fechamento"
+                )
+            else:
+                analysis_advisories.append(
+                    "Vela de indecisão dentro de tendência alinhada; "
+                    "risco de pausa permanece"
+                )
         if (context_timeframe and candle_closed
                 and candle_patterns.exhaustion_direction == direction
                 and candle_patterns.exhaustion_strength >= policy.exhaustion_threshold):
@@ -588,10 +649,6 @@ class SignalEngine:
                 f"Sequência de {direction.value.lower()} mostra exaustão; "
                 "não entre no fim do movimento"
             )
-        against_higher = (
-            direction == Direction.BUY and rules.higher_timeframe_bias == "BAIXA"
-            or direction == Direction.SELL and rules.higher_timeframe_bias == "ALTA"
-        )
         reversal_event = bool(
             professional.event and professional.event.direction == direction
             and professional.event.kind == "CHOCH"

@@ -70,7 +70,7 @@ class DecisionPolicyCoverageTests(unittest.TestCase):
                 self.assertGreaterEqual(conservative, 2)
                 self.assertGreaterEqual(balanced, conservative)
                 self.assertGreaterEqual(fast, balanced)
-                self.assertGreaterEqual(fast, 7)
+                self.assertGreaterEqual(fast, 10)
 
 
 if __name__ == "__main__":

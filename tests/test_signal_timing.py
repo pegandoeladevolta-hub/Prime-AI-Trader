@@ -106,6 +106,15 @@ class FastConfirmedTimingTests(unittest.TestCase):
                             for (mode, _), item in policies.items() if mode == "PRICE ACTION"))
         self.assertTrue(all(item.model_required and item.model_gate
                             for (mode, _), item in policies.items() if mode == "QUANTITATIVO"))
+        self.assertTrue(policies[("PRICE ACTION", "RÁPIDO")].contextual_indecision)
+        self.assertTrue(policies[("PRICE ACTION", "EQUILIBRADO")].contextual_indecision)
+        self.assertTrue(policies[("CONFIRMAÇÃO", "RÁPIDO")].contextual_indecision)
+        self.assertTrue(policies[("QUANTITATIVO", "RÁPIDO")].contextual_indecision)
+        self.assertFalse(policies[("CONFIRMAÇÃO", "EQUILIBRADO")].contextual_indecision)
+        self.assertFalse(policies[("QUANTITATIVO", "EQUILIBRADO")].contextual_indecision)
+        self.assertTrue(all(not item.contextual_indecision
+                            for (mode, sensitivity), item in policies.items()
+                            if sensitivity == "CONSERVADOR"))
         self.assertLess(
             policies[("CONFIRMAÇÃO", "CONSERVADOR")].opposite_pattern_threshold,
             policies[("CONFIRMAÇÃO", "RÁPIDO")].opposite_pattern_threshold,
@@ -130,7 +139,7 @@ class FastConfirmedTimingTests(unittest.TestCase):
 
         context = {
             "market": Market.CRYPTO.value, "symbol": "SUI/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
             "sensitivity": "RÁPIDO", "mode": mode,
             "feature_schema": FEATURE_SCHEMA_VERSION,
         }
@@ -159,7 +168,7 @@ class FastConfirmedTimingTests(unittest.TestCase):
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
         context = {
             "market": Market.CRYPTO.value, "symbol": "BTC/USDT", "timeframe": "1m",
-            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v6",
+            "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
             "sensitivity": "RÁPIDO", "mode": "QUANTITATIVO",
             "feature_schema": FEATURE_SCHEMA_VERSION,
         }
