@@ -75,6 +75,23 @@ class FinancialMetricTests(unittest.TestCase):
         self.assertEqual(row["platform"], "MANUAL")
         self.assertEqual(row["result_source"], "INFERRED")
         self.assertAlmostEqual(row["profit_loss"], 0.8)
+        self.assertIn("technical_stop", row)
+        self.assertIn("technical_target", row)
+
+    def test_technical_levels_are_persisted_with_the_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Repository(Path(temporary) / "levels.db")
+            signal = self._signal()
+            signal.technical_stop = 99.25
+            signal.technical_target = 100.85
+            signal.technical_room_ratio = 1.13
+            repository.save_signal(
+                signal, "Criptomoedas", "XRP/USDT", "1m", {}, "CONFIRMAÇÃO",
+            )
+            row = repository.recent(1)[0]
+        self.assertAlmostEqual(row["technical_stop"], 99.25)
+        self.assertAlmostEqual(row["technical_target"], 100.85)
+        self.assertAlmostEqual(row["technical_room_ratio"], 1.13)
 
 
 if __name__ == "__main__":

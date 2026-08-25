@@ -13,7 +13,8 @@ Interface Tkinter
         │       ├── TwelveDataProvider / AlphaVantageForexProvider: opcionais
         │       └── FrankfurterReferenceProvider: referência diária
         ├── Indicadores / Price Action / Fibonacci
-        │   └── Candlestick Library: padrões OHLC causais e normalizados por ATR/range
+        │   ├── Candlestick Library: padrões OHLC causais e normalizados por ATR/range
+        │   └── Technical Levels: invalidação/alvo por ATR, pivôs e S/R
         ├── Estratégias de mercado
         │   ├── Crypto: volume/taker Binance, VWAP válido e estrutura
         │   └── Forex: sessões IANA/DST, ATR por par e notícias das moedas
@@ -30,17 +31,18 @@ Interface Tkinter
 
 ## Fluxo ao iniciar análise
 
-1. O provider carrega candles históricos.
+1. O provider carrega candles históricos; a análise ao vivo exige 100 e usa os 200 mais recentes, enquanto treino/backtest preservam até 2.000 em `history_candles`.
 2. Os indicadores são calculados apenas com candles presentes e passados.
 3. A estrutura agrupa pivôs próximos em zonas.
 4. A biblioteca de candles reconhece padrões na vela atual e nas duas anteriores; vela aberta permanece em formação.
 5. O Fibonacci seleciona um swing relevante.
 6. O modelo local fornece probabilidades das três classes, se estiver treinado.
-7. O motor combina score do modelo com regras auditáveis, setup, payout, padrões confirmados e uma `DecisionPolicy` própria para cada um dos nove cruzamentos de modo/sensibilidade. A política 1.2.1 também classifica indecisão como veto ou aviso conforme regime, estrutura, eficiência, momentum e modelo, calibrada contra o build oficial 0.9.0. O modelo é consultivo em Price Action/Confirmação e obrigatório no Quantitativo.
-8. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
-9. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket. `signals/timing.py` impede que o primeiro tick aberto apague a confirmação durante uma janela de 8 a 12 segundos em todos os modos/timeframes.
-10. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
-11. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
+7. O motor combina score do modelo com regras auditáveis, setup, payout, padrões confirmados e uma `DecisionPolicy` própria para cada um dos nove cruzamentos de modo/sensibilidade. A política classifica indecisão como veto ou aviso conforme regime, estrutura, eficiência, momentum e modelo, calibrada contra o build oficial 0.9.0. O modelo é consultivo em Price Action/Confirmação e obrigatório no Quantitativo.
+8. O módulo `priceaction/levels.py` calcula stop técnico, alvo e espaço contextual. O gráfico mostra somente dois S/R relevantes de cada lado e persiste os níveis no SQLite.
+9. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
+10. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket. `signals/timing.py` impede que o primeiro tick aberto apague a confirmação durante uma janela de 8 a 12 segundos em todos os modos/timeframes.
+11. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
+12. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
 
 ## Separação de responsabilidades
 

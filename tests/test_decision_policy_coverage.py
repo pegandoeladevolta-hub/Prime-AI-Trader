@@ -61,6 +61,18 @@ class DecisionPolicyCoverageTests(unittest.TestCase):
                         mode=mode, model_context=context, payout_percent=82,
                     )
                     counts[(mode, sensitivity)] += signal.direction != Direction.WAIT
+                    if signal.direction != Direction.WAIT:
+                        self.assertIsNotNone(signal.technical_stop)
+                        self.assertIsNotNone(signal.technical_target)
+                        assert signal.technical_stop is not None
+                        assert signal.technical_target is not None
+                        assert signal.entry is not None
+                        if signal.direction == Direction.BUY:
+                            self.assertLess(signal.technical_stop, signal.entry)
+                            self.assertGreater(signal.technical_target, signal.entry)
+                        else:
+                            self.assertGreater(signal.technical_stop, signal.entry)
+                            self.assertLess(signal.technical_target, signal.entry)
 
         for mode in modes:
             with self.subTest(mode=mode):

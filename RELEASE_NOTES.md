@@ -1,5 +1,20 @@
 # Release notes
 
+## 1.2.2 — 24/08/2026
+
+### Níveis técnicos e gráfico estrutural limpo
+
+- Adiciona stop técnico de invalidação e alvo técnico a sinais de compra e venda em todos os modos, sensibilidades e timeframes.
+- Os níveis combinam ATR, duração da expiração, pivôs confirmados e suporte/resistência oposta; em expiração fixa são referências visuais e não ordens de encerramento.
+- Entrada, stop e alvo aparecem no gráfico e no cartão da operação, com chave `S/A` para ocultar/exibir.
+- O SQLite recebe `technical_stop`, `technical_target` e `technical_room_ratio` por migração aditiva, preservando sinais antigos.
+- Suporte/resistência visual passa a mostrar no máximo `S1/S2/R1/R2`, escolhendo proximidade, força e recência. Marcadores de pivô visíveis caem de oito para quatro por lado.
+- Análise ao vivo exige 100 candles e limita o contexto operacional aos 200 mais recentes; os até 2.000 candles de treino/backtest ficam preservados em histórico separado.
+- Entrada contrária à estrutura aguarda CHOCH. Uma mudança antecipada só é aceita quando o regime recente está estável, tem eficiência mínima de 0,60 e pelo menos três confirmações de momentum.
+- Espaço reduzido até a zona oposta aparece como aviso e no gráfico sem virar veto duplicado, preservando a progressão Rápido ≥ Equilibrado ≥ Conservador.
+- Estratégias passam a `crypto-structure-volume-candles-levels-v8` e `forex-session-priceaction-candles-levels-v8`; modelos anteriores não são misturados.
+- Suíte ampliada para 285 testes automatizados, incluindo níveis simétricos, todos os timeframes, janela de candles, gráfico, SQLite e migração 0.9.0.
+
 ## 1.2.1 — 24/08/2026
 
 ### Recalibração com o instalador 0.9.0 correto

@@ -9,6 +9,7 @@ from ..core.models import Direction, Market, Signal, SignalState, TIMEFRAME_MINU
 from ..fibonacci.auto import FibonacciResult
 from ..ml.models import ModelManager
 from ..priceaction.candles import CandlestickAssessment, analyze_candlestick_patterns
+from ..priceaction.levels import calculate_technical_levels
 from ..priceaction.professional import ProfessionalAssessment, assess_professional_market
 from ..priceaction.structure import MarketStructure
 from ..strategies.context import forex_sessions, strategy_key
@@ -543,7 +544,7 @@ class SignalEngine:
                 "VENDA": (rules.sell_points + 10) / total,
                 "AGUARDAR": 20 / total,
             }
-            model_version = "rules-professional-candles-v5"
+            model_version = "rules-professional-candles-levels-v6"
 
         sensitivity_key = profile.name
         threshold = profile.score
@@ -570,6 +571,9 @@ class SignalEngine:
         overextended = (
             atr_value > 0 and
             abs(close_value - ema_21) > profile.maximum_extension_atr * atr_value
+        )
+        technical_levels = calculate_technical_levels(
+            indicators, structure, direction, context_timeframe, horizon_minutes,
         )
         feature_row = features.iloc[-1] if not features.empty else pd.Series(dtype=float)
         atr_regime = feature_row.get("atr_regime")
@@ -653,6 +657,25 @@ class SignalEngine:
             professional.event and professional.event.direction == direction
             and professional.event.kind == "CHOCH"
         )
+        against_current_structure = (
+            direction == Direction.BUY and structure.trend == "BAIXA"
+            or direction == Direction.SELL and structure.trend == "ALTA"
+        )
+        confirmed_regime_change = (
+            professional.regime.direction == direction
+            and not professional.regime.transition
+            and not professional.regime.exhausted
+            and professional.regime.efficiency >= 0.60
+            and sum(momentum_votes) >= 3
+        )
+        if against_current_structure and not reversal_event and not confirmed_regime_change:
+            waiting.append(
+                "Sinal contra a estrutura atual; aguarde CHOCH e fechamento de confirmação"
+            )
+        elif against_current_structure and confirmed_regime_change:
+            analysis_advisories.append(
+                "Regime recente confirmou mudança antes do próximo pivô estrutural"
+            )
         if against_higher and not reversal_event:
             if policy.higher_timeframe_gate:
                 waiting.append("Direção contraria a tendência confirmada no timeframe superior")
@@ -727,6 +750,12 @@ class SignalEngine:
                 waiting.insert(0,
                     f"Fonte atrasada em {source_lag_seconds:.0f}s; sinal não pode ser confirmado"
                 )
+        if technical_levels and technical_levels.room_ratio < 0.65:
+            opposing_name = "resistência" if direction == Direction.BUY else "suporte"
+            analysis_advisories.append(
+                f"Espaço técnico até {opposing_name} reduzido "
+                f"({technical_levels.room_ratio:.2f}R); nível visível no gráfico"
+            )
         penalties = professional.buy_penalties if direction == Direction.BUY else professional.sell_penalties
         same_direction_event = bool(professional.event and professional.event.direction == direction)
         for reason in penalties:
@@ -798,6 +827,14 @@ class SignalEngine:
                 if "Padrão" in reason or "indecisão" in reason or "exaustão" in reason
             ), ""),
             "warnings": list(dict.fromkeys(analysis_advisories))[:5],
+            "technical_stop": technical_levels.invalidation if technical_levels else None,
+            "technical_target": technical_levels.target if technical_levels else None,
+            "technical_room_ratio": technical_levels.room_ratio if technical_levels else None,
+            "technical_levels_note": (
+                f"Stop técnico {technical_levels.invalidation_basis}; "
+                f"alvo {technical_levels.target_basis}. Não executa ordens."
+                if technical_levels else ""
+            ),
         }
         if waiting:
             return Signal(Direction.WAIT, SignalState.WAITING, score, probabilities,

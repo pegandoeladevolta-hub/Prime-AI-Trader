@@ -51,7 +51,7 @@ class AppSettings:
     platform_block_mismatch: bool = True
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
-        "swings": True, "trend": True, "signals": True,
+        "swings": True, "trend": True, "signals": True, "levels": True,
     })
 
 

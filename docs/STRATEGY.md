@@ -19,6 +19,17 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
 13. **Padrões de candles** — padrões de uma, duas e três velas são normalizados por range/ATR, usados em qualquer timeframe e só entram como confirmação depois do fechamento.
+14. **Janela operacional** — a análise ao vivo exige no mínimo 100 candles e usa no máximo os 200 mais recentes; treino/backtest mantêm histórico separado e maior.
+15. **Níveis da operação** — stop técnico e alvo combinam ATR, expiração, pivôs e zona oposta. Espaço curto é avisado; os níveis não representam ordens executadas pela plataforma.
+
+## Stop técnico, alvo e suporte/resistência
+
+- Compra: a invalidação fica abaixo do suporte/pivô confirmado ou, quando a estrutura está distante, usa proteção por ATR; o alvo fica antes da resistência relevante ou na projeção ATR.
+- Venda: a mesma regra é aplicada de forma espelhada acima da resistência/pivô e antes do suporte relevante.
+- A projeção cresce de forma limitada com a quantidade de candles contida na expiração, evitando usar o mesmo deslocamento em 1m e 4h.
+- `technical_room_ratio` mede somente o espaço técnico entre a entrada e as referências do gráfico; não é payout, probabilidade nem relação financeira garantida.
+- O gráfico escolhe até dois níveis de cada lado: o mais próximo e o mais forte/recente dentro de uma distância útil. A análise estrutural mantém as demais zonas internamente.
+- Em contratos de expiração fixa, o stop não encerra a operação. Ele mostra onde a leitura deixou de fazer sentido e serve para cancelar uma entrada ainda não realizada ou avaliar o sinal.
 
 ## Biblioteca de padrões de candles
 
@@ -67,7 +78,9 @@ Um sinal recém-confirmado permanece visível por uma janela de 8 a 12 segundos,
 | CONFIRMAÇÃO | Consultiva; concordância aumenta o score. | Padrões contrários e contexto recebem severidade progressiva. | Rápido 1, equilibrado 2, conservador 3 categorias. |
 | QUANTITATIVO | Obrigatória; piso e vantagem podem vetar. | Filtros críticos continuam protegendo a entrada. | Rápido/equilibrado 1, conservador 2 categorias. |
 
-Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura oposta recém-confirmada, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
+Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
+
+Na versão 1.2.2, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Isso diferencia uma tendência realmente mudando de um sinal simplesmente contrário à estrutura.
 
 A versão 1.2.1 usa como referência o build oficial 0.9.0 do commit `a16d551d`. Nos perfis marcados como contextuais, um doji fechado só deixa de ser veto isolado quando o regime concorda e a estrutura não contradiz a direção, a eficiência mínima e o momentum são suficientes, o timeframe superior não está contrário e não existe transição ou exaustão. Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido usam essa regra; o Quantitativo também exige apoio do modelo. Os demais cruzamentos permanecem rígidos.
 

@@ -112,6 +112,15 @@ class ProviderUiContractTests(unittest.TestCase):
         self.assertIn("_schedule_live_redraw", source)
         self.assertNotIn("schedule_redraw(80)", source)
 
+    def test_chart_draws_stop_target_and_compact_structure_labels(self) -> None:
+        source = inspect.getsource(CandleChart.redraw)
+        levels = inspect.getsource(CandleChart._draw_trade_levels)
+        self.assertIn("_draw_trade_levels", source)
+        self.assertIn("STOP TÉCNICO", levels)
+        self.assertIn("ALVO TÉCNICO", levels)
+        self.assertIn('f"S{support_number}', source)
+        self.assertIn('f"R{resistance_number}', source)
+
     def test_forex_price_precision_matches_currency_pair(self) -> None:
         self.assertEqual(market_price_decimals("Forex|EUR/USD|1m", 1.12345), 5)
         self.assertEqual(market_price_decimals("Forex|USD/JPY|1m", 148.123), 3)

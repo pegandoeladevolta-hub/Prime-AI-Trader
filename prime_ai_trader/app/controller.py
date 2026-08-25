@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,6 +36,11 @@ from ..signals.engine import SignalEngine, sensitivity_profile
 from ..strategies.context import strategy_key
 
 
+LIVE_MINIMUM_CANDLES = 100
+LIVE_MAXIMUM_CANDLES = 200
+TRAINING_MINIMUM_CANDLES = 1600
+
+
 @dataclass(slots=True)
 class AnalysisSnapshot:
     candles: list[Candle]
@@ -52,6 +57,7 @@ class AnalysisSnapshot:
     generated_at: datetime
     data_source: str = ""
     forex_reference_rate: float | None = None
+    history_candles: list[Candle] = field(default_factory=list)
 
 
 class TradingController:
@@ -165,9 +171,14 @@ class TradingController:
             "strategy": strategy_key(market), "sensitivity": sensitivity, "mode": mode,
         }
         self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
-        candles = provider.fetch_candles(symbol, timeframe, limit=limit)
-        if len(candles) < 80:
-            raise ValueError("A API retornou poucos candles. São necessários pelo menos 80.")
+        history_candles = provider.fetch_candles(
+            symbol, timeframe, limit=max(limit, LIVE_MINIMUM_CANDLES),
+        )
+        if len(history_candles) < LIVE_MINIMUM_CANDLES:
+            raise ValueError(
+                "A API retornou poucos candles. São necessários pelo menos 100 candles."
+            )
+        candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
         frame = candles_frame(candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
@@ -238,7 +249,7 @@ class TradingController:
         snapshot = AnalysisSnapshot(
             candles, indicators, features, structure, fibonacci, signal, news,
             calendar_events, symbol, timeframe, market, datetime.now(timezone.utc),
-            provider.last_provider_name, reference_rate,
+            provider.last_provider_name, reference_rate, history_candles,
         )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
@@ -303,19 +314,19 @@ class TradingController:
         snapshot_key = (snapshot.market, snapshot.symbol, snapshot.timeframe)
         if current_key != snapshot_key:
             return None
-        candles = snapshot.candles.copy()
-        if candles and candles[-1].open_time == candle.open_time:
-            candles[-1] = candle
+        history_candles = (snapshot.history_candles or snapshot.candles).copy()
+        if history_candles and history_candles[-1].open_time == candle.open_time:
+            history_candles[-1] = candle
         else:
-            candles.append(candle)
-            candles = candles[-500:]
+            history_candles.append(candle)
+            history_candles = history_candles[-5000:]
+        candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
         frame = candles_frame(candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
         fibonacci = automatic_fibonacci(indicators)
-        feature_frame = frame.iloc[-180:] if len(frame) > 180 else frame
-        features = build_features(feature_frame, snapshot.market, snapshot.symbol)
+        features = build_features(frame, snapshot.market, snapshot.symbol)
         blockers: list[str] = []
         warnings: list[str] = []
         recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
@@ -355,6 +366,7 @@ class TradingController:
             snapshot.news, snapshot.calendar_events, snapshot.symbol,
             snapshot.timeframe, snapshot.market, datetime.now(timezone.utc),
             snapshot.data_source, snapshot.forex_reference_rate,
+            history_candles,
         )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
         self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
@@ -373,30 +385,46 @@ class TradingController:
         signal.direction = Direction.WAIT
         signal.state = SignalState.WAITING
         signal.entry = None
+        signal.technical_stop = None
+        signal.technical_target = None
+        signal.technical_room_ratio = None
+        signal.technical_levels_note = ""
         signal.waiting_reasons = (reasons + signal.waiting_reasons)[:4]
         platform = getattr(self.platform_snapshot, "platform_name", self.settings.platform_name)
         signal.validation_note = f"Análise pausada até a {platform} e a fonte pública estarem alinhadas."
         return signal
 
     def train(self) -> TrainingReport:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1600:
+        if (not self._snapshot_matches_settings() or self.snapshot is None
+                or len(self._history_candles()) < TRAINING_MINIMUM_CANDLES):
             self.analyze(limit=2000)
         assert self.snapshot is not None
-        threshold = self._label_threshold()
-        labels = self._labels_for_horizon(threshold)
-        features = self.snapshot.features
-        if len(features) != len(self.snapshot.indicators):
-            features = build_features(candles_frame(self.snapshot.candles), self.snapshot.market, self.snapshot.symbol)
+        history = self._history_candles()
+        history_frame = candles_frame(history)
+        history_indicators = calculate_all(history_frame)
+        threshold = self._label_threshold(history_indicators)
+        labels = self._labels_for_horizon(
+            threshold, candles=history, indicators=history_indicators,
+        )
+        features = build_features(
+            history_frame, self.snapshot.market, self.snapshot.symbol,
+        )
         report = self.model_manager.train(features, labels, self.model_context())
         self.logger.info("IA treinada | modelo=%s versão=%s amostras=%s", report.selected_model, report.version, report.samples)
         return report
 
     def backtest(self) -> BacktestResult:
-        if not self._snapshot_matches_settings() or self.snapshot is None or len(self.snapshot.candles) < 1600:
+        if (not self._snapshot_matches_settings() or self.snapshot is None
+                or len(self._history_candles()) < TRAINING_MINIMUM_CANDLES):
             self.analyze(limit=2000)
         assert self.snapshot is not None
-        threshold = self._label_threshold()
-        labels = self._labels_for_horizon(threshold)
+        history = self._history_candles()
+        history_frame = candles_frame(history)
+        history_indicators = calculate_all(history_frame)
+        threshold = self._label_threshold(history_indicators)
+        labels = self._labels_for_horizon(
+            threshold, candles=history, indicators=history_indicators,
+        )
         sensitivity = self.settings.sensitivity.upper()
         profile = sensitivity_profile(sensitivity)
         break_even = 1 / (1 + self.settings.payout_percent / 100)
@@ -404,9 +432,9 @@ class TradingController:
         probability_edge = profile.probability_edge
         compatible_model = self.model_manager.is_compatible(self.model_context())
         model_name = self.model_manager.report.selected_model if compatible_model and self.model_manager.report else "Logistic Regression"
-        features = self.snapshot.features
-        if len(features) != len(self.snapshot.indicators):
-            features = build_features(candles_frame(self.snapshot.candles), self.snapshot.market, self.snapshot.symbol)
+        features = build_features(
+            history_frame, self.snapshot.market, self.snapshot.symbol,
+        )
         result = self.backtest_engine.run(
             features, labels, model_name, confidence, probability_edge,
             purge_size_from_context(self.model_context()), sensitivity,
@@ -430,10 +458,16 @@ class TradingController:
             and self.snapshot.signal.horizon_minutes == self.settings.horizon_minutes
         )
 
-    def _label_threshold(self) -> float:
+    def _history_candles(self) -> list[Candle]:
+        if self.snapshot is None:
+            return []
+        return self.snapshot.history_candles or self.snapshot.candles
+
+    def _label_threshold(self, indicators: pd.DataFrame | None = None) -> float:
         assert self.snapshot is not None
-        median_atr = float(self.snapshot.indicators["atr_14"].median())
-        median_price = float(self.snapshot.indicators["close"].median())
+        values = indicators if indicators is not None else self.snapshot.indicators
+        median_atr = float(values["atr_14"].median())
+        median_price = float(values["close"].median())
         floor = 0.00008 if self.settings.market == Market.CRYPTO.value else 0.000015
         factor = 0.12 if self.settings.horizon_minutes <= 3 else 0.18
         return max((median_atr / median_price) * factor, floor)
@@ -487,16 +521,20 @@ class TradingController:
             )
         return self.snapshot
 
-    def _labels_for_horizon(self, threshold: float) -> pd.Series:
+    def _labels_for_horizon(self, threshold: float, *,
+                            candles: list[Candle] | None = None,
+                            indicators: pd.DataFrame | None = None) -> pd.Series:
         assert self.snapshot is not None
+        history = candles or self._history_candles()
+        values = indicators if indicators is not None else self.snapshot.indicators
         timeframe_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}[self.settings.timeframe]
         if self.settings.horizon_minutes < timeframe_minutes:
-            required = min(5000, len(self.snapshot.candles) * timeframe_minutes + self.settings.horizon_minutes + 10)
+            required = min(5000, len(history) * timeframe_minutes + self.settings.horizon_minutes + 10)
             base_candles = self.provider().fetch_candles(self.symbol(), "1m", required)
             base_close = candles_frame(base_candles)["close"]
-            return build_time_labels(self.snapshot.indicators.index, base_close, self.settings.horizon_minutes, threshold)
+            return build_time_labels(values.index, base_close, self.settings.horizon_minutes, threshold)
         horizon_candles = max(1, round(self.settings.horizon_minutes / timeframe_minutes))
-        return build_labels(self.snapshot.indicators["close"], horizon_candles, threshold)
+        return build_labels(values["close"], horizon_candles, threshold)
 
     def radar(self) -> list[RadarItem]:
         symbols = self.symbols()

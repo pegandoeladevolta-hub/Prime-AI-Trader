@@ -62,6 +62,46 @@ def support_resistance_zones(frame: pd.DataFrame, atr_value: float | None = None
     return supports[:max_each], resistances[:max_each]
 
 
+def display_zones(structure: MarketStructure, current: float,
+                  atr_value: float | None = None, max_each: int = 2) -> list[Zone]:
+    """Seleciona níveis úteis para o gráfico sem alterar a análise estrutural.
+
+    Mantém o nível mais próximo e, quando diferente, o nível mais confirmado e
+    recente. Zonas muito distantes são ocultadas apenas visualmente.
+    """
+    if current <= 0 or max_each <= 0:
+        return []
+    atr = float(atr_value or 0)
+    maximum_distance = atr * 8 if atr > 0 else current * 0.03
+
+    def choose(zones: list[Zone], support: bool) -> list[Zone]:
+        side = [
+            zone for zone in zones
+            if (zone.midpoint < current if support else zone.midpoint > current)
+        ]
+        if not side:
+            return []
+        nearby = [zone for zone in side if abs(zone.midpoint - current) <= maximum_distance]
+        pool = nearby or side
+        nearest = min(pool, key=lambda zone: abs(zone.midpoint - current))
+        selected = [nearest]
+        if max_each > 1:
+            remaining = [zone for zone in pool if zone is not nearest]
+            if remaining:
+                strongest = min(
+                    remaining,
+                    key=lambda zone: (-zone.strength, -zone.last_touch,
+                                      abs(zone.midpoint - current)),
+                )
+                selected.append(strongest)
+        selected.sort(key=lambda zone: abs(zone.midpoint - current))
+        return selected[:max_each]
+
+    return choose(structure.support_zones, True) + choose(
+        structure.resistance_zones, False,
+    )
+
+
 def analyze_structure(frame: pd.DataFrame, atr_value: float | None = None) -> MarketStructure:
     if len(frame) < 9:
         return MarketStructure("INDEFINIDA", [], None, False, False, [], [], [], [])
@@ -93,4 +133,3 @@ def analyze_structure(frame: pd.DataFrame, atr_value: float | None = None) -> Ma
     if supports:
         false_breakout |= float(frame["low"].iloc[-1]) < supports[0].low and close > supports[0].low
     return MarketStructure(trend, sequence, breakout, retest, false_breakout, supports, resistances, highs, lows)
-

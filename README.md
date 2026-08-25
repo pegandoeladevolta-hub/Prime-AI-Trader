@@ -1,10 +1,20 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.1 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.2 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.2.1
+## Destaques da versão 1.2.2
+
+- Todo sinal direcional recebe **stop técnico de invalidação** e **alvo técnico**, calculados simetricamente para compra/venda por ATR, pivôs, suporte/resistência, timeframe e expiração.
+- Entrada, stop e alvo ficam visíveis no gráfico e no cartão da operação. São referências de análise e educação; não enviam nem encerram ordens em contratos de expiração fixa.
+- O gráfico exibe no máximo dois suportes e duas resistências relevantes: o nível mais próximo e o mais forte/recente de cada lado. As etiquetas compactas `S1/S2/R1/R2` e a redução dos pivôs removem poluição visual.
+- A análise ao vivo exige ao menos 100 candles completos e usa os 200 mais recentes. Treinamento e backtest preservam separadamente até 2.000 candles, sem reduzir a base histórica.
+- Sinal contra a estrutura atual aguarda CHOCH/fechamento; uma mudança recente só pode antecipar o próximo pivô quando regime, eficiência e pelo menos três votos de momentum estiverem alinhados.
+- Stop, alvo e espaço técnico são gravados com o sinal no SQLite por migração aditiva, sem apagar o histórico existente.
+- Estratégias `levels-v8` separam os modelos desta revisão; clique em **TREINAR IA** novamente para cada contexto.
+
+## Recalibração preservada da versão 1.2.1
 
 - O instalador correto indicado pelo usuário foi confirmado pelo hash como o segundo build oficial 0.9.0, commit `a16d551d`; ele substitui o 0.7.0 como referência de cobertura.
 - A comparação determinística confirma a regressão: o 0.9.0 preservava mais leituras rápidas porque indecisão e transição não atuavam como vetos isolados em todos os contextos.
@@ -177,7 +187,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.1 possui 277 testes automatizados cobrindo matemática, ausência de look-ahead, biblioteca de candles, matriz de nove políticas, cobertura progressiva baseada no 0.9.0, indecisão contextual, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.2.2 possui 285 testes automatizados cobrindo matemática, ausência de look-ahead, janela de 100–200 candles, stop/alvo técnico, S/R compacto, biblioteca de candles, matriz de nove políticas, cobertura progressiva baseada no 0.9.0, indecisão contextual, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
 
 ## Dados locais
 

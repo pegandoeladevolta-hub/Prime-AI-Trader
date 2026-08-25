@@ -44,9 +44,15 @@ class ModernDashboardTests(unittest.TestCase):
     def test_chart_has_timeframe_shortcuts_and_all_existing_overlays(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_center)
         for item in ('"1m"', '"5m"', '"15m"', '"1h"', '"4h"', '"sr"', '"fibonacci"',
-                     '"ema"', '"bollinger"', '"swings"', '"trend"', '"signals"'):
+                     '"ema"', '"bollinger"', '"swings"', '"trend"', '"signals"', '"levels"'):
             self.assertIn(item, source)
         self.assertIn("_build_insights", source)
+
+    def test_right_panel_shows_technical_stop_and_target_without_order_claim(self) -> None:
+        source = inspect.getsource(PrimeAITraderApp._build_right)
+        self.assertIn("Stop técnico", source)
+        self.assertIn("Alvo técnico", source)
+        self.assertIn("não executam ordens", source)
 
     def test_bottom_cards_match_requested_reference(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_insights)

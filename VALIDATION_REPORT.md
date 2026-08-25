@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 1.2.1
+# Relatório de validação — PRIME AI TRADER 1.2.2
 
 Data: 24/08/2026
 
@@ -21,6 +21,10 @@ Data: 24/08/2026
 | Padrões de candles | Doji, spinning top, pin bars, marubozu, engolfos, perfuração/nuvem, harami, inside/outside, tweezers, estrelas e sequências de três velas; somente candle fechado confirma. |
 | Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
 | Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
+| Janela ao vivo | Mínimo de 100 e máximo de 200 candles para sinais; até 2.000 candles preservados separadamente para treino/backtest. |
+| Stop/alvo | Invalidação e alvo técnicos simétricos por ATR, pivôs, timeframe, expiração e S/R; referências visuais sem execução de ordens. |
+| Suporte/resistência | Até dois níveis úteis de cada lado no gráfico, selecionados por distância, força e recência; análise interna preservada. |
+| Mudança de tendência | Contraestrutura exige CHOCH ou regime recente estável com eficiência ≥ 0,60 e três votos de momentum. |
 | Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; os nove cruzamentos com Price Action/Confirmação/Quantitativo possuem políticas progressivas explícitas. |
 | Cobertura | Matriz determinística com vinte cenários mantém cobertura não nula nos nove cruzamentos e ordem rápido ≥ equilibrado ≥ conservador. |
 | Referência 0.9.0 | O SHA-256 do instalador anexado coincide com o build oficial do commit `a16d551d`; cobertura e filtros foram comparados diretamente com esse código-fonte. |
@@ -32,7 +36,7 @@ Data: 24/08/2026
 | Forex | Sem volume centralizado fictício; sessões IANA/DST, ATR por par, cotação/atraso/spread quando disponíveis e referência diária separada. |
 | Notícias | GDELT, Google Notícias, Cointelegraph, CoinDesk, FXStreet e ForexLive; painel visível e atualização automática. |
 | Calendário | Eventos econômicos públicos com cache de uma hora e Finnhub opcional. |
-| Gráfico | Redesenho parcial da última vela, crosshair sem redesenho integral, precisão cambial e atalhos de timeframe. |
+| Gráfico | Entrada/stop/alvo, S1/S2/R1/R2, menos pivôs, redesenho parcial da última vela, crosshair e precisão cambial. |
 | Últimos sinais | Leitura real do banco em thread dedicada; sem operações inventadas e sem bloquear o Tkinter. |
 | SQLite / Windows | Conexões fechadas após cada operação, arquivos liberados e diretório temporário de testes corretamente isolado. |
 | Build seguro | Pillow, testes, compileall, import completo do Tkinter e verificação do código de saída antes do Inno Setup. |
@@ -41,13 +45,13 @@ Data: 24/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **276 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **284 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
-Os testes cobrem indicadores, BOS/CHOCH, falsos pullbacks, exaustão, M1, biblioteca de candles em múltiplas escalas, padrões em formação/confirmados, schema/invariância causal, purga, modelos separados, backtest, payout, migração SQLite, VEX, BullEx, loopback, providers, interface e instalador.
+Os testes cobrem indicadores, BOS/CHOCH, falsos pullbacks, exaustão, M1, janela 100–200, níveis técnicos simétricos, S/R compacto, biblioteca de candles em múltiplas escalas, padrões em formação/confirmados, schema/invariância causal, purga, modelos separados, backtest, payout, migração SQLite, VEX, BullEx, loopback, providers, interface e instalador.
 
-Na matriz determinística atual de vinte cenários com modelo alinhado, Price Action produziu 12/10/5 leituras, Confirmação 11/3/3 e Quantitativo 11/4/3, respectivamente nos perfis rápido/equilibrado/conservador. A versão 1.2.0 produzia 9/7/5, 9/3/3 e 8/4/3 na mesma matriz. Trata-se de um teste de regressão de cobertura e progressão entre perfis, não de taxa de acerto, desempenho financeiro ou promessa de lucro.
+Na matriz determinística atual de vinte cenários com modelo alinhado, Price Action produziu 11/9/4 leituras, Confirmação 10/3/3 e Quantitativo 10/4/3, respectivamente nos perfis rápido/equilibrado/conservador. A redução controlada vem do novo bloqueio de direção contrária sem mudança confirmada; a ordem Rápido ≥ Equilibrado ≥ Conservador e a cobertura mínima continuam testadas. Trata-se de regressão de cobertura, não de taxa de acerto, desempenho financeiro ou promessa de lucro.
 
 ## Interpretação correta
 
@@ -57,6 +61,6 @@ As políticas globais restauram parte da cobertura observada no 0.9.0 onde filtr
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.2.1`.
+Identificador do candidato validado: `1.2.2`.
 
-O candidato Windows deve repetir obrigatoriamente os 277 testes (276 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 285 testes (284 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.

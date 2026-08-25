@@ -22,6 +22,7 @@ from ..forex.public import merge_forex_quote
 from ..platform.bullex import BULLEX_CVM_ALERT_URL, BullexBrowserBridge
 from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market, merge_vex_quote
 from ..priceaction.professional import live_refresh_interval
+from ..priceaction.structure import display_zones
 from ..signals.timing import preserve_recent_confirmed_signal
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
@@ -163,7 +164,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.2.1", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.2.2", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -282,7 +283,7 @@ class PrimeAITraderApp(tk.Tk):
             self.timeframe_buttons[timeframe] = button
         self._refresh_timeframe_buttons()
         ttk.Button(toolbar, text="IND", style="Tool.TButton", width=4, command=self._toggle_indicators).pack(side="right", padx=1)
-        for text, name in (("S/R", "sr"), ("FIB", "fibonacci"), ("EMA", "ema"), ("BB", "bollinger"), ("TOPOS", "swings"), ("TEND", "trend"), ("SINAIS", "signals")):
+        for text, name in (("S/R", "sr"), ("FIB", "fibonacci"), ("EMA", "ema"), ("BB", "bollinger"), ("TOPOS", "swings"), ("TEND", "trend"), ("SINAIS", "signals"), ("S/A", "levels")):
             ttk.Button(toolbar, text=text, style="Tool.TButton", width=4 if len(text) <= 4 else 5,
                        command=lambda n=name: self._toggle_overlay(n)).pack(side="right", padx=1)
         ttk.Button(toolbar, text="FIT", style="Tool.TButton", width=3, command=lambda: self.chart.fit()).pack(side="right", padx=1)
@@ -455,6 +456,21 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(details, text="OPERAÇÃO", style="CardMuted.TLabel", font=("Segoe UI Semibold", 8)).pack(anchor="w", pady=(0, 3))
         self.entry_label = ttk.Label(details, text="Entrada: —", style="Card.TLabel")
         self.entry_label.pack(anchor="w", pady=2)
+        self.stop_label = ttk.Label(
+            details, text="Stop técnico: —", style="Card.TLabel",
+            foreground=COLORS["red"],
+        )
+        self.stop_label.pack(anchor="w", pady=2)
+        self.target_label = ttk.Label(
+            details, text="Alvo técnico: —", style="Card.TLabel",
+            foreground=COLORS["green"],
+        )
+        self.target_label.pack(anchor="w", pady=2)
+        self.levels_note_label = ttk.Label(
+            details, text="Níveis técnicos; não executam ordens.",
+            style="CardMuted.TLabel", wraplength=250,
+        )
+        self.levels_note_label.pack(anchor="w", pady=(2, 3))
         self.horizon_label = ttk.Label(details, text="Horizonte: —", style="Card.TLabel")
         self.horizon_label.pack(anchor="w", pady=2)
         self.payout_label = ttk.Label(details, text="Pagamento / equilíbrio: —", style="CardMuted.TLabel", wraplength=250)
@@ -1163,7 +1179,11 @@ class PrimeAITraderApp(tk.Tk):
         self.start_analysis()
 
     def render_snapshot(self, snapshot: AnalysisSnapshot) -> None:
-        zones = snapshot.structure.support_zones + snapshot.structure.resistance_zones
+        last = snapshot.indicators.iloc[-1]
+        atr = None if pd.isna(last.get("atr_14")) else float(last.get("atr_14"))
+        zones = display_zones(
+            snapshot.structure, float(last["close"]), atr, max_each=2,
+        )
         for name, value in self.controller.settings.overlays.items():
             self.chart.overlays[name] = value
         context_key = f"{snapshot.market}|{snapshot.symbol}|{snapshot.timeframe}"
@@ -1293,6 +1313,21 @@ class PrimeAITraderApp(tk.Tk):
         self.setup_label.configure(text=f"Estratégia: {signal.setup_name}{regime}")
         digits = market_price_decimals(f"{snapshot.market}|{snapshot.symbol}")
         self.entry_label.configure(text=f"Entrada: {signal.entry:,.{digits}f}" if signal.entry else "Entrada: —")
+        has_levels = signal.direction != Direction.WAIT and signal.entry is not None
+        self.stop_label.configure(
+            text=(f"Stop técnico: {signal.technical_stop:,.{digits}f}"
+                  if has_levels and signal.technical_stop is not None else "Stop técnico: —"),
+        )
+        self.target_label.configure(
+            text=(f"Alvo técnico: {signal.technical_target:,.{digits}f}"
+                  if has_levels and signal.technical_target is not None else "Alvo técnico: —"),
+        )
+        ratio = (
+            f" • espaço {signal.technical_room_ratio:.2f}R"
+            if has_levels and signal.technical_room_ratio is not None else ""
+        )
+        note = signal.technical_levels_note if has_levels else "Aparecem quando houver sinal direcional."
+        self.levels_note_label.configure(text=f"{note}{ratio}")
         self.horizon_label.configure(text=f"Expiração: {signal.horizon_minutes} minuto(s)")
         synced = self._platform_snapshot and self._platform_snapshot.fresh() and self._platform_snapshot.payout_percent == signal.payout_percent
         platform_name = self._platform_snapshot.platform_name if synced else ""

@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS signals (
     stake_amount REAL NOT NULL DEFAULT 1.0,
     profit_loss REAL,
     result_source TEXT NOT NULL DEFAULT 'INFERRED',
-    result_observed_at TEXT
+    result_observed_at TEXT,
+    technical_stop REAL,
+    technical_target REAL,
+    technical_room_ratio REAL
 );
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, timeframe);
@@ -53,6 +56,9 @@ MIGRATION_COLUMNS = {
     "profit_loss": "REAL",
     "result_source": "TEXT NOT NULL DEFAULT 'INFERRED'",
     "result_observed_at": "TEXT",
+    "technical_stop": "REAL",
+    "technical_target": "REAL",
+    "technical_room_ratio": "REAL",
 }
 
 
@@ -104,13 +110,15 @@ class Repository:
             cursor = connection.execute(
                 """INSERT INTO signals(created_at, market, symbol, timeframe, horizon_minutes, direction, state,
                 score, entry, probabilities_json, indicators_json, confluences_json, model_version, mode,
-                platform, strategy, sensitivity, payout_percent, stake_amount, result_source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                platform, strategy, sensitivity, payout_percent, stake_amount, result_source,
+                technical_stop, technical_target, technical_room_ratio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (signal.created_at.isoformat(), market, symbol, timeframe, signal.horizon_minutes,
                  signal.direction.value, signal.state.value, signal.score, signal.entry,
                  json.dumps(signal.probabilities), json.dumps(indicators), json.dumps(signal.confluences, ensure_ascii=False),
                  signal.model_version, mode, str(platform or "MANUAL").upper(), strategy,
-                 sensitivity, payout, stake, "INFERRED"),
+                 sensitivity, payout, stake, "INFERRED", signal.technical_stop,
+                 signal.technical_target, signal.technical_room_ratio),
             )
             return int(cursor.lastrowid)
 

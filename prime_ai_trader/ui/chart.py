@@ -33,7 +33,10 @@ class CandleChart(tk.Canvas):
         self.fibonacci: FibonacciResult | None = None
         self.structure: MarketStructure | None = None
         self.signal: Signal | None = None
-        self.overlays = {"sr": True, "fibonacci": True, "ema": True, "bollinger": True, "swings": True, "trend": True, "signals": True}
+        self.overlays = {
+            "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
+            "swings": True, "trend": True, "signals": True, "levels": True,
+        }
         self.visible_count = 90
         self.offset = 0
         self.drag_x: int | None = None
@@ -128,6 +131,18 @@ class CandleChart(tk.Canvas):
 
     def _bounds(self, visible: list[Candle]) -> tuple[float, float]:
         low, high = min(c.low for c in visible), max(c.high for c in visible)
+        if (self.overlays.get("levels") and self.signal
+                and self.signal.direction != Direction.WAIT and self.signal.entry is not None):
+            level_values = (
+                self.signal.entry, self.signal.technical_stop,
+                self.signal.technical_target,
+            )
+            valid_levels = [
+                float(value) for value in level_values
+                if value is not None and math.isfinite(float(value))
+            ]
+            if valid_levels:
+                low, high = min(low, *valid_levels), max(high, *valid_levels)
         if self._is_forex():
             tick = 10 ** -market_price_decimals(self._context_key, visible[-1].close)
             if high - low < tick * 8:
@@ -173,10 +188,32 @@ class CandleChart(tk.Canvas):
             self.create_line(left, yy, right, yy, fill=COLORS["grid"], width=1)
             self.create_text(right + 8, yy, anchor="w", text=self._format_price(price), fill=COLORS["muted"], font=("Segoe UI", 8))
         if self.overlays.get("sr"):
+            support_number = resistance_number = 0
             for zone in self.zones:
                 color = COLORS["green"] if zone.kind == "SUPORTE" else COLORS["red"]
-                self.create_rectangle(left, y(zone.high), right, y(zone.low), fill=color, stipple="gray12", outline=color, width=1)
-                self.create_text(left + 8, y(zone.high) - 3, anchor="sw", text=f"{zone.kind} {self._format_price(zone.low)}–{self._format_price(zone.high)}", fill=color, font=("Segoe UI", 8))
+                zone_top, zone_bottom = y(zone.high), y(zone.low)
+                if zone_bottom < top or zone_top > bottom:
+                    continue
+                if zone.kind == "SUPORTE":
+                    support_number += 1
+                    label = f"S{support_number}  {self._format_price(zone.midpoint)}"
+                else:
+                    resistance_number += 1
+                    label = f"R{resistance_number}  {self._format_price(zone.midpoint)}"
+                clipped_top, clipped_bottom = max(top, zone_top), min(bottom, zone_bottom)
+                self.create_rectangle(
+                    left, clipped_top, right, clipped_bottom, fill=color,
+                    stipple="gray12", outline="", tags="structure-zone",
+                )
+                midpoint_y = y(zone.midpoint)
+                self.create_line(
+                    left, midpoint_y, right, midpoint_y, fill=color,
+                    width=1, dash=(3, 5), tags="structure-zone",
+                )
+                self.create_text(
+                    right - 5, midpoint_y - 2, anchor="se", text=label,
+                    fill=color, font=("Segoe UI Semibold", 8), tags="structure-zone",
+                )
         if self.overlays.get("fibonacci") and self.fibonacci:
             for ratio, price in self.fibonacci.levels.items():
                 yy = y(price)
@@ -208,8 +245,8 @@ class CandleChart(tk.Canvas):
                 self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags=tags)
         if self.structure and self.overlays.get("swings"):
             for pivot_index, marker, color, anchor in (
-                *[(i, "▼", COLORS["red"], "s") for i in self.structure.pivot_highs[-8:]],
-                *[(i, "▲", COLORS["green"], "n") for i in self.structure.pivot_lows[-8:]],
+                *[(i, "▼", COLORS["red"], "s") for i in self.structure.pivot_highs[-4:]],
+                *[(i, "▲", COLORS["green"], "n") for i in self.structure.pivot_lows[-4:]],
             ):
                 local = pivot_index - start
                 if 0 <= local < count:
@@ -225,6 +262,9 @@ class CandleChart(tk.Canvas):
                     price1 = float(self.indicators[field].iloc[i1]); price2 = float(self.indicators[field].iloc[i2])
                     x1 = left + (i1 - start + 0.5) * step; x2 = left + (i2 - start + 0.5) * step
                     self.create_line(x1, y(price1), x2, y(price2), fill=COLORS["amber"], width=2, dash=(6, 3))
+        if (self.signal and self.signal.direction != Direction.WAIT
+                and self.signal.entry is not None and self.overlays.get("levels")):
+            self._draw_trade_levels(left, right, top, bottom, y)
         if self.signal and self.signal.direction != Direction.WAIT and self.overlays.get("signals"):
             marker = "▲ COMPRA" if self.signal.direction == Direction.BUY else "▼ VENDA"
             color = COLORS["green"] if self.signal.direction == Direction.BUY else COLORS["red"]
@@ -240,6 +280,30 @@ class CandleChart(tk.Canvas):
             "volume_base": volume_base, "volume_height": volume_height,
             "body_width": body_width, "volume_visible": volume_visible,
         }
+
+    def _draw_trade_levels(self, left: float, right: float, top: float,
+                           bottom: float, y) -> None:
+        assert self.signal is not None and self.signal.entry is not None
+        levels = (
+            ("ENTRADA", self.signal.entry, COLORS["accent2"], (2, 4)),
+            ("STOP TÉCNICO", self.signal.technical_stop, COLORS["red"], (6, 3)),
+            ("ALVO TÉCNICO", self.signal.technical_target, COLORS["green"], (6, 3)),
+        )
+        for label, price, color, dash in levels:
+            if price is None or not math.isfinite(float(price)):
+                continue
+            yy = y(float(price))
+            if not top <= yy <= bottom:
+                continue
+            self.create_line(
+                left, yy, right, yy, fill=color, width=1.5, dash=dash,
+                tags="trade-level",
+            )
+            self.create_text(
+                left + 7, yy - 3, anchor="sw",
+                text=f"{label}  {self._format_price(float(price))}",
+                fill=color, font=("Segoe UI Semibold", 8), tags="trade-level",
+            )
 
     def _redraw_live_candle(self) -> None:
         """Redesenha só a última vela e o preço; mantém grid, overlays e histórico intactos."""

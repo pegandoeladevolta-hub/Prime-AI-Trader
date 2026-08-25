@@ -102,6 +102,10 @@ class Signal:
     candlestick_patterns: list[str] = field(default_factory=list)
     candlestick_context: str = ""
     reversal_risk: str = ""
+    technical_stop: float | None = None
+    technical_target: float | None = None
+    technical_room_ratio: float | None = None
+    technical_levels_note: str = ""
 
 
 @dataclass(slots=True)
