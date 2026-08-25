@@ -1,9 +1,9 @@
 ﻿{
     "status":  "success",
-    "run_id":  32880969027,
-    "commit_sha":  "1636aca84f520ba450bbbabedcb4c6fb1bc5f759",
-    "artifact_id":  9575856269,
+    "run_id":  32907934565,
+    "commit_sha":  "8dc70bb26d0b968a20069e66f5b1a1eea7a393c3",
+    "artifact_id":  9585565335,
     "artifact_name":  "PRIME-AI-TRADER-Windows-x64",
-    "artifact_url":  "https://github.com/pegandoeladevolta-hub/Prime-AI-Trader/actions/runs/32880969027/artifacts/9575856269",
-    "artifact_digest":  "9044b3ee967c0b6ff8b71dcd2f69cd3a420a3be085846b43afd004fb153a2064"
+    "artifact_url":  "https://github.com/pegandoeladevolta-hub/Prime-AI-Trader/actions/runs/32907934565/artifacts/9585565335",
+    "artifact_digest":  "f1186ad5dcebfef7cbcffb12e8446acc2a0243f2a4563e80921eb5387756e78b"
 }
