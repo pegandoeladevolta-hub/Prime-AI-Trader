@@ -92,6 +92,25 @@ def _directional_confluence(row: pd.Series, prediction: int,
     candle_exhaustion = row.get("candlestick_exhaustion")
     if pd.notna(candle_exhaustion) and sign * float(candle_exhaustion) > 0.58:
         return False
+    reversal_votes = 0
+    micro_trend = row.get("micro_trend_atr")
+    if pd.notna(micro_trend) and sign * float(micro_trend) <= -0.35:
+        reversal_votes += 1
+    momentum_turn = row.get("momentum_turn_score")
+    if pd.notna(momentum_turn) and sign * float(momentum_turn) <= -0.35:
+        reversal_votes += 1
+    close_position = row.get("close_position")
+    if pd.notna(close_position):
+        quality = float(close_position) if sign > 0 else 1.0 - float(close_position)
+        if quality <= 0.35:
+            reversal_votes += 1
+    valid_taker = row.get("taker_buy_valid")
+    orderflow = row.get("orderflow_imbalance")
+    if (pd.notna(valid_taker) and float(valid_taker) > 0
+            and pd.notna(orderflow) and sign * float(orderflow) <= -0.20):
+        reversal_votes += 1
+    if reversal_votes >= 2:
+        return False
     votes = (
         sign * float(row.get("ema_distance_9_21", 0) or 0) > 0,
         sign * float(row.get("ema_distance_21_50", 0) or 0) > 0,

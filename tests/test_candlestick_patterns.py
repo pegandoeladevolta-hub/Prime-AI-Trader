@@ -165,7 +165,11 @@ class CandlestickLibraryTests(unittest.TestCase):
             "horizon_minutes": 1, "strategy": "crypto-structure-volume-candles-v7",
             "mode": "CONFIRMAÇÃO", "feature_schema": FEATURE_SCHEMA_VERSION,
         }
-        with tempfile.TemporaryDirectory() as temporary:
+        # Isola a política de doji: um pullback incompleto é um veto próprio
+        # e não pode ser usado para demonstrar indecisão contextual segura.
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "prime_ai_trader.priceaction.professional.detect_pullback", return_value=None,
+        ):
             engine = SignalEngine(ModelManager(Path(temporary)))
             fast = engine.generate(
                 indicators, features, structure, automatic_fibonacci(frame),

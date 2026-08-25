@@ -21,6 +21,8 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 13. **Padrões de candles** — padrões de uma, duas e três velas são normalizados por range/ATR, usados em qualquer timeframe e só entram como confirmação depois do fechamento.
 14. **Janela operacional** — a análise ao vivo exige no mínimo 100 candles e usa no máximo os 200 mais recentes; treino/backtest mantêm histórico separado e maior.
 15. **Níveis da operação** — stop técnico e alvo combinam ATR, expiração, pivôs e zona oposta. Espaço curto é avisado; os níveis não representam ordens executadas pela plataforma.
+16. **Reversão de curto horizonte** — a última vela concluída é confrontada com microtendência, MACD/RSI, pavio contrário, EMA 9, divergência e agressão real. Duas evidências independentes já suspendem uma entrada com vencimento curto.
+17. **Validade temporal** — o sinal perde validade se a nova cotação inverter materialmente, cruzar a invalidação técnica ou se a VEX/BullEx estiver nos últimos segundos do vencimento real.
 
 ## Stop técnico, alvo e suporte/resistência
 
@@ -39,6 +41,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 - Padrão direcional soma no máximo uma confluência de price action; nunca substitui tendência, momentum, estrutura ou volume válido.
 - Padrão contrário forte cancela a confirmação; doji/indecisão exige novo rompimento e fechamento; sequência esticada com perda de corpo/pavio contrário é marcada como exaustão.
 - Em M1/M3, um pullback precisa de retomada, momentum, rejeição/estrutura e fechamento aprovado pela biblioteca. Um pavio momentâneo não é tratado como retomada confirmada.
+- Pullback em formação não soma confluência positiva. Em M1/M3 ele nunca confirma entrada; no modo Confirmação, a retomada validada é obrigatória também nos demais timeframes.
 - Durante WebSocket, a biblioteca pode informar `EM FORMAÇÃO`; esses dados não são gravados como sinal confirmado.
 
 ## Separação por mercado
@@ -46,6 +49,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 ### Criptomoedas
 
 - Volume real, volume relativo e taker buy da Binance são usados quando a Binance é a fonte.
+- Taker buy ausente ou inválido permanece neutro; Coinbase/Kraken não são apresentados como se informassem 100% de agressão vendedora.
 - VWAP/OBV só participam com volume válido; fontes alternativas sem esse dado não o inventam.
 - EMAs 9/21/50, RSI, MACD, ADX, ATR, BOS/CHOCH, pullback, rompimento/reteste, liquidez, divergência, exaustão e S/R têm regras simétricas para compra/venda.
 - Timeframe superior usa somente barras já concluídas.
@@ -68,7 +72,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 
 Os perfis também possuem faixas próprias de volatilidade, distância máxima da EMA 21, peso da IA, vantagem sobre a direção oposta e margem acima do ponto de equilíbrio do payout. O perfil rápido pode anunciar uma leitura durante a vela atual; essa leitura é apresentada honestamente como **em formação**, e somente o fechamento da vela produz um sinal confirmado.
 
-Um sinal recém-confirmado permanece visível por uma janela de 8 a 12 segundos, conforme timeframe, em todos os modos e perfis. Essa janela não reaproveita padrão em formação e não prolonga um sinal antigo; serve apenas para impedir que o primeiro tick novo apague a confirmação antes que o usuário consiga vê-la.
+Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 segundos, conforme timeframe, em todos os modos e perfis. A preservação termina imediatamente se o preço contrariar a entrada em aproximadamente 0,18 ATR, se o stop técnico for cruzado ou se o vencimento visível entrar na janela final. Candle aberto continua sem poder confirmar uma nova entrada.
 
 ## Matriz de decisão
 
@@ -80,7 +84,7 @@ Um sinal recém-confirmado permanece visível por uma janela de 8 a 12 segundos,
 
 Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
-Na versão 1.2.2, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Isso diferencia uma tendência realmente mudando de um sinal simplesmente contrário à estrutura.
+Na versão 1.2.3, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Além disso, o contexto não pode apresentar um pullback incompleto nem múltiplos sinais independentes de reversão iminente.
 
 A versão 1.2.1 usa como referência o build oficial 0.9.0 do commit `a16d551d`. Nos perfis marcados como contextuais, um doji fechado só deixa de ser veto isolado quando o regime concorda e a estrutura não contradiz a direção, a eficiência mínima e o momentum são suficientes, o timeframe superior não está contrário e não existe transição ou exaustão. Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido usam essa regra; o Quantitativo também exige apoio do modelo. Os demais cruzamentos permanecem rígidos.
 
@@ -93,7 +97,7 @@ Notícias e eventos permanecem informativos quando o bloqueio automático está 
 - Entre treino e teste existe uma purga proporcional ao horizonte previsto.
 - O modelo é escolhido pelo limite inferior de Wilson do acerto direcional seletivo, com requisitos de amostra e cobertura.
 - Cada mercado, ativo, timeframe, horizonte, estratégia, sensibilidade, modo e versão das features possui modelo próprio.
-- O schema 7 preserva a separação de mercado do schema 6 e adiciona viés, reversão, indecisão, exaustão, engolfo, pin bar e sequência de três candles; modelos antigos precisam ser treinados novamente.
+- O schema 8 preserva os padrões do schema 7 e adiciona microtendência por ATR, virada de momentum, distância da EMA 9, validade do taker e desequilíbrio real de agressão; modelos antigos precisam ser treinados novamente.
 - A calibração real também é contextual e exige pelo menos 30 operações direcionais; uma amostra menor é mostrada como informativa, nunca como desempenho comprovado.
 - O backtest apresenta intervalo de confiança de Wilson, ponto de equilíbrio e expectativa compatível com o payout escolhido.
 

@@ -377,9 +377,29 @@ class TradingController:
 
     def _apply_platform_alignment(self, signal: Signal, market: str, symbol: str,
                                   reference_price: float | None) -> Signal:
-        if not self.settings.platform_sync_enabled or not self.settings.platform_block_mismatch:
+        if not self.settings.platform_sync_enabled:
             return signal
-        reasons = compare_platform_market(self.platform_snapshot, market, symbol, reference_price)
+        snapshot = self.platform_snapshot
+        reasons = (
+            compare_platform_market(snapshot, market, symbol, reference_price)
+            if self.settings.platform_block_mismatch else []
+        )
+        if (not reasons and signal.direction != Direction.WAIT and snapshot
+                and snapshot.fresh() and snapshot.expires_at is not None
+                and (not snapshot.asset or snapshot.asset == symbol)):
+            remaining = (snapshot.expires_at - datetime.now(timezone.utc)).total_seconds()
+            minimum = 8.0 if signal.horizon_minutes <= 1 else 12.0
+            if remaining <= minimum:
+                platform_name = getattr(snapshot, "platform_name", self.settings.platform_name)
+                if remaining <= 0:
+                    reasons.append(
+                        f"Vencimento da {platform_name} acabou de fechar; aguarde a próxima vela"
+                    )
+                else:
+                    reasons.append(
+                        f"Vencimento da {platform_name} em {max(0, round(remaining))}s; "
+                        "entrada tardia tem risco de reversão"
+                    )
         if not reasons:
             return signal
         signal.direction = Direction.WAIT
@@ -390,8 +410,15 @@ class TradingController:
         signal.technical_room_ratio = None
         signal.technical_levels_note = ""
         signal.waiting_reasons = (reasons + signal.waiting_reasons)[:4]
-        platform = getattr(self.platform_snapshot, "platform_name", self.settings.platform_name)
-        signal.validation_note = f"Análise pausada até a {platform} e a fonte pública estarem alinhadas."
+        platform = getattr(snapshot, "platform_name", self.settings.platform_name)
+        if any("Vencimento" in reason for reason in reasons):
+            signal.validation_note = (
+                f"Aguarde um novo ciclo completo da {platform} antes de entrar."
+            )
+        else:
+            signal.validation_note = (
+                f"Análise pausada até a {platform} e a fonte pública estarem alinhadas."
+            )
         return signal
 
     def train(self) -> TrainingReport:

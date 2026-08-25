@@ -13,6 +13,7 @@ from ..priceaction.levels import calculate_technical_levels
 from ..priceaction.professional import ProfessionalAssessment, assess_professional_market
 from ..priceaction.structure import MarketStructure
 from ..strategies.context import forex_sessions, strategy_key
+from .reversal import assess_entry_reversal
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,11 +331,15 @@ class SignalEngine:
 
         if is_crypto and has_real_volume:
             taker_buy = _number(last.get("taker_buy_volume"))
-            taker_ratio = taker_buy / _number(last.get("volume"), 1.0)
-            if taker_ratio >= 0.56:
-                buy += 6; buy_reasons.append(f"Força compradora real da Binance {taker_ratio * 100:.0f}%")
-            elif taker_ratio <= 0.44:
-                sell += 6; sell_reasons.append(f"Força vendedora real da Binance {(1 - taker_ratio) * 100:.0f}%")
+            actual_volume = _number(last.get("volume"), 1.0)
+            # Coinbase/Kraken e velas locais não entregam taker buy. Zero
+            # significa dado ausente, não uma agressão vendedora de 100%.
+            if 0 < taker_buy <= actual_volume:
+                taker_ratio = taker_buy / actual_volume
+                if taker_ratio >= 0.56:
+                    buy += 6; buy_reasons.append(f"Força compradora real da Binance {taker_ratio * 100:.0f}%")
+                elif taker_ratio <= 0.44:
+                    sell += 6; sell_reasons.append(f"Força vendedora real da Binance {(1 - taker_ratio) * 100:.0f}%")
 
         if is_forex and isinstance(indicators.index, pd.DatetimeIndex):
             active_sessions = forex_sessions(indicators.index[-1].to_pydatetime())
@@ -595,6 +600,17 @@ class SignalEngine:
         analysis_advisories: list[str] = []
 
         waiting: list[str] = []
+        unconfirmed_pullback = bool(
+            candle_closed and professional.pullback is not None
+            and professional.pullback.direction == direction
+            and not professional.pullback.confirmed
+            and (professional.policy.minutes <= 3 or policy.mode == "CONFIRMAÇÃO")
+        )
+        if unconfirmed_pullback:
+            waiting.append(
+                "Pullback sem retomada confirmada; aguarde rejeição, momentum "
+                "e novo fechamento"
+            )
         if score < threshold:
             waiting.append(f"Pontuação {score}/{threshold} para o modo {sensitivity_key.lower()}")
         if abs(buy_score - sell_score) < required_gap:
@@ -698,6 +714,20 @@ class SignalEngine:
                 analysis_advisories.append(
                     "Última vela fechou levemente contra a leitura; direção permanece em observação"
                 )
+        reversal = assess_entry_reversal(
+            indicators, features, direction, market=market,
+            timeframe=context_timeframe or professional.policy.timeframe,
+            horizon_minutes=horizon_minutes, candle_closed=candle_closed,
+        )
+        if reversal.blocks(policy.sensitivity):
+            details = "; ".join(reversal.reasons[:2])
+            waiting.insert(
+                0, f"Risco de reversão antes da expiração ({reversal.votes} sinais): {details}",
+            )
+        elif reversal.reasons:
+            analysis_advisories.append(
+                f"Possível perda de força: {reversal.reasons[0]}"
+            )
         independent = self._independent_confirmations(confluences)
         if policy.minimum_independent and len(independent) < policy.minimum_independent:
             waiting.append(
@@ -760,6 +790,7 @@ class SignalEngine:
         same_direction_event = bool(professional.event and professional.event.direction == direction)
         for reason in penalties:
             if (reason.startswith("Pullback identificado") and profile.early_reading
+                    and not unconfirmed_pullback
                     and professional.pullback is not None
                     and professional.pullback.direction == direction
                     and not professional.pullback.exhausted
@@ -824,7 +855,8 @@ class SignalEngine:
             ),
             "reversal_risk": next((
                 reason for reason in waiting
-                if "Padrão" in reason or "indecisão" in reason or "exaustão" in reason
+                if ("Padrão" in reason or "indecisão" in reason or "exaustão" in reason
+                    or "reversão" in reason or "Pullback sem retomada" in reason)
             ), ""),
             "warnings": list(dict.fromkeys(analysis_advisories))[:5],
             "technical_stop": technical_levels.invalidation if technical_levels else None,

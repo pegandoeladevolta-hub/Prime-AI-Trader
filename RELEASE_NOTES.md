@@ -1,5 +1,21 @@
 # Release notes
 
+## 1.2.3 — 25/08/2026
+
+### Auditoria de falsos sinais e entradas próximas do vencimento
+
+- Pullbacks ainda em formação deixam de contar como confluências positivas e não podem confirmar entrada em M1/M3; no modo Confirmação, a retomada é obrigatória em qualquer timeframe.
+- A matriz antiga aceitava sete pullbacks incompletos entre dez leituras rápidas sintéticas. A cobertura continua positiva e progressiva, mas nenhuma oportunidade é mantida apenas para cumprir uma meta artificial de quantidade.
+- Nova análise causal e simétrica de reversão combina mudança dos fechamentos, desaceleração simultânea de MACD/RSI, rejeição por pavio, perda da EMA 9, divergência recente e fluxo real contrário da Binance.
+- Taker buy ausente em Coinbase/Kraken e em velas sem esse dado não é mais confundido com pressão vendedora de 100%.
+- Schema 8 adiciona microtendência normalizada por ATR, virada de momentum, distância da EMA 9, validade do taker e desequilíbrio real de agressão; Forex continua sem volume fictício.
+- Backtest passa a rejeitar combinações equivalentes de microtendência, momentum, fechamento e fluxo contrário.
+- Sinal confirmado deixa de ser preservado quando a nova cotação ultrapassa a invalidação técnica ou se move materialmente contra a entrada.
+- VEX e BullEx recusam entradas nos últimos segundos do vencimento real quando a sincronização visual estiver habilitada.
+- Pré-sinal por voz só é anunciado quando a opção correspondente estiver explicitamente ativada; sinais confirmados continuam prioritários.
+- Novas estratégias `crypto-structure-orderflow-reversal-v9` e `forex-session-priceaction-reversal-v9` isolam modelos antigos. Após instalar, treine novamente o contexto selecionado.
+- Interface aprovada, cartão de voz compacto, plataformas somente leitura, fontes públicas, histórico, notícias e controles existentes permanecem preservados.
+
 ## 1.2.2 — 24/08/2026
 
 ### Níveis técnicos e gráfico estrutural limpo

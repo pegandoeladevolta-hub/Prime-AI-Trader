@@ -1,10 +1,19 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.2 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.3 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.2.2
+## Destaques da versão 1.2.3
+
+- Pullback incompleto não soma confirmações falsas e não gera entrada confirmada em M1/M3; o modo **CONFIRMAÇÃO** exige retomada real em todos os gráficos.
+- O risco de reversão é avaliado por evidências independentes: sequência de preços, MACD + RSI, pavio contrário, perda da EMA 9, divergência e fluxo comprador/vendedor real.
+- Volume taker ausente em Coinbase/Kraken não é mais interpretado como pressão vendedora de 100%; Forex continua sem volume centralizado inventado.
+- Sinais são invalidados se o preço virar contra a entrada ou tocar o stop técnico antes da execução manual. VEX/BullEx não liberam entradas nos últimos segundos do vencimento visível.
+- Alertas de voz de pré-sinal respeitam a opção desativada; por padrão, somente sinais confirmados são anunciados.
+- Schema 8 e estratégias `reversal-v9` separam modelos antigos. Depois de instalar, clique em **TREINAR IA** para cada ativo/timeframe/expiração usado.
+
+## Recursos preservados da versão 1.2.2
 
 - Todo sinal direcional recebe **stop técnico de invalidação** e **alvo técnico**, calculados simetricamente para compra/venda por ATR, pivôs, suporte/resistência, timeframe e expiração.
 - Entrada, stop e alvo ficam visíveis no gráfico e no cartão da operação. São referências de análise e educação; não enviam nem encerram ordens em contratos de expiração fixa.
@@ -12,7 +21,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - A análise ao vivo exige ao menos 100 candles completos e usa os 200 mais recentes. Treinamento e backtest preservam separadamente até 2.000 candles, sem reduzir a base histórica.
 - Sinal contra a estrutura atual aguarda CHOCH/fechamento; uma mudança recente só pode antecipar o próximo pivô quando regime, eficiência e pelo menos três votos de momentum estiverem alinhados.
 - Stop, alvo e espaço técnico são gravados com o sinal no SQLite por migração aditiva, sem apagar o histórico existente.
-- Estratégias `levels-v8` separam os modelos desta revisão; clique em **TREINAR IA** novamente para cada contexto.
+- Stop, alvo, estratégias específicas por mercado e treinamento separado por contexto permanecem disponíveis.
 
 ## Recalibração preservada da versão 1.2.1
 
@@ -38,7 +47,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Seleção entre **VEX** e **BULLEX**, preservando a integração VEX. Ambas usam apenas leitura visual local em perfil dedicado do Chrome/Edge, sem senha no app, cookies, tokens, saldo, cliques ou execução.
 - A BullEx fica desabilitada por padrão e exige aceite explícito do [alerta da CVM sobre Digital Smart LLC/BULLEX](https://www.gov.br/cvm/pt-br/assuntos/noticias/2025/cvm-alerta-para-atuacao-irregular-da-digital-smart-llc-bullex-e-seu-responsavel). O aplicativo não promove depósitos.
 - Estratégias e features agora são separadas: cripto usa volume real/taker da Binance e VWAP somente com volume válido; Forex ignora volume centralizado inexistente e usa sessões de Tóquio, Londres e Nova York com timezone IANA/DST.
-- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 7. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
+- O contexto dos modelos inclui mercado, ativo, timeframe, expiração, estratégia, sensibilidade, modo e schema 8. BTC e EUR/USD nunca compartilham o mesmo arquivo de modelo.
 - M1/expiração M1 exige candle fechado para confirmação, recusa fonte atrasada e aplica severidade progressiva a transição, falso pullback, exaustão e espaço até S/R conforme modo/perfil.
 - Profit factor passa a ser financeiro por payout e valor de entrada. O histórico separa plataforma, ativo, estratégia e resultado observado manualmente de resultado inferido pelo gráfico.
 - O instalador voltou a ser Inno Setup nativo e o build valida `tkinter.filedialog`, `messagebox` e `ttk` antes do PyInstaller, corrigindo a falha do antigo `setup_entry.py`.
@@ -69,7 +78,7 @@ Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicat
 - Gráfico Forex com cinco casas decimais, três para pares em JPY, escala ampliada e remoção da área de volume quando a fonte não fornece volume real.
 - Perfis calibrados de verdade: conservador exige alta confirmação; equilibrado mantém seletividade intermediária; rápido prioriza leitura imediata com duas confirmações.
 - Score mínimo por perfil: conservador 86, equilibrado 73 e rápido 57; ADX, momentum, volatilidade, vantagem direcional e peso da IA também são independentes.
-- O perfil rápido avisa a direção ainda durante a formação da vela, deixando claro que a confirmação final depende do fechamento.
+- O perfil rápido pode avisar a direção durante a formação da vela somente quando o usuário ativa explicitamente os alertas de pré-sinal.
 - Com bloqueio automático desligado, notícias e eventos aparecem somente na tela: o robô não repete mais o aviso genérico de risco no áudio.
 - Eventos realmente bloqueantes possuem intervalo de cinco minutos entre avisos iguais; sinais confirmados sempre têm prioridade.
 - As 10 criptomoedas identificadas na plataforma aparecem primeiro: BTC, LTC, ADA, BNB, XRP, ETH, SOL, DOGE, SUI e XLM/Stellar.
@@ -154,7 +163,7 @@ Após instalar uma versão com novo motor de análise, selecione o ativo, timefr
 |---|---:|---:|---:|---|
 | CONSERVADOR | 86 | 5 | 20 | Alta confirmação e menos operações. |
 | EQUILIBRADO | 73 | 4 | 15 | Frequência e confirmação intermediárias. |
-| RÁPIDO | 57 | 2 | 10 | Leitura imediata, mais sinais e aviso antecipado durante a vela. |
+| RÁPIDO | 57 | 2 | 10 | Leitura imediata e pré-sinal por voz somente quando ativado. |
 
 Uma leitura rápida em formação não é apresentada como sinal já confirmado. Nenhum perfil promete taxa fixa de acerto.
 
@@ -187,7 +196,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.2 possui 285 testes automatizados cobrindo matemática, ausência de look-ahead, janela de 100–200 candles, stop/alvo técnico, S/R compacto, biblioteca de candles, matriz de nove políticas, cobertura progressiva baseada no 0.9.0, indecisão contextual, janela do sinal em todos os modos, IA consultiva/obrigatória, purga temporal, modelos por contexto, backtest, payout, métricas financeiras, migração SQLite, perfis, M1, BullEx/VEX, segurança loopback, feeds públicos, calendário, notícias, interface e empacotamento Windows.
+A versão 1.2.3 amplia a suíte automatizada com regressões de pullback incompleto, reversões de compra/venda, fluxo taker ausente, sinais invalidados, proteção no vencimento, pré-sinal por voz e cobertura baseada em qualidade. Os testes anteriores de matemática, ausência de look-ahead, janela de candles, stop/alvo, S/R, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativos.
 
 ## Dados locais
 

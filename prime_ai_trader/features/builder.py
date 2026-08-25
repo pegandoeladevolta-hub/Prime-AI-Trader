@@ -28,9 +28,11 @@ FEATURE_COLUMNS = [
     "tokyo_session", "london_session", "new_york_session", "pair_atr_regime",
     "candlestick_bias", "candlestick_reversal", "candlestick_indecision",
     "candlestick_exhaustion", "engulfing_code", "pinbar_code", "three_candle_code",
+    "micro_trend_atr", "momentum_turn_score", "ema9_distance_atr",
+    "taker_buy_valid", "orderflow_imbalance",
 ]
 
-FEATURE_SCHEMA_VERSION = 7
+FEATURE_SCHEMA_VERSION = 8
 
 
 def _session_mask(index: pd.DatetimeIndex, timezone_name: str,
@@ -81,6 +83,13 @@ def build_features(frame: pd.DataFrame, market: str | None = None,
     atr_safe = data["atr_14"].replace(0, np.nan)
     output["ema_9_slope"] = data["ema_9"].pct_change(3)
     output["ema_21_slope"] = data["ema_21"].pct_change(3)
+    output["micro_trend_atr"] = (data["close"] - data["close"].shift(3)) / atr_safe
+    output["ema9_distance_atr"] = (data["close"] - data["ema_9"]) / atr_safe
+    output["momentum_turn_score"] = (
+        output["macd_acceleration"].div(atr_safe).mul(12)
+        + output["rsi_slope"].div(18)
+        + output["stoch_spread"].div(60)
+    ).clip(-2.0, 2.0)
     bullish_alignment = data["ema_9"] >= data["ema_21"]
     output["pullback_depth_atr"] = np.where(
         bullish_alignment,
@@ -138,6 +147,13 @@ def build_features(frame: pd.DataFrame, market: str | None = None,
     output["taker_buy_ratio"] = np.where(
         valid_volume if not forex_market else False,
         taker / data["volume"].replace(0, np.nan), 0.0,
+    )
+    valid_taker = valid_volume & taker.gt(0) & taker.le(data["volume"])
+    if not crypto_market:
+        valid_taker = pd.Series(False, index=data.index)
+    output["taker_buy_valid"] = valid_taker.astype(float)
+    output["orderflow_imbalance"] = np.where(
+        valid_taker, output["taker_buy_ratio"] * 2.0 - 1.0, 0.0,
     )
     output["crypto_market"] = float(crypto_market)
     output["forex_market"] = float(forex_market)

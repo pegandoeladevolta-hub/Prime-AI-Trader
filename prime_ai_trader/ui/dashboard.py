@@ -52,6 +52,8 @@ def voice_message_for_signal(signal, symbol: str, sensitivity: str, *,
     if signal.state == SignalState.CONFIRMED and voice_confirmed:
         return f"Sinal de {signal.direction.value.lower()} confirmado em {symbol}.", 8.0
     if signal.state == SignalState.FORMING and signal.direction != Direction.WAIT:
+        if not voice_pre_signal:
+            return None
         fast_reading = sensitivity_profile(sensitivity).early_reading and voice_confirmed
         if fast_reading:
             return f"Leitura rápida de {signal.direction.value.lower()} em {symbol}. Sinal em formação.", 20.0
@@ -164,7 +166,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.2.2", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.2.3", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -901,6 +903,14 @@ class PrimeAITraderApp(tk.Tk):
         if self._stop_event.is_set() or self._task_running or token != self._analysis_token:
             return
         current_snapshot = self.controller.snapshot
+        platform = self._platform_snapshot
+        platform_remaining = None
+        if (current_snapshot and platform and platform.fresh()
+                and platform.expires_at is not None
+                and (not platform.asset or platform.asset == current_snapshot.symbol)):
+            platform_remaining = (
+                platform.expires_at - datetime.now(timezone.utc)
+            ).total_seconds()
         if current_snapshot and preserve_recent_confirmed_signal(
             current_snapshot.signal,
             candle_closed=candle.closed,
@@ -908,6 +918,9 @@ class PrimeAITraderApp(tk.Tk):
             horizon_minutes=self.controller.settings.horizon_minutes,
             sensitivity=self.controller.settings.sensitivity,
             mode=self.controller.settings.mode,
+            current_price=candle.close,
+            atr_value=float(current_snapshot.indicators["atr_14"].iloc[-1]),
+            platform_remaining_seconds=platform_remaining,
         ):
             return
         def ready(snapshot) -> None:

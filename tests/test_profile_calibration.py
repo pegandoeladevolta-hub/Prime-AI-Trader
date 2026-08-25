@@ -68,7 +68,9 @@ class ProfileCalibrationTests(unittest.TestCase):
         self.assertIs(sensitivity_profile("desconhecido"), SENSITIVITY_PROFILES["EQUILIBRADO"])
 
     def test_fast_profile_can_read_setup_rejected_by_balanced_adx(self) -> None:
-        frame = candles_frame(synthetic_candles(220, seed=2))
+        # A semente antiga continha um pullback sem retomada; sua aceitação
+        # mascarava o filtro de ADX que este teste realmente pretende isolar.
+        frame = candles_frame(synthetic_candles(220, seed=22))
         indicators = calculate_all(frame)
         features = build_features(frame)
         structure = analyze_structure(indicators, float(indicators["atr_14"].iloc[-1]))
@@ -156,9 +158,14 @@ class ProfileCalibrationTests(unittest.TestCase):
         self.assertIn("compra confirmado", spoken[0])
         self.assertNotIn("risco", spoken[0])
 
-    def test_fast_profile_announces_early_direction_without_false_confirmation(self) -> None:
+    def test_fast_profile_does_not_announce_unrequested_pre_signal(self) -> None:
         signal = self._signal(SignalState.FORMING, Direction.SELL)
         spoken = self._voice(signal, "RÁPIDO")
+        self.assertIsNone(spoken)
+
+    def test_fast_profile_announces_early_direction_only_after_explicit_opt_in(self) -> None:
+        signal = self._signal(SignalState.FORMING, Direction.SELL)
+        spoken = self._voice(signal, "RÁPIDO", voice_pre_signal=True)
         self.assertIsNotNone(spoken)
         assert spoken is not None
         self.assertIn("Leitura rápida de venda", spoken[0])

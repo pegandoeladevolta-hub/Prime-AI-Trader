@@ -62,6 +62,7 @@ class DecisionPolicyCoverageTests(unittest.TestCase):
                     )
                     counts[(mode, sensitivity)] += signal.direction != Direction.WAIT
                     if signal.direction != Direction.WAIT:
+                        self.assertNotIn("EM FORMAÇÃO", signal.pullback_state)
                         self.assertIsNotNone(signal.technical_stop)
                         self.assertIsNotNone(signal.technical_target)
                         assert signal.technical_stop is not None
@@ -82,7 +83,10 @@ class DecisionPolicyCoverageTests(unittest.TestCase):
                 self.assertGreaterEqual(conservative, 2)
                 self.assertGreaterEqual(balanced, conservative)
                 self.assertGreaterEqual(fast, balanced)
-                self.assertGreaterEqual(fast, 10)
+                # Quantidade não pode obrigar o motor a confirmar pullbacks
+                # incompletos. Três oportunidades válidas bastam para provar
+                # cobertura, preservando rápido >= equilibrado >= conservador.
+                self.assertGreaterEqual(fast, 3)
 
 
 if __name__ == "__main__":

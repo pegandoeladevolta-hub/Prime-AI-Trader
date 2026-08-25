@@ -428,10 +428,10 @@ def assess_professional_market(indicators: pd.DataFrame, structure: MarketStruct
         opposite = sell_penalties if event.direction == Direction.BUY else buy_penalties
         opposite.append(f"Estrutura acabou de confirmar {event.label.lower()}")
     if pullback:
-        target = buy_reasons if pullback.direction == Direction.BUY else sell_reasons
-        target.append(pullback.label)
-        target.extend(pullback.confirmations[:3])
         if pullback.confirmed:
+            target = buy_reasons if pullback.direction == Direction.BUY else sell_reasons
+            target.append(pullback.label)
+            target.extend(pullback.confirmations[:3])
             if pullback.direction == Direction.BUY:
                 buy_setup = pullback.label
             else:
