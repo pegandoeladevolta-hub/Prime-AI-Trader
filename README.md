@@ -4,6 +4,8 @@ Build automático da versão 1.2.7 para Windows x64 configurado no GitHub Action
 
 Candidato Windows 1.2.7: contexto real de timeframe superior, avaliação auditável no gráfico e saldo local dos sinais.
 
+Build Windows 1.2.7 solicitado após 348 testes locais executados sem falhas.
+
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
 No Windows, confirme `FileVersion 1.2.7` nas propriedades do instalador antes de substituir uma versão anterior.
