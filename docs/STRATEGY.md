@@ -22,7 +22,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 14. **Janela operacional** — a análise ao vivo exige no mínimo 100 candles e usa no máximo os 200 mais recentes; treino/backtest mantêm histórico separado e maior.
 15. **Níveis da operação** — stop técnico e alvo combinam ATR, expiração, pivôs e zona oposta. Espaço curto é avisado; os níveis não representam ordens executadas pela plataforma.
 16. **Reversão de curto horizonte** — a última vela concluída é confrontada com microtendência, MACD/RSI, pavio contrário, EMA 9, divergência e agressão real. Duas evidências independentes já suspendem uma entrada com vencimento curto.
-17. **Validade temporal** — o sinal perde validade se a nova cotação inverter materialmente, cruzar a invalidação técnica ou se a VEX/BullEx estiver nos últimos segundos do vencimento real.
+17. **Validade temporal** — o sinal perde validade se a nova cotação inverter materialmente, cruzar a invalidação técnica ou chegar realmente tarde ao vencimento. No primeiro tick da vela nova, os últimos segundos ainda exibidos do ciclo anterior podem ser projetados somente para um sinal recém-confirmado pela vela fechada.
 18. **Direção real do pullback** — EMAs 21/50 e estrutura definem a tendência principal; a correção temporária tem direção oposta e só libera entrada após retomada fechada. Cruzamento isolado da EMA 9 não transforma pullback em reversão.
 
 ## Pullback, correção e mudança de tendência
@@ -82,7 +82,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 
 Os perfis também possuem faixas próprias de volatilidade, distância máxima da EMA 21, peso da IA, vantagem sobre a direção oposta e margem acima do ponto de equilíbrio do payout. O perfil rápido pode anunciar uma leitura durante a vela atual; essa leitura é apresentada honestamente como **em formação**, e somente o fechamento da vela produz um sinal confirmado.
 
-Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 segundos, conforme timeframe, em todos os modos e perfis. A preservação termina imediatamente se o preço contrariar a entrada em aproximadamente 0,18 ATR, se o stop técnico for cruzado ou se o vencimento visível entrar na janela final. Candle aberto continua sem poder confirmar uma nova entrada.
+Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 segundos, conforme timeframe, em todos os modos e perfis. A preservação termina imediatamente se o preço contrariar a entrada em aproximadamente 0,18 ATR ou se o stop técnico for cruzado. Uma leitura comum nos segundos finais continua bloqueada; a única projeção para o ciclo seguinte ocorre no início da nova vela, quando o sinal acabou de ser confirmado pela vela anterior já fechada. Candle aberto continua sem poder confirmar uma nova entrada.
 
 ## Matriz de decisão
 
@@ -94,7 +94,9 @@ Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 s
 
 Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
-Na versão 1.2.4, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Além disso, ela não pode representar a correção temporária de um pullback preservado, apresentar retomada incompleta nem acumular sinais independentes de reversão iminente.
+Na versão 1.2.5, a primeira cotação do novo período encerra a vela incremental anterior. Durante a janela curta de entrada, essa vela fechada governa a decisão e a vela corrente permanece apenas em formação. A projeção do contador da plataforma exige um sinal novo, direcional e confirmado por candle fechado; ela não libera sinais antigos ou entradas realmente tardias.
+
+Desde a versão 1.2.4, uma leitura contra o último par de pivôs só antecipa a mudança quando o regime recente já está alinhado, não está em transição ou exaustão, possui eficiência mínima de 0,60 e pelo menos três votos de momentum. Além disso, ela não pode representar a correção temporária de um pullback preservado, apresentar retomada incompleta nem acumular sinais independentes de reversão iminente.
 
 A versão 1.2.1 usa como referência o build oficial 0.9.0 do commit `a16d551d`. Nos perfis marcados como contextuais, um doji fechado só deixa de ser veto isolado quando o regime concorda e a estrutura não contradiz a direção, a eficiência mínima e o momentum são suficientes, o timeframe superior não está contrário e não existe transição ou exaustão. Price Action rápido/equilibrado, Confirmação rápida e Quantitativo rápido usam essa regra; o Quantitativo também exige apoio do modelo. Os demais cruzamentos permanecem rígidos.
 

@@ -23,7 +23,9 @@ from ..platform.bullex import BULLEX_CVM_ALERT_URL, BullexBrowserBridge
 from ..platform.vex import VexBrowserBridge, VexPlatformSnapshot, compare_platform_market, merge_vex_quote
 from ..priceaction.professional import live_refresh_interval
 from ..priceaction.structure import display_zones
-from ..signals.timing import preserve_recent_confirmed_signal
+from ..signals.timing import (
+    effective_platform_entry_remaining_seconds, preserve_recent_confirmed_signal,
+)
 from ..signals.engine import sensitivity_profile
 from .chart import CandleChart, market_price_decimals
 from .dialogs import (
@@ -166,7 +168,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.2.4", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.2.5", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -1407,7 +1409,19 @@ class PrimeAITraderApp(tk.Tk):
             and (not platform.asset or platform.asset == snapshot.symbol)
         )
         if synchronized:
-            target = platform.expires_at.timestamp()
+            current = datetime.now(timezone.utc)
+            raw_remaining = (platform.expires_at - current).total_seconds()
+            effective_remaining, _ = effective_platform_entry_remaining_seconds(
+                raw_remaining, snapshot.signal, timeframe=snapshot.timeframe,
+                horizon_minutes=snapshot.signal.horizon_minutes,
+                sensitivity=self.controller.settings.sensitivity,
+                mode=self.controller.settings.mode,
+                platform_horizon_minutes=platform.horizon_minutes, now=current,
+            )
+            target = (
+                current.timestamp() + effective_remaining
+                if effective_remaining is not None else platform.expires_at.timestamp()
+            )
             self._countdown_signature = (platform.platform_name.lower(), snapshot.market, snapshot.symbol)
             self._countdown_target = target
         elif snapshot.signal.direction != Direction.WAIT:

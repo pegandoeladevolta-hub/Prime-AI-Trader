@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -33,6 +33,9 @@ from ..platform.vex import VexPlatformSnapshot, compare_platform_market
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
 from ..signals.engine import SignalEngine, sensitivity_profile
+from ..signals.timing import (
+    effective_platform_entry_remaining_seconds, use_last_closed_candle_for_entry,
+)
 from ..strategies.context import strategy_key
 
 
@@ -168,6 +171,31 @@ class TradingController:
             return 0.0
         return max(0.0, (datetime.now(timezone.utc) - expected).total_seconds())
 
+    def _decision_candles(self, candles: list[Candle], timeframe: str) -> list[Candle]:
+        if use_last_closed_candle_for_entry(
+            candles, timeframe=timeframe,
+            horizon_minutes=self.settings.horizon_minutes,
+            sensitivity=self.settings.sensitivity, mode=self.settings.mode,
+        ):
+            return candles[:-1]
+        return candles
+
+    @staticmethod
+    def _merge_history_candle(history: list[Candle], candle: Candle) -> list[Candle]:
+        merged = history.copy()
+        if merged and merged[-1].open_time == candle.open_time:
+            merged[-1] = candle
+        else:
+            if (merged and merged[-1].open_time < candle.open_time
+                    and not merged[-1].closed):
+                previous = merged[-1]
+                merged[-1] = replace(
+                    previous, closed=True,
+                    close_time=previous.close_time or candle.open_time,
+                )
+            merged.append(candle)
+        return merged[-5000:]
+
     def cached_snapshot(self, max_age_seconds: float = 120.0) -> AnalysisSnapshot | None:
         key = (self.settings.market, self.symbol(), self.settings.timeframe)
         cached = self._snapshot_cache.get(key)
@@ -211,7 +239,9 @@ class TradingController:
                 "A API retornou poucos candles. São necessários pelo menos 100 candles."
             )
         candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
-        frame = candles_frame(candles)
+        decision_candles = self._decision_candles(candles, timeframe)
+        next_candle_entry = len(decision_candles) < len(candles)
+        frame = candles_frame(decision_candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
@@ -266,10 +296,11 @@ class TradingController:
             warnings.append(provider.last_warning)
         signal = self.signal_engine.generate(
             indicators, features, structure, fibonacci, horizon_minutes,
-            sensitivity, candles[-1].closed, blockers, mode, context,
+            sensitivity, decision_candles[-1].closed, blockers, mode, context,
             payout_percent=payout_percent,
-            source_lag_seconds=self._source_lag_seconds(candles, timeframe),
+            source_lag_seconds=self._source_lag_seconds(decision_candles, timeframe),
         )
+        signal.next_candle_entry = next_candle_entry
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         signal = self._apply_platform_alignment(signal, market, symbol, float(indicators["close"].iloc[-1]))
@@ -285,7 +316,9 @@ class TradingController:
         )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
-        signal_id = self._record_signal(signal, market, symbol, timeframe, candles, indicators, mode)
+        signal_id = self._record_signal(
+            signal, market, symbol, timeframe, decision_candles, indicators, mode,
+        )
         self._record_decision(snapshot, signal_id=signal_id)
         self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         return snapshot
@@ -444,14 +477,13 @@ class TradingController:
         snapshot_key = (snapshot.market, snapshot.symbol, snapshot.timeframe)
         if current_key != snapshot_key:
             return None
-        history_candles = (snapshot.history_candles or snapshot.candles).copy()
-        if history_candles and history_candles[-1].open_time == candle.open_time:
-            history_candles[-1] = candle
-        else:
-            history_candles.append(candle)
-            history_candles = history_candles[-5000:]
+        history_candles = self._merge_history_candle(
+            snapshot.history_candles or snapshot.candles, candle,
+        )
         candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
-        frame = candles_frame(candles)
+        decision_candles = self._decision_candles(candles, snapshot.timeframe)
+        next_candle_entry = len(decision_candles) < len(candles)
+        frame = candles_frame(decision_candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
@@ -474,10 +506,14 @@ class TradingController:
                 (blockers if self.settings.strict_risk_blocks else warnings).append(message)
         signal = self.signal_engine.generate(
             indicators, features, structure, fibonacci, self.settings.horizon_minutes,
-            self.settings.sensitivity, candle.closed, blockers, self.settings.mode,
+            self.settings.sensitivity, decision_candles[-1].closed,
+            blockers, self.settings.mode,
             self.model_context(), payout_percent=self.settings.payout_percent,
-            source_lag_seconds=self._source_lag_seconds(candles, snapshot.timeframe),
+            source_lag_seconds=self._source_lag_seconds(
+                decision_candles, snapshot.timeframe,
+            ),
         )
+        signal.next_candle_entry = next_candle_entry
         signal.warnings.extend(warnings)
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
@@ -500,7 +536,7 @@ class TradingController:
         )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
         signal_id = self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
-                                        candles, indicators, self.settings.mode)
+                                        decision_candles, indicators, self.settings.mode)
         self._record_decision(self.snapshot, signal_id=signal_id)
         self._settle_pending(snapshot.symbol, snapshot.timeframe,
                              float(indicators["close"].iloc[-1]), candles)
@@ -518,8 +554,32 @@ class TradingController:
         if (not reasons and signal.direction != Direction.WAIT and snapshot
                 and snapshot.fresh() and snapshot.expires_at is not None
                 and (not snapshot.asset or snapshot.asset == symbol)):
-            remaining = (snapshot.expires_at - datetime.now(timezone.utc)).total_seconds()
+            current = datetime.now(timezone.utc)
+            remaining = (snapshot.expires_at - current).total_seconds()
             minimum = 8.0 if signal.horizon_minutes <= 1 else 12.0
+            remaining, projected = effective_platform_entry_remaining_seconds(
+                remaining, signal, timeframe=self.settings.timeframe,
+                horizon_minutes=signal.horizon_minutes,
+                sensitivity=self.settings.sensitivity, mode=self.settings.mode,
+                platform_horizon_minutes=snapshot.horizon_minutes, now=current,
+            )
+            if projected:
+                platform_name = getattr(
+                    snapshot, "platform_name", self.settings.platform_name,
+                )
+                warning = (
+                    f"Contador da {platform_name} ainda estava no ciclo anterior; "
+                    "sinal destinado à próxima vela. Confirme o reinício visível antes de entrar"
+                )
+                if warning not in signal.warnings:
+                    signal.warnings.append(warning)
+                timing_note = (
+                    f"Sinal confirmado para a próxima vela da {platform_name}; "
+                    "entre somente após o contador reiniciar."
+                )
+                signal.validation_note = (
+                    f"{timing_note} {signal.validation_note}".strip()
+                )
             if remaining <= minimum:
                 platform_name = getattr(snapshot, "platform_name", self.settings.platform_name)
                 if remaining <= 0:

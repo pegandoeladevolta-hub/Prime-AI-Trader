@@ -253,6 +253,26 @@ class LiveEntryTimingRegressionTests(unittest.TestCase):
             )
         self.assertEqual(result.direction, Direction.BUY)
 
+    def test_new_closed_signal_targets_next_platform_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"XDG_DATA_HOME": directory},
+        ):
+            controller = TradingController()
+            controller.settings.platform_sync_enabled = True
+            controller.settings.timeframe = "1m"
+            controller.platform_snapshot = VexPlatformSnapshot(
+                datetime.now(timezone.utc), "https://vexinvest.com/traderoom", True,
+                "BTC/USDT", Market.CRYPTO.value, 82, 2, 1, 100.0, False,
+            )
+            result = controller._apply_platform_alignment(
+                self._signal(confirmed_candle=True, next_candle_entry=True),
+                Market.CRYPTO.value, "BTC/USDT", 100.0,
+            )
+        self.assertEqual(result.direction, Direction.BUY)
+        self.assertEqual(result.state, SignalState.CONFIRMED)
+        self.assertIn("próxima vela", result.validation_note)
+        self.assertTrue(any("ciclo anterior" in item for item in result.warnings))
+
 
 if __name__ == "__main__":
     unittest.main()

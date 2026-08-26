@@ -5,7 +5,8 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -153,6 +154,53 @@ class ControllerReconnectTests(unittest.TestCase):
             self.assertEqual(len(snapshot.features), 200)
             self.assertEqual(len(snapshot.history_candles), 500)
             self.assertEqual(snapshot.candles[0].open_time, candles[-200].open_time)
+
+    def test_new_live_candle_closes_previous_forex_candle(self) -> None:
+        opened = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        previous = synthetic_candles(2)
+        previous[-1].open_time = opened - timedelta(minutes=1)
+        previous[-1].close_time = None
+        previous[-1].closed = False
+        current = replace(
+            previous[-1], open_time=opened, close_time=None, closed=False,
+        )
+        merged = TradingController._merge_history_candle(previous, current)
+        self.assertTrue(merged[-2].closed)
+        self.assertEqual(merged[-2].close_time, opened)
+        self.assertFalse(merged[-1].closed)
+
+    def test_analysis_marks_confirmation_as_next_candle_entry(self) -> None:
+        opened = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        candles = synthetic_candles(180)
+        candles[-2].open_time = opened - timedelta(minutes=1)
+        candles[-2].closed = True
+        candles[-1] = replace(
+            candles[-1], open_time=opened, close_time=None, closed=False,
+        )
+        generated = Signal(
+            Direction.BUY, SignalState.CONFIRMED, 84, {"COMPRA": 0.7},
+            candles[-2].close, 1, confirmed_candle=True,
+        )
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"XDG_DATA_HOME": temp},
+        ):
+            controller = TradingController()
+            controller.settings.timeframe = "1m"
+            controller.settings.horizon_minutes = 1
+            with patch.object(
+                controller.binance, "fetch_candles", return_value=candles,
+            ), patch.object(
+                controller.news_provider, "fetch", return_value=[],
+            ), patch.object(
+                controller.signal_engine, "generate", return_value=generated,
+            ) as generate, patch(
+                "prime_ai_trader.app.controller.use_last_closed_candle_for_entry",
+                return_value=True,
+            ):
+                snapshot = controller.analyze()
+        self.assertTrue(generate.call_args.args[6])
+        self.assertTrue(snapshot.signal.next_candle_entry)
+        self.assertEqual(len(snapshot.indicators), len(snapshot.candles) - 1)
 
     def test_live_analysis_requires_at_least_100_candles(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):

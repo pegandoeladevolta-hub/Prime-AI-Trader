@@ -18,7 +18,7 @@ Interface Tkinter
         ├── Estratégias de mercado
         │   ├── Crypto: volume/taker Binance, VWAP válido e estrutura
         │   └── Forex: sessões IANA/DST, ATR por par e notícias das moedas
-        ├── Feature Builder (schema 7 por mercado e padrões de candles)
+        ├── Feature Builder (schema 9 por mercado, padrões e pullbacks)
         ├── ModelManager / SignalEngine / BacktestEngine
         ├── Sincronização visual local
         │   ├── VexBrowserBridge
@@ -40,7 +40,7 @@ Interface Tkinter
 7. O motor combina score do modelo com regras auditáveis, setup, payout, padrões confirmados e uma `DecisionPolicy` própria para cada um dos nove cruzamentos de modo/sensibilidade. A política classifica indecisão como veto ou aviso conforme regime, estrutura, eficiência, momentum e modelo, calibrada contra o build oficial 0.9.0. O modelo é consultivo em Price Action/Confirmação e obrigatório no Quantitativo.
 8. O módulo `priceaction/levels.py` calcula stop técnico, alvo e espaço contextual. O gráfico mostra somente dois S/R relevantes de cada lado e persiste os níveis no SQLite.
 9. Notícias e calendário fornecem contexto; eventos econômicos relevantes podem bloquear o sinal, mas nunca criá-lo sozinhos.
-10. Sinais confirmados são salvos tanto na análise inicial quanto na atualização contínua por WebSocket. `signals/timing.py` impede que o primeiro tick aberto apague a confirmação durante uma janela de 8 a 12 segundos em todos os modos/timeframes.
+10. Ao abrir uma nova vela, o histórico incremental fecha a anterior e `signals/timing.py` permite que ela confirme a entrada durante uma janela de 8 a 12 segundos. A vela atual continua aberta no gráfico; VEX/BullEx só projetam o novo ciclo para uma confirmação fechada e recém-criada.
 11. Após o horizonte, o gráfico pode produzir resultado `INFERRED`; o usuário pode substituí-lo por `MANUAL`, que representa o observado na plataforma.
 12. P&L e profit factor usam payout e valor da entrada, nunca a amplitude percentual do feed externo.
 

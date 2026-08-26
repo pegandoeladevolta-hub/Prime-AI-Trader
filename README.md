@@ -1,10 +1,19 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.4 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.5 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-## Destaques da versão 1.2.4
+## Destaques da versão 1.2.5
+
+- No início de uma vela nova, a análise usa a vela anterior já fechada para decidir a entrada, enquanto mantém a vela atual aberta no gráfico e no histórico.
+- A cotação incremental de Forex agora encerra explicitamente a vela anterior quando abre o próximo minuto; o bot deixa de ficar preso em `EM FORMAÇÃO` por falta de fechamento no histórico local.
+- Um sinal recém-confirmado não é mais descartado quando VEX/BullEx ainda mostra 1–2 segundos do ciclo anterior: ele é destinado à vela seguinte e o contador visual acompanha o novo ciclo.
+- A exceção temporal vale somente para sinal direcional novo, confirmado por candle fechado e dentro da janela curta de entrada. Sinal antigo, preço invalidado, stop cruzado e entrada realmente tardia continuam bloqueados.
+- CHOCH, direção do pullback, momentum, padrões de candle, fonte atrasada, reversão, payout e demais filtros profissionais permanecem inalterados. Esta atualização não muda o schema dos modelos e não exige novo treinamento por si só.
+- A suíte passa a 337 testes locais aprovados, mais um smoke test visual executado no build Windows.
+
+## Recursos preservados da versão 1.2.4
 
 - A direção principal do pullback vem da estrutura e das EMAs 21/50: uma correção temporária de venda na alta não é mais confundida com sinal de venda, e a correção de compra na baixa não vira sinal de compra.
 - Cada leitura separa **tendência principal**, **direção da correção**, **retomada confirmada**, **profundidade em ATR** e **CHOCH/invalidação real**; o cruzamento isolado da EMA 9 não inverte o contexto.
@@ -218,7 +227,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.4 amplia a suíte com casos espelhados de pullback invertido, cruzamento temporário da EMA 9, retomadas, CHOCH real, histórico completo, alterações de configuração, resultados observados/inferidos, Excel de sete abas, indicadores e proteção contra fórmulas externas. As regressões anteriores de reversão, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativas.
+A versão 1.2.5 acrescenta regressões para fechamento incremental da vela Forex, decisão pela última vela fechada no início do novo minuto e projeção segura do contador da plataforma. Os casos espelhados de pullback invertido, cruzamento temporário da EMA 9, retomadas, CHOCH real, histórico completo, Excel, reversão, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativos.
 
 ## Dados locais
 

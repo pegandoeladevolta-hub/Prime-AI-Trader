@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.2.5 — 26/08/2026
+
+### Confirmação no início da próxima vela
+
+- A atualização incremental de Forex passa a marcar a vela anterior como fechada quando a primeira cotação do minuto seguinte chega.
+- Durante a janela curta de entrada, indicadores, estrutura e sinal são calculados pela última vela concluída; a vela nova permanece aberta no gráfico e não é usada como confirmação.
+- Sinais recém-confirmados por candle fechado deixam de ser anulados pelos 1–2 segundos ainda visíveis do ciclo anterior na VEX/BullEx e são associados explicitamente à próxima vela.
+- O cronômetro da interface projeta o ciclo seguinte somente para essa confirmação nova; uma leitura comum nos segundos finais continua bloqueada.
+- Preço contrário, stop técnico cruzado, sinal antigo, candle aberto, fonte atrasada, estrutura contrária, pullback incompleto e risco de reversão continuam invalidando a entrada.
+- Schema 9 e estratégias `pullback-v10` permanecem compatíveis; esta correção de timing não exige novo treinamento.
+- Validação local: 337 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.2.4 — 25/08/2026
 
 ### Correção da direção de pullbacks

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+from collections.abc import Sequence
 
-from ..core.models import Direction, Signal, SignalState
+from ..core.models import Candle, Direction, Signal, SignalState
 
 
 def confirmed_entry_window_seconds(timeframe: str, horizon_minutes: int,
@@ -25,6 +26,72 @@ def confirmed_entry_window_seconds(timeframe: str, horizon_minutes: int,
     return min(base, horizon_seconds * 0.15)
 
 
+def use_last_closed_candle_for_entry(candles: Sequence[Candle], *, timeframe: str,
+                                     horizon_minutes: int, sensitivity: str,
+                                     mode: str, now: datetime | None = None) -> bool:
+    """Confirma pela última vela fechada somente no início da vela seguinte."""
+    if len(candles) < 2 or candles[-1].closed or not candles[-2].closed:
+        return False
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    opened = candles[-1].open_time
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=timezone.utc)
+    age = (current.astimezone(timezone.utc) - opened.astimezone(timezone.utc)).total_seconds()
+    window = confirmed_entry_window_seconds(
+        timeframe, horizon_minutes, sensitivity, mode,
+    )
+    return 0.0 <= age <= window
+
+
+def effective_platform_entry_remaining_seconds(
+    remaining_seconds: float | None, signal: Signal | None, *,
+    timeframe: str, horizon_minutes: int, sensitivity: str, mode: str,
+    platform_horizon_minutes: int | None = None,
+    now: datetime | None = None,
+) -> tuple[float | None, bool]:
+    """Projeta o contador antigo para o ciclo seguinte após confirmação fechada.
+
+    A projeção só existe durante a janela curta de um sinal novo confirmado pela
+    vela anterior. Leituras comuns nos segundos finais continuam bloqueadas.
+    """
+    if remaining_seconds is None:
+        return None, False
+    try:
+        remaining = float(remaining_seconds)
+    except (TypeError, ValueError):
+        return None, False
+    if not math.isfinite(remaining):
+        return remaining, False
+    if (signal is None or signal.state != SignalState.CONFIRMED
+            or signal.direction == Direction.WAIT or not signal.confirmed_candle
+            or not signal.next_candle_entry):
+        return remaining, False
+    window = confirmed_entry_window_seconds(
+        timeframe, horizon_minutes, sensitivity, mode,
+    )
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    created = signal.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = (current.astimezone(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
+    minimum = min(window, 8.0)
+    if window <= 0 or not 0.0 <= age <= window or remaining > minimum or remaining < -window:
+        return remaining, False
+    try:
+        cycle_minutes = max(1, int(platform_horizon_minutes or horizon_minutes))
+    except (TypeError, ValueError):
+        cycle_minutes = max(1, int(horizon_minutes))
+    cycle_seconds = cycle_minutes * 60.0
+    projected = remaining
+    while projected <= minimum:
+        projected += cycle_seconds
+    return projected, True
+
+
 def preserve_recent_confirmed_signal(signal: Signal | None, *, candle_closed: bool,
                                      timeframe: str, horizon_minutes: int,
                                      sensitivity: str, mode: str,
@@ -41,12 +108,20 @@ def preserve_recent_confirmed_signal(signal: Signal | None, *, candle_closed: bo
     )
     if window <= 0:
         return False
+    current = now or datetime.now(timezone.utc)
+    created = signal.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = (current.astimezone(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
+    if not 0.0 <= age <= window:
+        return False
     if platform_remaining_seconds is not None:
-        try:
-            remaining = float(platform_remaining_seconds)
-        except (TypeError, ValueError):
-            remaining = math.nan
-        if math.isfinite(remaining) and remaining <= min(window, 8.0):
+        remaining, _ = effective_platform_entry_remaining_seconds(
+            platform_remaining_seconds, signal,
+            timeframe=timeframe, horizon_minutes=horizon_minutes,
+            sensitivity=sensitivity, mode=mode, now=current,
+        )
+        if remaining is not None and math.isfinite(remaining) and remaining <= min(window, 8.0):
             return False
     if current_price is not None and signal.entry is not None:
         try:
@@ -69,12 +144,10 @@ def preserve_recent_confirmed_signal(signal: Signal | None, *, candle_closed: bo
                     stop = math.nan
                 if math.isfinite(stop) and sign * (price - stop) <= 0:
                     return False
-    current = now or datetime.now(timezone.utc)
-    created = signal.created_at
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
-    age = (current.astimezone(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
-    return 0.0 <= age <= window
+    return True
 
 
-__all__ = ["confirmed_entry_window_seconds", "preserve_recent_confirmed_signal"]
+__all__ = [
+    "confirmed_entry_window_seconds", "effective_platform_entry_remaining_seconds",
+    "preserve_recent_confirmed_signal", "use_last_closed_candle_for_entry",
+]

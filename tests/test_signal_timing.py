@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from prime_ai_trader.core.models import Direction, Market, Signal, SignalState
+from prime_ai_trader.core.models import Candle, Direction, Market, Signal, SignalState
 from prime_ai_trader.features.builder import FEATURE_SCHEMA_VERSION, build_features
 from prime_ai_trader.fibonacci.auto import automatic_fibonacci
 from prime_ai_trader.indicators.technical import calculate_all, candles_frame
@@ -13,7 +13,8 @@ from prime_ai_trader.signals.engine import (
     RuleAssessment, SignalEngine, decision_policy, model_disagreement_is_blocking,
 )
 from prime_ai_trader.signals.timing import (
-    confirmed_entry_window_seconds, preserve_recent_confirmed_signal,
+    confirmed_entry_window_seconds, effective_platform_entry_remaining_seconds,
+    preserve_recent_confirmed_signal, use_last_closed_candle_for_entry,
 )
 from tests.helpers import synthetic_candles
 
@@ -88,6 +89,58 @@ class FastConfirmedTimingTests(unittest.TestCase):
             self._signal(2), candle_closed=True, timeframe="1m", horizon_minutes=1,
             sensitivity="RÁPIDO", mode="CONFIRMAÇÃO",
         ))
+
+    def test_forex_uses_last_closed_candle_only_at_start_of_next_candle(self) -> None:
+        opened = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        previous = Candle(
+            opened - timedelta(minutes=1), 1.1, 1.2, 1.0, 1.15, 0.0, closed=True,
+        )
+        current = Candle(opened, 1.15, 1.16, 1.14, 1.15, 0.0, closed=False)
+        self.assertTrue(use_last_closed_candle_for_entry(
+            [previous, current], timeframe="1m", horizon_minutes=1,
+            sensitivity="RÁPIDO", mode="CONFIRMAÇÃO",
+            now=opened + timedelta(seconds=3),
+        ))
+        self.assertFalse(use_last_closed_candle_for_entry(
+            [previous, current], timeframe="1m", horizon_minutes=1,
+            sensitivity="RÁPIDO", mode="CONFIRMAÇÃO",
+            now=opened + timedelta(seconds=9),
+        ))
+
+    def test_closed_signal_rolls_old_platform_countdown_to_next_cycle(self) -> None:
+        now = datetime.now(timezone.utc)
+        signal = Signal(
+            Direction.BUY, SignalState.CONFIRMED, 92, {"COMPRA": 0.7},
+            1.15, 1, created_at=now - timedelta(seconds=2),
+            confirmed_candle=True, next_candle_entry=True,
+        )
+        remaining, projected = effective_platform_entry_remaining_seconds(
+            2, signal, timeframe="1m", horizon_minutes=1,
+            sensitivity="RÁPIDO", mode="CONFIRMAÇÃO",
+            platform_horizon_minutes=1, now=now,
+        )
+        self.assertTrue(projected)
+        self.assertEqual(remaining, 62.0)
+        self.assertTrue(preserve_recent_confirmed_signal(
+            signal, candle_closed=False, timeframe="1m", horizon_minutes=1,
+            sensitivity="RÁPIDO", mode="CONFIRMAÇÃO", now=now,
+            platform_remaining_seconds=2,
+        ))
+
+    def test_late_closed_signal_does_not_roll_platform_countdown(self) -> None:
+        now = datetime.now(timezone.utc)
+        signal = Signal(
+            Direction.BUY, SignalState.CONFIRMED, 92, {"COMPRA": 0.7},
+            1.15, 1, created_at=now - timedelta(seconds=2),
+            confirmed_candle=True, next_candle_entry=False,
+        )
+        remaining, projected = effective_platform_entry_remaining_seconds(
+            2, signal, timeframe="1m", horizon_minutes=1,
+            sensitivity="RÁPIDO", mode="CONFIRMAÇÃO",
+            platform_horizon_minutes=1, now=now,
+        )
+        self.assertFalse(projected)
+        self.assertEqual(remaining, 2.0)
 
     def test_only_quantitative_mode_uses_model_as_isolated_veto(self) -> None:
         for sensitivity in ("RÁPIDO", "EQUILIBRADO", "CONSERVADOR"):

@@ -1,6 +1,6 @@
-# Relatório de validação — PRIME AI TRADER 1.2.4
+# Relatório de validação — PRIME AI TRADER 1.2.5
 
-Data: 25/08/2026
+Data: 26/08/2026
 
 ## Auditoria concluída
 
@@ -33,7 +33,8 @@ Data: 25/08/2026
 | Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; os nove cruzamentos com Price Action/Confirmação/Quantitativo possuem políticas progressivas explícitas. |
 | Cobertura | Matriz determinística mantém cobertura progressiva sem exigir que sinais com pullback incompleto sejam aprovados para atingir uma meta artificial. |
 | Referência 0.9.0 | O SHA-256 do instalador anexado coincide com o build oficial do commit `a16d551d`; cobertura e filtros foram comparados diretamente com esse código-fonte. |
-| Timing | Janela máxima de 8 a 12 segundos; preço contrário, stop técnico atingido ou últimos segundos da plataforma invalidam o sinal imediatamente. |
+| Fechamento incremental | A primeira cotação de uma nova vela fecha a anterior no histórico Forex; a vela aberta permanece somente no gráfico durante a decisão inicial. |
+| Timing | Janela máxima de 8 a 12 segundos; confirmação nova pela vela fechada pode apontar para o próximo ciclo ainda não reiniciado visualmente. Sinal antigo, preço contrário, stop atingido e entrada realmente tardia continuam inválidos. |
 | Áudio | Pré-sinal somente com autorização explícita; sinais confirmados têm prioridade, avisos informativos ficam silenciosos e bloqueios reais têm cooldown de 300 segundos. |
 | Backtest | Walk-forward com filtros de extensão, eficiência, compressão, reversão, microtendência, momentum, fluxo validado, payout, equilíbrio, expectativa e Wilson. |
 | Estatísticas | WIN/LOSS/DRAW, payout, entrada, P&L, profit factor financeiro, equilíbrio, expectativa, Wilson e origem manual/inferida. |
@@ -53,7 +54,7 @@ Data: 25/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **331 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **337 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
@@ -69,6 +70,6 @@ Indecisão isolada dentro de tendência alinhada ainda pode virar aviso nos perf
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.2.4`.
+Identificador do candidato validado: `1.2.5`.
 
-O candidato Windows deve repetir obrigatoriamente os 332 testes (331 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 338 testes (337 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
