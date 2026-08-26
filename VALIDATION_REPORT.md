@@ -1,4 +1,4 @@
-# Relatório de validação — PRIME AI TRADER 1.2.6
+# Relatório de validação — PRIME AI TRADER 1.2.7
 
 Data: 26/08/2026
 
@@ -25,7 +25,7 @@ Data: 26/08/2026
 | Reversão iminente | Fechamentos, MACD/RSI, rejeição, perda da EMA 9, divergência e agressão real são votos independentes e simétricos para compra/venda. |
 | Padrões de candles | Doji, spinning top, pin bars, marubozu, engolfos, perfuração/nuvem, harami, inside/outside, tweezers, estrelas e sequências de três velas; somente candle fechado confirma. |
 | Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
-| Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
+| Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h; contexto separado com 200 candles fechados em 1m→5m, 3m/5m→15m, 15m→1h e 30m/1h→4h. |
 | Janela ao vivo | Exatamente 200 candles analíticos; a vela aberta fica apenas no gráfico e exige um 201º registro para preservar 200 fechados. Até 2.000 candles permanecem separados para treino/backtest. |
 | Stop/alvo | Invalidação e alvo técnicos simétricos por ATR, pivôs, timeframe, expiração e S/R; referências visuais sem execução de ordens. |
 | Suporte/resistência | Até dois níveis úteis de cada lado no gráfico, selecionados por distância, força e recência; análise interna preservada. |
@@ -41,9 +41,9 @@ Data: 26/08/2026
 | Cripto | Binance pública com espelhos oficiais e fallback Coinbase/Kraken; taker buy ausente nunca é confundido com 100% de força vendedora. |
 | Forex | Sem volume centralizado fictício; sessões IANA/DST, ATR por par, cotação/atraso/spread quando disponíveis e referência diária separada. |
 | Notícias | GDELT, Google Notícias, Cointelegraph, CoinDesk, FXStreet e ForexLive; filtro por relevância do ativo, resumo auditável de sentimento/risco/fontes/idade e atualização a cada 60 segundos. |
-| Simulação automática | Valor, stop e meta editáveis; posições simuladas separadas por plataforma `SIMULAÇÃO`; nenhuma nova posição após o limite, sem ocultar sinais manuais. |
+| Avaliação gráfica | Sem botão de simulação ou stop/meta automático; todo sinal confirmado é acompanhado como `AVALIAÇÃO GRÁFICA`, com saldo local contínuo, P&L, pendências e origem pública/observada explícita. |
 | Calendário | Eventos econômicos públicos com cache de uma hora e Finnhub opcional. |
-| Gráfico | Entrada/stop/alvo, S1/S2/R1/R2, menos pivôs, redesenho parcial da última vela, crosshair e precisão cambial. |
+| Gráfico | Entrada/stop/alvo, S1/S2/R1/R2, compra/venda avaliada, linha até a expiração, WIN/LOSS/DRAW com `PÚB`/`OBS`, redesenho parcial, crosshair e precisão cambial. |
 | Últimos sinais | Leitura real do banco em thread dedicada; sem operações inventadas e sem bloquear o Tkinter. |
 | SQLite / Windows | Conexões fechadas após cada operação, arquivos liberados e diretório temporário de testes corretamente isolado. |
 | Histórico completo | Alterações de configuração, análises, aguardar, sinais, pullback, indicadores, features, velas e resultados recebem registros locais auditáveis. |
@@ -55,11 +55,11 @@ Data: 26/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **344 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **347 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
-Os testes cobrem indicadores, BOS/CHOCH, pullbacks invertidos, correção versus tendência, retomadas, histórico completo, Excel, origem manual/inferida, proteção contra fórmulas, privacidade, virada simétrica, fluxo taker ausente, invalidação, vencimento, áudio, M1, janela de 200 candles analíticos, relevância noticiosa por ativo, limites da simulação, níveis técnicos, biblioteca causal, purga, modelos separados, backtest, payout, SQLite, VEX/BullEx, loopback, providers, interface e instalador.
+Os testes cobrem indicadores, BOS/CHOCH, pullbacks invertidos, correção versus tendência, retomadas, histórico completo, Excel, origem manual/inferida, proteção contra fórmulas, privacidade, virada simétrica, fluxo taker ausente, invalidação, vencimento, áudio, M1, janela de 200 candles analíticos, timeframe superior real, relevância noticiosa por ativo, saldo de avaliação, marcações no gráfico, níveis técnicos, biblioteca causal, purga, modelos separados, backtest, payout, SQLite, VEX/BullEx, loopback, providers, interface e instalador.
 
 Na matriz determinística atual de vinte cenários com modelo alinhado, Price Action produz 4/3/3 leituras, Confirmação 3/3/3 e Quantitativo 3/3/2, respectivamente nos perfis rápido/equilibrado/conservador. Antes da auditoria, sete das dez leituras rápidas de Confirmação continham pullback explicitamente não confirmado. A remoção dessas falsas confirmações preserva a ordem Rápido ≥ Equilibrado ≥ Conservador e a cobertura positiva. Essa matriz mede regressão e segurança, não taxa de acerto futura, desempenho financeiro ou promessa de lucro.
 
@@ -71,6 +71,6 @@ Indecisão isolada dentro de tendência alinhada ainda pode virar aviso nos perf
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.2.6`.
+Identificador do candidato validado: `1.2.7`.
 
-O candidato Windows deve repetir obrigatoriamente os 345 testes (344 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 348 testes (347 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.

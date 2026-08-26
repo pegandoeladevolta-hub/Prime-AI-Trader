@@ -32,11 +32,9 @@ class AppSettings:
     timeframe: str = "5m"
     horizon_minutes: int = 5
     payout_percent: int = 80
-    stake_amount: float = 80.0
-    execution_mode: str = "SINAIS MANUAIS"
-    session_stop_loss: float = 80.0
-    session_profit_target: float = 80.0
-    simulation_session_started_at: str = ""
+    stake_amount: float = 20.0
+    evaluation_initial_balance: float = 300.0
+    evaluation_started_at: str = ""
     sensitivity: str = "EQUILIBRADO"
     mode: str = "CONFIRMAÇÃO"
     audio_enabled: bool = True

@@ -46,8 +46,24 @@ LIVE_MINIMUM_CANDLES = 200
 LIVE_FETCH_MINIMUM_CANDLES = 201
 LIVE_MAXIMUM_CANDLES = 200
 TRAINING_MINIMUM_CANDLES = 1600
-MANUAL_EXECUTION_MODE = "SINAIS MANUAIS"
-SIMULATION_EXECUTION_MODE = "SIMULAÇÃO AUTOMÁTICA"
+GRAPH_EVALUATION_PLATFORM = "AVALIAÇÃO GRÁFICA"
+HIGHER_TIMEFRAME_MAP = {
+    "1m": "5m", "3m": "15m", "5m": "15m", "15m": "1h",
+    "30m": "4h", "1h": "4h",
+}
+
+
+@dataclass(slots=True)
+class HigherTimeframeContext:
+    timeframe: str
+    bias: str
+    regime: str
+    structure: str
+    candle_count: int
+    source: str
+    adx: float | None = None
+    available: bool = True
+    note: str = ""
 
 
 @dataclass(slots=True)
@@ -70,21 +86,22 @@ class AnalysisSnapshot:
     data_source: str = ""
     forex_reference_rate: float | None = None
     history_candles: list[Candle] = field(default_factory=list)
+    higher_timeframe: HigherTimeframeContext | None = None
+    chart_evaluations: list[dict] = field(default_factory=list)
 
 
 @dataclass(slots=True)
-class SimulationSessionSummary:
+class EvaluationSummary:
     started_at: datetime
+    initial_balance: float
+    current_balance: float
     profit_loss: float
-    stop_loss: float
-    profit_target: float
     operations: int
     wins: int
     losses: int
     draws: int
     pending: int
     status: str
-    can_open: bool
 
 
 class TradingController:
@@ -109,13 +126,19 @@ class TradingController:
         self.calendar_provider = ResilientEconomicCalendar(self.secrets.get("finnhub_key", ""))
         self.snapshot: AnalysisSnapshot | None = None
         self._snapshot_cache: dict[tuple[str, str, str], tuple[float, AnalysisSnapshot]] = {}
+        self._higher_timeframe_cache: dict[
+            tuple[str, str, str], tuple[float, HigherTimeframeContext]
+        ] = {}
         self._quality_gate: dict[tuple, BacktestResult] = {}
         self._last_saved_signature: tuple | None = None
         self._radar_offset = 0
         self.last_radar_note = ""
         self.websocket_online = False
         self.platform_snapshot: VexPlatformSnapshot | None = None
-        self._simulation_fallback_started_at = datetime.now(timezone.utc)
+        self._evaluation_fallback_started_at = datetime.now(timezone.utc)
+        if not self.settings.evaluation_started_at:
+            self.settings.evaluation_started_at = self._evaluation_fallback_started_at.isoformat()
+            self.settings_store.save(self.settings)
         self._last_settings_signature = json.dumps(
             asdict(self.settings), sort_keys=True, ensure_ascii=False,
         )
@@ -146,7 +169,7 @@ class TradingController:
                         f"{self.settings.market} • {self.symbol()} • "
                         f"{self.settings.timeframe}/{self.settings.horizon_minutes}m • "
                         f"{self.settings.sensitivity} • {self.settings.mode} • "
-                        f"{self.settings.execution_mode}"
+                        "avaliação gráfica automática"
                     ),
                     "settings": asdict(self.settings),
                 })
@@ -281,54 +304,159 @@ class TradingController:
         signal.technical_levels_note = ""
         return signal
 
-    def _simulation_started_at(self) -> datetime:
-        raw = self.settings.simulation_session_started_at
+    def _evaluation_started_at(self) -> datetime:
+        raw = self.settings.evaluation_started_at
         try:
             parsed = datetime.fromisoformat(raw)
             return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except (TypeError, ValueError):
-            return self._simulation_fallback_started_at
+            return self._evaluation_fallback_started_at
 
-    def configure_execution_mode(self, mode: str) -> None:
-        if mode not in {MANUAL_EXECUTION_MODE, SIMULATION_EXECUTION_MODE}:
-            raise ValueError("Modo de operação inválido.")
-        if mode == SIMULATION_EXECUTION_MODE and self.settings.execution_mode != mode:
-            started = datetime.now(timezone.utc)
-            self._simulation_fallback_started_at = started
-            self.settings.simulation_session_started_at = started.isoformat()
-            self._last_saved_signature = None
-        self.settings.execution_mode = mode
-
-    def reset_simulation_session(self) -> SimulationSessionSummary:
+    def reset_evaluation(self) -> EvaluationSummary:
         started = datetime.now(timezone.utc)
-        self._simulation_fallback_started_at = started
-        self.settings.simulation_session_started_at = started.isoformat()
+        self._evaluation_fallback_started_at = started
+        self.settings.evaluation_started_at = started.isoformat()
         self._last_saved_signature = None
         self.save_settings()
-        return self.simulation_summary()
+        return self.evaluation_summary()
 
-    def simulation_summary(self) -> SimulationSessionSummary:
-        started_at = self._simulation_started_at()
-        values = self.repository.simulation_session(started_at)
+    def evaluation_summary(self) -> EvaluationSummary:
+        started_at = self._evaluation_started_at()
+        values = self.repository.evaluation_session(started_at)
         profit_loss = float(values.get("profit_loss") or 0.0)
-        stop_loss = max(0.01, float(self.settings.session_stop_loss))
-        profit_target = max(0.01, float(self.settings.session_profit_target))
-        if profit_loss >= profit_target:
-            status = "META ATINGIDA"
-        elif profit_loss <= -stop_loss:
-            status = "STOP ATINGIDO"
-        else:
-            status = "ATIVA"
-        automatic = self.settings.execution_mode == SIMULATION_EXECUTION_MODE
-        return SimulationSessionSummary(
-            started_at=started_at, profit_loss=profit_loss,
-            stop_loss=stop_loss, profit_target=profit_target,
+        initial = max(0.01, float(self.settings.evaluation_initial_balance))
+        current = initial + profit_loss
+        status = "SALDO ESGOTADO" if current <= 0 else "ACOMPANHANDO SINAIS"
+        return EvaluationSummary(
+            started_at=started_at, initial_balance=initial,
+            current_balance=current, profit_loss=profit_loss,
             operations=int(values.get("operations") or 0),
             wins=int(values.get("wins") or 0), losses=int(values.get("losses") or 0),
             draws=int(values.get("draws") or 0), pending=int(values.get("pending") or 0),
-            status=status if automatic else MANUAL_EXECUTION_MODE,
-            can_open=automatic and status == "ATIVA",
+            status=status,
         )
+
+    def _higher_timeframe_context(self, provider, market: str, symbol: str,
+                                  timeframe: str) -> HigherTimeframeContext:
+        target = HIGHER_TIMEFRAME_MAP.get(timeframe)
+        if not target:
+            return HigherTimeframeContext(
+                timeframe="", bias="INDEFINIDA", regime="SEM CONTEXTO SUPERIOR",
+                structure="", candle_count=0, source="", available=False,
+                note=f"Não há timeframe superior público configurado acima de {timeframe}",
+            )
+        key = (market, symbol, target)
+        cached = self._higher_timeframe_cache.get(key)
+        if cached and time.monotonic() - cached[0] <= 120.0:
+            return cached[1]
+        try:
+            history = provider.fetch_candles(
+                symbol, target, limit=LIVE_FETCH_MINIMUM_CANDLES,
+            )
+            closed = [candle for candle in history if candle.closed]
+            if len(closed) < LIVE_MINIMUM_CANDLES:
+                raise ValueError(
+                    f"A fonte entregou {len(closed)}/200 candles fechados em {target}"
+                )
+            candles = closed[-LIVE_MINIMUM_CANDLES:]
+            indicators = calculate_all(candles_frame(candles))
+            last = indicators.iloc[-1]
+            close = float(last["close"])
+            ema_21 = float(last["ema_21"])
+            ema_50 = float(last["ema_50"])
+            adx = self._value(last.get("adx_14"))
+            plus_di = float(last.get("plus_di") or 0.0)
+            minus_di = float(last.get("minus_di") or 0.0)
+            atr = self._value(last.get("atr_14"))
+            structure = analyze_structure(indicators, atr)
+            if (close > ema_21 > ema_50 and plus_di >= minus_di
+                    and structure.trend != "BAIXA"):
+                bias = "ALTA"
+            elif (close < ema_21 < ema_50 and minus_di >= plus_di
+                    and structure.trend != "ALTA"):
+                bias = "BAIXA"
+            else:
+                bias = "LATERAL"
+            regime = (
+                "TENDÊNCIA FORTE" if bias in {"ALTA", "BAIXA"} and (adx or 0) >= 23
+                else "TENDÊNCIA" if bias in {"ALTA", "BAIXA"}
+                else "TRANSIÇÃO / LATERAL"
+            )
+            structure_label = " / ".join(
+                [*structure.sequence, *([structure.breakout] if structure.breakout else [])]
+            ) or structure.trend
+            context = HigherTimeframeContext(
+                timeframe=target, bias=bias, regime=regime,
+                structure=structure_label, candle_count=len(candles),
+                source=str(getattr(provider, "last_provider_name", "") or "fonte pública"),
+                adx=adx,
+            )
+        except Exception as exc:
+            self.logger.warning("Contexto real de timeframe superior indisponível: %s", exc)
+            context = HigherTimeframeContext(
+                timeframe=target, bias="INDEFINIDA", regime="INDISPONÍVEL",
+                structure="", candle_count=0,
+                source=str(getattr(provider, "last_provider_name", "") or "fonte pública"),
+                available=False, note=str(exc),
+            )
+        self._higher_timeframe_cache[key] = (time.monotonic(), context)
+        return context
+
+    @staticmethod
+    def _apply_higher_timeframe_context(
+        signal: Signal, context: HigherTimeframeContext,
+    ) -> Signal:
+        signal.higher_timeframe_bias = context.bias
+        signal.higher_timeframe_label = context.timeframe
+        signal.higher_timeframe_regime = context.regime
+        signal.higher_timeframe_candles = context.candle_count
+        signal.higher_timeframe_source = context.source
+        if not context.available:
+            warning = (
+                f"Timeframe superior real {context.timeframe or 'indisponível'}: "
+                f"{context.note or 'sem dados públicos suficientes'}"
+            )
+            if warning not in signal.warnings:
+                signal.warnings.append(warning)
+            return signal
+        label = (
+            f"Timeframe superior real {context.timeframe}: {context.bias.lower()} • "
+            f"{context.candle_count} candles fechados"
+        )
+        if signal.direction == Direction.WAIT:
+            return signal
+        aligned = (
+            signal.direction == Direction.BUY and context.bias == "ALTA"
+            or signal.direction == Direction.SELL and context.bias == "BAIXA"
+        )
+        conflict = (
+            signal.direction == Direction.BUY and context.bias == "BAIXA"
+            or signal.direction == Direction.SELL and context.bias == "ALTA"
+        )
+        if aligned:
+            if label not in signal.confluences:
+                signal.confluences.append(label)
+            return signal
+        if not conflict:
+            warning = f"{label}; contexto superior misto, sem confirmação adicional"
+            if warning not in signal.warnings:
+                signal.warnings.append(warning)
+            return signal
+        reason = (
+            f"Sinal contra o timeframe superior real {context.timeframe} "
+            f"({context.bias.lower()}, {context.regime.lower()})"
+        )
+        signal.blockers.insert(0, reason)
+        signal.waiting_reasons.insert(0, reason)
+        signal.all_waiting_reasons.insert(0, reason)
+        signal.direction = Direction.WAIT
+        signal.state = SignalState.BLOCKED
+        signal.entry = None
+        signal.technical_stop = None
+        signal.technical_target = None
+        signal.technical_room_ratio = None
+        signal.technical_levels_note = ""
+        return signal
 
     @staticmethod
     def _merge_history_candle(history: list[Candle], candle: Candle) -> list[Candle]:
@@ -383,6 +511,11 @@ class TradingController:
         self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
         history_candles = provider.fetch_candles(
             symbol, timeframe, limit=max(limit, LIVE_FETCH_MINIMUM_CANDLES),
+        )
+        data_source = str(getattr(provider, "last_provider_name", "") or "fonte pública")
+        provider_warning = str(getattr(provider, "last_warning", "") or "")
+        higher_timeframe = self._higher_timeframe_context(
+            provider, market, symbol, timeframe,
         )
         candles, decision_candles, next_candle_entry = self._live_analysis_windows(
             history_candles, timeframe,
@@ -444,8 +577,8 @@ class TradingController:
             if event:
                 message = f"Evento de alto impacto: {event.event} ({event.currency})"
                 (blockers if strict_risk_blocks else warnings).append(message)
-        if market == Market.CRYPTO.value and provider.last_warning:
-            warnings.append(provider.last_warning)
+        if market == Market.CRYPTO.value and provider_warning:
+            warnings.append(provider_warning)
         signal = self.signal_engine.generate(
             indicators, features, structure, fibonacci, horizon_minutes,
             sensitivity, decision_candles[-1].closed, blockers, mode, context,
@@ -455,6 +588,7 @@ class TradingController:
         signal.next_candle_entry = next_candle_entry
         signal.warnings.extend(warnings)
         signal = self._apply_news_context(signal, news_context, strict=strict_risk_blocks)
+        signal = self._apply_higher_timeframe_context(signal, higher_timeframe)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         signal = self._apply_platform_alignment(signal, market, symbol, float(indicators["close"].iloc[-1]))
         calibrated, samples = self.repository.calibration(
@@ -468,14 +602,18 @@ class TradingController:
             fibonacci=fibonacci, signal=signal, news=news,
             news_context=news_context, calendar_events=calendar_events,
             symbol=symbol, timeframe=timeframe, market=market,
-            generated_at=datetime.now(timezone.utc), data_source=provider.last_provider_name,
+            generated_at=datetime.now(timezone.utc), data_source=data_source,
             forex_reference_rate=reference_rate, history_candles=history_candles,
+            higher_timeframe=higher_timeframe,
         )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
         self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         signal_id = self._record_signal(
             signal, market, symbol, timeframe, decision_candles, indicators, mode,
+        )
+        snapshot.chart_evaluations = self.repository.chart_evaluations(
+            symbol, timeframe, started_at=self._evaluation_started_at(),
         )
         self._record_decision(snapshot, signal_id=signal_id)
         return snapshot
@@ -485,24 +623,11 @@ class TradingController:
                        indicators: pd.DataFrame, mode: str) -> int | None:
         if signal.state != SignalState.CONFIRMED or signal.direction == Direction.WAIT or not candles:
             return None
-        execution_mode = self.settings.execution_mode
         signature = (
-            symbol, timeframe, candles[-1].open_time, signal.direction.value, execution_mode,
+            symbol, timeframe, candles[-1].open_time, signal.direction.value,
         )
         if signature == self._last_saved_signature:
             return None
-        platform = self.settings.platform_name
-        if execution_mode == SIMULATION_EXECUTION_MODE:
-            session = self.simulation_summary()
-            if not session.can_open:
-                message = (
-                    f"Simulação pausada: {session.status.lower()} com resultado "
-                    f"R$ {session.profit_loss:+.2f}; os sinais manuais continuam visíveis"
-                )
-                if message not in signal.warnings:
-                    signal.warnings.append(message)
-                return None
-            platform = "SIMULAÇÃO"
         last = indicators.iloc[-1]
         values = {key: self._value(last.get(key)) for key in (
             "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di",
@@ -510,7 +635,7 @@ class TradingController:
         )}
         signal_id = self.repository.save_signal(
             signal, market, symbol, timeframe, values, mode,
-            platform=platform,
+            platform=GRAPH_EVALUATION_PLATFORM,
             strategy=strategy_key(market), sensitivity=self.settings.sensitivity,
             stake_amount=self.settings.stake_amount,
         )
@@ -610,7 +735,10 @@ class TradingController:
             "analysis_candles": len(snapshot.indicators),
             "chart_candles": len(snapshot.candles),
             "training_candles": len(snapshot.history_candles or snapshot.candles),
-            "simulation_session": asdict(self.simulation_summary()),
+            "higher_timeframe": (
+                asdict(snapshot.higher_timeframe) if snapshot.higher_timeframe else None
+            ),
+            "evaluation": asdict(self.evaluation_summary()),
         })
         try:
             return self.repository.record_decision(payload)
@@ -672,6 +800,9 @@ class TradingController:
         news_context, news = summarize_asset_news(
             snapshot.news, snapshot.symbol, snapshot.market,
         )
+        higher_timeframe = self._higher_timeframe_context(
+            self.provider(), snapshot.market, snapshot.symbol, snapshot.timeframe,
+        )
         recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
         risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
         if risky:
@@ -699,6 +830,7 @@ class TradingController:
         signal = self._apply_news_context(
             signal, news_context, strict=self.settings.strict_risk_blocks,
         )
+        signal = self._apply_higher_timeframe_context(signal, higher_timeframe)
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
         )
@@ -720,12 +852,17 @@ class TradingController:
             generated_at=datetime.now(timezone.utc), data_source=snapshot.data_source,
             forex_reference_rate=snapshot.forex_reference_rate,
             history_candles=history_candles,
+            higher_timeframe=higher_timeframe,
         )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
         self._settle_pending(snapshot.symbol, snapshot.timeframe,
                              float(indicators["close"].iloc[-1]), candles)
         signal_id = self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
                                         decision_candles, indicators, self.settings.mode)
+        self.snapshot.chart_evaluations = self.repository.chart_evaluations(
+            snapshot.symbol, snapshot.timeframe,
+            started_at=self._evaluation_started_at(),
+        )
         self._record_decision(self.snapshot, signal_id=signal_id)
         return self.snapshot
 
@@ -990,6 +1127,7 @@ class TradingController:
             except OSError as exc:
                 failures.append(f"{candidate.name}: {exc}")
         self._snapshot_cache.clear()
+        self._higher_timeframe_cache.clear()
         self._quality_gate.clear()
         self.snapshot = None
         self._last_saved_signature = None

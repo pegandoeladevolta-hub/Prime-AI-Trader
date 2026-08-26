@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import tkinter as tk
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -33,6 +34,7 @@ class CandleChart(tk.Canvas):
         self.fibonacci: FibonacciResult | None = None
         self.structure: MarketStructure | None = None
         self.signal: Signal | None = None
+        self.evaluations: list[dict] = []
         self.overlays = {
             "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
             "swings": True, "trend": True, "signals": True, "levels": True,
@@ -56,10 +58,12 @@ class CandleChart(tk.Canvas):
 
     def set_data(self, candles: list[Candle], indicators: pd.DataFrame, zones: list[Zone], fibonacci: FibonacciResult | None,
                  structure: MarketStructure | None = None, signal: Signal | None = None,
+                 evaluations: list[dict] | None = None,
                  context_key: str = "") -> None:
         context_changed = bool(context_key and context_key != self._context_key)
         self.candles, self.indicators, self.zones, self.fibonacci = candles, indicators, zones, fibonacci
         self.structure, self.signal = structure, signal
+        self.evaluations = list(evaluations or [])
         if context_changed:
             self.offset = 0
         self._context_key = context_key or self._context_key
@@ -243,6 +247,8 @@ class CandleChart(tk.Canvas):
             if volume_visible:
                 bar_height = candle.volume / max_volume * volume_height
                 self.create_rectangle(x - body_width / 2, volume_base - bar_height, x + body_width / 2, volume_base, fill=color, outline="", tags=tags)
+        if self.overlays.get("signals") and self.evaluations:
+            self._draw_evaluations(visible, left, step, y, top, bottom)
         if self.structure and self.overlays.get("swings"):
             for pivot_index, marker, color, anchor in (
                 *[(i, "▼", COLORS["red"], "s") for i in self.structure.pivot_highs[-4:]],
@@ -280,6 +286,77 @@ class CandleChart(tk.Canvas):
             "volume_base": volume_base, "volume_height": volume_height,
             "body_width": body_width, "volume_visible": volume_visible,
         }
+
+    @staticmethod
+    def _operation_time(value) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _candle_index_at_or_after(visible: list[Candle], target: datetime) -> int:
+        for index, candle in enumerate(visible):
+            if candle.open_time.astimezone(timezone.utc) >= target:
+                return index
+        return len(visible) - 1
+
+    def _draw_evaluations(self, visible: list[Candle], left: float, step: float,
+                          y, top: float, bottom: float) -> None:
+        if not visible:
+            return
+        first = visible[0].open_time.astimezone(timezone.utc)
+        last = visible[-1].open_time.astimezone(timezone.utc)
+        for operation in self.evaluations[-30:]:
+            created = self._operation_time(operation.get("created_at"))
+            if created is None or created < first - timedelta(minutes=5) or created > last + timedelta(minutes=5):
+                continue
+            entry_index = self._candle_index_at_or_after(visible, created)
+            entry_price = operation.get("entry")
+            try:
+                entry_price = float(entry_price)
+            except (TypeError, ValueError):
+                continue
+            entry_y = y(entry_price)
+            if not top <= entry_y <= bottom:
+                continue
+            entry_x = left + (entry_index + 0.5) * step
+            buy = operation.get("direction") == "COMPRA"
+            color = COLORS["green"] if buy else COLORS["red"]
+            marker = "▲ C" if buy else "▼ V"
+            anchor = "s" if buy else "n"
+            offset = -5 if buy else 5
+            self.create_text(
+                entry_x, entry_y + offset, text=marker, anchor=anchor, fill=color,
+                font=("Segoe UI Semibold", 8), tags="evaluated-signal",
+            )
+            result = str(operation.get("result") or "")
+            if result not in {"WIN", "LOSS", "DRAW"}:
+                continue
+            expiry = created + timedelta(minutes=max(1, int(operation.get("horizon_minutes") or 1)))
+            result_index = self._candle_index_at_or_after(visible, expiry)
+            result_x = left + (result_index + 0.5) * step
+            exit_price = operation.get("exit")
+            try:
+                result_y = y(float(exit_price))
+            except (TypeError, ValueError):
+                result_y = entry_y
+            result_y = min(max(result_y, top + 9), bottom - 9)
+            result_color = (
+                COLORS["green"] if result == "WIN" else
+                COLORS["red"] if result == "LOSS" else COLORS["amber"]
+            )
+            source = "OBS" if operation.get("result_source") == "MANUAL" else "PÚB"
+            self.create_line(
+                entry_x, entry_y, result_x, result_y, fill=result_color,
+                width=1, dash=(2, 3), tags="evaluated-signal",
+            )
+            self.create_text(
+                result_x, result_y - 7, text=f"{result}·{source}", anchor="s",
+                fill=result_color, font=("Segoe UI Semibold", 8),
+                tags="evaluated-signal",
+            )
 
     def _draw_trade_levels(self, left: float, right: float, top: float,
                            bottom: float, y) -> None:

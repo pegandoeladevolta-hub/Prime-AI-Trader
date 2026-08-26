@@ -116,6 +116,10 @@ class Signal:
     independent_confirmations: list[str] = field(default_factory=list)
     momentum_votes: int = 0
     higher_timeframe_bias: str = "INDEFINIDA"
+    higher_timeframe_label: str = ""
+    higher_timeframe_regime: str = ""
+    higher_timeframe_candles: int = 0
+    higher_timeframe_source: str = ""
     pullback_primary_direction: str = ""
     pullback_correction_direction: str = ""
     pullback_phase: str = ""

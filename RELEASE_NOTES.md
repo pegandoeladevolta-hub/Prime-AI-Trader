@@ -1,5 +1,27 @@
 # Release notes
 
+## 1.2.7 — 26/08/2026
+
+### Contexto superior real e filtro profissional
+
+- Cada decisão mantém 200 candles analíticos fechados no gráfico selecionado e consulta separadamente 200 candles fechados do timeframe superior público.
+- O mapeamento operacional é `1m→5m`, `3m/5m→15m`, `15m→1h` e `30m/1h→4h`; 4h informa honestamente que não há timeframe superior configurado nesta versão.
+- EMA 21/50, direção DI/ADX e estrutura HH/HL ou LH/LL classificam o regime superior. Conflito forte bloqueia a entrada; alinhamento vira confluência auditável.
+- Timeframe, direção, regime, estrutura, quantidade de candles e fonte superior são gravados no histórico e exportados para Excel.
+
+### Avaliação automática dos sinais no gráfico
+
+- Remove o botão de simulação automática, o seletor manual/automático e os limites de stop/meta da sessão.
+- Todo sinal confirmado é registrado como `AVALIAÇÃO GRÁFICA`, mesmo quando o saldo local chega a zero; análise, voz e sinais continuam ativos.
+- O gráfico marca compra/venda, liga entrada à expiração e mostra `WIN/LOSS/DRAW`, distinguindo preço público (`PÚB`) de resultado observado (`OBS`).
+- Saldo inicial e valor por sinal são campos livres. O painel exibe saldo de avaliação, P&L, WIN/LOSS/DRAW e pendências, deixando explícito que não é saldo de VEX/BullEx.
+- A integração de plataforma permanece visual e somente leitura: sem senha, cookies, tokens, saldo privado, clique ou execução de ordem.
+
+### Protocolo inicial de teste
+
+- O histórico anexado contém dez resultados observados, todos em 1m: RÁPIDO/CONFIRMAÇÃO teve 3 WIN e 3 LOSS; EQUILIBRADO/CONFIRMAÇÃO teve 3 WIN e 1 LOSS. A amostra não prova desempenho futuro nem permite escolher o melhor timeframe.
+- A configuração inicial para forward test passa a ser **EQUILIBRADO + CONFIRMAÇÃO + 5m/5m**, com recomendação de acumular pelo menos 100 sinais concluídos antes de comparar perfis.
+
 ## 1.2.6 — 26/08/2026
 
 ### Contexto do ativo e 200 candles analíticos

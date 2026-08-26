@@ -6,7 +6,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 
 ## Filtros usados
 
-1. **Tendência em mais de uma escala** — alinhamento das EMAs 9/21/50, inclinação da EMA 50, estrutura HH/HL ou LH/LL e timeframe superior calculado somente com barras concluídas.
+1. **Tendência em mais de uma escala** — alinhamento das EMAs 9/21/50, inclinação da EMA 50, estrutura HH/HL ou LH/LL e um segundo conjunto de 200 barras concluídas buscado diretamente no timeframe superior público.
 2. **Momentum** — MACD e sua aceleração, RSI e sua inclinação, estocástico, ADX e direção de +DI/-DI.
 3. **Regime de volatilidade** — ATR relativo à própria mediana; extremos de baixa ou alta volatilidade são evitados.
 4. **Setups auditáveis** — pullback validado na EMA 21/50, rompimento de estrutura BOS, mudança de tendência CHOCH, rompimento com reteste, rejeição em suporte/resistência, varredura de liquidez, engolfo e retração de Fibonacci.
@@ -19,11 +19,12 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 11. **Divergências confirmadas** — divergência regular antecipa perda de força; divergência oculta favorece continuação, sempre a partir de pivôs já conhecidos.
 12. **Contexto do timeframe** — deslocamento mínimo, espaço até a zona contrária, janela do pullback e frequência de atualização são ajustados para 1m, 3m, 5m, 15m, 30m, 1h e 4h.
 13. **Padrões de candles** — padrões de uma, duas e três velas são normalizados por range/ATR, usados em qualquer timeframe e só entram como confirmação depois do fechamento.
-14. **Janela operacional** — a análise ao vivo exige no mínimo 100 candles e usa no máximo os 200 mais recentes; treino/backtest mantêm histórico separado e maior.
+14. **Janela operacional** — a análise ao vivo exige exatamente 200 candles analíticos fechados; quando existe vela aberta, um 201º registro preserva essa base. Treino/backtest mantêm histórico separado e maior.
 15. **Níveis da operação** — stop técnico e alvo combinam ATR, expiração, pivôs e zona oposta. Espaço curto é avisado; os níveis não representam ordens executadas pela plataforma.
 16. **Reversão de curto horizonte** — a última vela concluída é confrontada com microtendência, MACD/RSI, pavio contrário, EMA 9, divergência e agressão real. Duas evidências independentes já suspendem uma entrada com vencimento curto.
 17. **Validade temporal** — o sinal perde validade se a nova cotação inverter materialmente, cruzar a invalidação técnica ou chegar realmente tarde ao vencimento. No primeiro tick da vela nova, os últimos segundos ainda exibidos do ciclo anterior podem ser projetados somente para um sinal recém-confirmado pela vela fechada.
 18. **Direção real do pullback** — EMAs 21/50 e estrutura definem a tendência principal; a correção temporária tem direção oposta e só libera entrada após retomada fechada. Cruzamento isolado da EMA 9 não transforma pullback em reversão.
+19. **Timeframe superior real** — `1m→5m`, `3m/5m→15m`, `15m→1h` e `30m/1h→4h`. A leitura exige 200 candles fechados, cruza EMA 21/50, +DI/-DI, ADX e estrutura e bloqueia uma entrada que esteja contra uma tendência superior confirmada.
 
 ## Pullback, correção e mudança de tendência
 
@@ -62,7 +63,7 @@ O motor tenta selecionar operações com evidência convergente e prefere `AGUAR
 - Taker buy ausente ou inválido permanece neutro; Coinbase/Kraken não são apresentados como se informassem 100% de agressão vendedora.
 - VWAP/OBV só participam com volume válido; fontes alternativas sem esse dado não o inventam.
 - EMAs 9/21/50, RSI, MACD, ADX, ATR, BOS/CHOCH, pullback, rompimento/reteste, liquidez, divergência, exaustão e S/R têm regras simétricas para compra/venda.
-- Timeframe superior usa somente barras já concluídas.
+- Timeframe superior usa 200 barras já concluídas obtidas diretamente da fonte pública; o reagrupamento local permanece apenas como evidência interna secundária.
 
 ### Forex
 
@@ -92,7 +93,7 @@ Um sinal recém-confirmado permanece visível por uma janela máxima de 8 a 12 s
 | CONFIRMAÇÃO | Consultiva; concordância aumenta o score. | Padrões contrários e contexto recebem severidade progressiva. | Rápido 1, equilibrado 2, conservador 3 categorias. |
 | QUANTITATIVO | Obrigatória; piso e vantagem podem vetar. | Filtros críticos continuam protegendo a entrada. | Rápido/equilibrado 1, conservador 2 categorias. |
 
-Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda e conflito crítico de candle continuam sendo bloqueios. Divergência, compressão, pullback em observação, timeframe superior e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
+Em todos os modos, fonte atrasada, candle ainda aberto como confirmação, estrutura contrária sem CHOCH/regime recente confirmado, retração profunda, conflito crítico de candle e tendência contrária no timeframe superior real continuam sendo bloqueios. Divergência, compressão, pullback em observação e proximidade moderada de S/R podem ser avisos ou vetos conforme a matriz, evitando acumular filtros secundários indiscriminadamente.
 
 Na versão 1.2.5, a primeira cotação do novo período encerra a vela incremental anterior. Durante a janela curta de entrada, essa vela fechada governa a decisão e a vela corrente permanece apenas em formação. A projeção do contador da plataforma exige um sinal novo, direcional e confirmado por candle fechado; ela não libera sinais antigos ou entradas realmente tardias.
 
@@ -124,12 +125,13 @@ Essas pesquisas orientam princípios de tendência, controle de regime e valida�
 
 ## Como avaliar
 
-1. Treine separadamente o ativo/timeframe/horizonte.
-2. Execute o backtest fora da amostra.
-3. Desconfie de amostra pequena, cobertura mínima ou resultado concentrado em um horário.
-4. Use o histórico real do próprio contexto; não misture BTC, altcoins e Forex.
-5. Escolha exatamente o payout exibido pela sua plataforma para aquele ativo.
-6. Considere custos, spread, slippage e diferenças entre o feed público e a cotação da sua corretora antes de operar manualmente.
-7. Quando conectada, a VEX pode atualizar apenas a vela em formação com o preço efetivamente visível; o histórico completo continua vindo das fontes públicas e não deve ser confundido com um feed oficial privado da corretora.
-8. VEX e BullEx nunca confirmam o fechamento: preço visual apenas atualiza a vela corrente. O encerramento confirmado continua vindo do feed de mercado.
-9. Registre WIN/LOSS/DRAW manualmente quando quiser medir o resultado efetivamente observado na plataforma; o resultado inferido fica identificado separadamente.
+1. Comece pelo protocolo **EQUILIBRADO + CONFIRMAÇÃO + 5m/5m** e não compare configurações antes de acumular pelo menos 100 sinais concluídos.
+2. Treine separadamente o ativo/timeframe/horizonte.
+3. Execute o backtest fora da amostra.
+4. Desconfie de amostra pequena, cobertura mínima ou resultado concentrado em um horário.
+5. Use o histórico real do próprio contexto; não misture BTC, altcoins e Forex.
+6. Escolha exatamente o payout exibido pela sua plataforma para aquele ativo.
+7. Considere custos, spread, slippage e diferenças entre o feed público e a cotação da sua corretora antes de operar manualmente.
+8. Quando conectada, a VEX pode atualizar apenas a vela em formação com o preço efetivamente visível; o histórico completo continua vindo das fontes públicas e não deve ser confundido com um feed oficial privado da corretora.
+9. VEX e BullEx nunca confirmam o fechamento: preço visual apenas atualiza a vela corrente. O encerramento confirmado continua vindo do feed de mercado.
+10. O gráfico identifica resultado calculado pelo preço público como `PÚB`; use `OBS`/registro manual quando quiser medir o resultado efetivamente visto na plataforma. O saldo de avaliação nunca é apresentado como saldo da conta.

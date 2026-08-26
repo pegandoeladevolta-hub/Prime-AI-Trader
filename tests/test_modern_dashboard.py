@@ -36,15 +36,17 @@ class ModernDashboardTests(unittest.TestCase):
             self.assertIn(variable, source)
         self.assertIn("AJUSTES AVANÇADOS", source)
 
-    def test_simulation_can_be_disabled_and_uses_free_numeric_fields(self) -> None:
+    def test_graph_evaluation_uses_free_numeric_fields_without_toggle_or_limits(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_left)
         for item in (
-            "Simulação automática (sem ordens reais)", "self.simulation_auto_var",
-            "self.session_stop_var", "self.session_target_var", "self._number_field",
-            "REINICIAR SESSÃO SIMULADA",
+            "Saldo inicial da avaliação (R$)", "self.evaluation_balance_var",
+            "Valor por sinal avaliado (R$)", "self._number_field",
+            "INICIAR NOVA AVALIAÇÃO",
         ):
             self.assertIn(item, source)
-        self.assertEqual(AppSettings().execution_mode, "SINAIS MANUAIS")
+        for removed in ("simulation_auto_var", "session_stop_var", "session_target_var"):
+            self.assertNotIn(removed, source)
+        self.assertEqual(AppSettings().evaluation_initial_balance, 300.0)
 
     def test_sensitivity_modes_and_voice_controls_remain_visible(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_left)
@@ -58,6 +60,15 @@ class ModernDashboardTests(unittest.TestCase):
                      '"ema"', '"bollinger"', '"swings"', '"trend"', '"signals"', '"levels"'):
             self.assertIn(item, source)
         self.assertIn("_build_insights", source)
+
+    def test_chart_receives_auditable_evaluations_with_public_or_observed_result(self) -> None:
+        render_source = inspect.getsource(PrimeAITraderApp.render_snapshot)
+        chart_source = inspect.getsource(__import__(
+            "prime_ai_trader.ui.chart", fromlist=["CandleChart"],
+        ).CandleChart._draw_evaluations)
+        self.assertIn("snapshot.chart_evaluations", render_source)
+        for label in ("WIN", "LOSS", "PÚB", "OBS"):
+            self.assertIn(label, chart_source)
 
     def test_right_panel_shows_technical_stop_and_target_without_order_claim(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_right)
@@ -126,9 +137,10 @@ class ModernDashboardTests(unittest.TestCase):
         controller.symbol.return_value = "BTC/USDT"
         controller.secrets = {}
         controller.logger = logging.getLogger("prime_ai_trader.tests.visual")
-        controller.simulation_summary.return_value = SimpleNamespace(
-            status="SINAIS MANUAIS", profit_loss=0.0, stop_loss=80.0,
-            profit_target=80.0, pending=0,
+        controller.evaluation_summary.return_value = SimpleNamespace(
+            status="ACOMPANHANDO SINAIS", initial_balance=300.0,
+            current_balance=300.0, profit_loss=0.0, wins=0, losses=0,
+            draws=0, pending=0,
         )
         app = None
         try:

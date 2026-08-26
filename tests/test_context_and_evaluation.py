@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from prime_ai_trader.app.controller import (
-    SIMULATION_EXECUTION_MODE, TradingController,
+    GRAPH_EVALUATION_PLATFORM, HigherTimeframeContext, TradingController,
 )
 from prime_ai_trader.core.models import Direction, Market, Signal, SignalState
 from prime_ai_trader.indicators.technical import calculate_all, candles_frame
@@ -83,50 +83,69 @@ class AssetNewsContextTests(unittest.TestCase):
         self.assertTrue(signal.blockers)
 
 
-class SimulationSessionTests(unittest.TestCase):
-    def test_simulation_stops_after_profit_target(self) -> None:
+class HigherTimeframeContextTests(unittest.TestCase):
+    @staticmethod
+    def _context(bias: str) -> HigherTimeframeContext:
+        return HigherTimeframeContext(
+            timeframe="15m", bias=bias, regime="TENDÊNCIA FORTE",
+            structure="HH / HL", candle_count=200, source="fonte pública", adx=28.0,
+        )
+
+    def test_real_higher_timeframe_conflict_blocks_entry(self) -> None:
+        signal = Signal(
+            Direction.BUY, SignalState.CONFIRMED, 88, {"COMPRA": 0.8}, 100.0, 5,
+        )
+        TradingController._apply_higher_timeframe_context(signal, self._context("BAIXA"))
+        self.assertEqual(signal.direction, Direction.WAIT)
+        self.assertEqual(signal.state, SignalState.BLOCKED)
+        self.assertIn("timeframe superior real 15m", signal.blockers[0].lower())
+
+    def test_real_higher_timeframe_alignment_is_auditable(self) -> None:
+        signal = Signal(
+            Direction.BUY, SignalState.CONFIRMED, 88, {"COMPRA": 0.8}, 100.0, 5,
+        )
+        TradingController._apply_higher_timeframe_context(signal, self._context("ALTA"))
+        self.assertEqual(signal.direction, Direction.BUY)
+        self.assertEqual(signal.higher_timeframe_candles, 200)
+        self.assertTrue(any("200 candles fechados" in item for item in signal.confluences))
+
+
+class EvaluationTrackingTests(unittest.TestCase):
+    def test_loss_updates_local_evaluation_balance_from_300_to_280(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ, {"XDG_DATA_HOME": temp},
         ):
             controller = TradingController()
-            controller.settings.session_stop_loss = 50.0
-            controller.settings.session_profit_target = 20.0
-            controller.configure_execution_mode(SIMULATION_EXECUTION_MODE)
+            controller.settings.evaluation_initial_balance = 300.0
             completed = Signal(
                 Direction.SELL, SignalState.CONFIRMED, 82, {"VENDA": 0.8}, 100.0, 1,
                 payout_percent=80,
             )
             signal_id = controller.repository.save_signal(
                 completed, Market.CRYPTO.value, "BTC/USDT", "1m", {"atr_14": 1.0},
-                "CONFIRMAÇÃO", platform="SIMULAÇÃO", stake_amount=25.0,
+                "CONFIRMAÇÃO", platform=GRAPH_EVALUATION_PLATFORM, stake_amount=20.0,
             )
-            controller.repository.set_result(signal_id, 99.0, "WIN")
-            summary = controller.simulation_summary()
-            self.assertEqual(summary.status, "META ATINGIDA")
-            self.assertFalse(summary.can_open)
-            self.assertEqual(summary.profit_loss, 20.0)
+            controller.repository.set_result(signal_id, 101.0, "LOSS")
+            summary = controller.evaluation_summary()
+            self.assertEqual(summary.profit_loss, -20.0)
+            self.assertEqual(summary.current_balance, 280.0)
+            self.assertEqual(summary.losses, 1)
 
-    def test_simulation_stops_after_session_loss_limit_and_keeps_signal_visible(self) -> None:
+    def test_evaluation_balance_does_not_stop_future_signal_tracking(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ, {"XDG_DATA_HOME": temp},
         ):
             controller = TradingController()
-            controller.settings.session_stop_loss = 20.0
-            controller.settings.session_profit_target = 50.0
-            controller.settings.stake_amount = 20.0
-            controller.configure_execution_mode(SIMULATION_EXECUTION_MODE)
+            controller.settings.evaluation_initial_balance = 10.0
             completed = Signal(
                 Direction.BUY, SignalState.CONFIRMED, 80, {"COMPRA": 0.8}, 100.0, 1,
             )
-            signal_id = controller.repository.save_signal(
+            first = controller.repository.save_signal(
                 completed, Market.CRYPTO.value, "BTC/USDT", "1m", {"atr_14": 1.0},
-                "CONFIRMAÇÃO", platform="SIMULAÇÃO", stake_amount=20.0,
+                "CONFIRMAÇÃO", platform=GRAPH_EVALUATION_PLATFORM, stake_amount=20.0,
             )
-            controller.repository.set_result(signal_id, 99.0, "LOSS")
-            summary = controller.simulation_summary()
-            self.assertEqual(summary.status, "STOP ATINGIDO")
-            self.assertFalse(summary.can_open)
-            self.assertEqual(summary.profit_loss, -20.0)
+            controller.repository.set_result(first, 99.0, "LOSS")
+            self.assertEqual(controller.evaluation_summary().status, "SALDO ESGOTADO")
 
             candles = synthetic_candles(200)
             indicators = calculate_all(candles_frame(candles))
@@ -138,10 +157,8 @@ class SimulationSessionTests(unittest.TestCase):
                 next_signal, Market.CRYPTO.value, "BTC/USDT", "1m",
                 candles, indicators, "CONFIRMAÇÃO",
             )
-            self.assertIsNone(saved)
+            self.assertIsNotNone(saved)
             self.assertEqual(next_signal.direction, Direction.SELL)
-            self.assertEqual(next_signal.state, SignalState.CONFIRMED)
-            self.assertTrue(any("Simulação pausada" in item for item in next_signal.warnings))
 
 
 if __name__ == "__main__":

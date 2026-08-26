@@ -293,17 +293,37 @@ class Repository:
                 (symbol, timeframe),
             )]
 
-    def simulation_session(self, started_at: datetime) -> dict:
-        """Resume somente operações simuladas da sessão atual."""
+    def evaluation_session(self, started_at: datetime) -> dict:
+        """Resume sinais acompanhados no gráfico desde o início da avaliação."""
         with self.connect() as connection:
             return dict(connection.execute(
                 """SELECT COUNT(*) operations,
                    SUM(result='WIN') wins, SUM(result='LOSS') losses, SUM(result='DRAW') draws,
                    SUM(result IS NULL) pending,
                    SUM(CASE WHEN result IS NOT NULL THEN COALESCE(profit_loss, 0) ELSE 0 END) profit_loss
-                   FROM signals WHERE platform='SIMULAÇÃO' AND created_at>=?""",
+                   FROM signals WHERE platform='AVALIAÇÃO GRÁFICA' AND created_at>=?""",
                 (started_at.astimezone(timezone.utc).isoformat(),),
             ).fetchone())
+
+    def chart_evaluations(self, symbol: str, timeframe: str, *,
+                          started_at: datetime | None = None,
+                          limit: int = 120) -> list[dict]:
+        clauses = ["platform='AVALIAÇÃO GRÁFICA'", "symbol=?", "timeframe=?"]
+        params: list[object] = [symbol, timeframe]
+        if started_at is not None:
+            clauses.append("created_at>=?")
+            params.append(started_at.astimezone(timezone.utc).isoformat())
+        params.append(min(max(int(limit), 1), 500))
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""SELECT id, created_at, symbol, timeframe, horizon_minutes,
+                    direction, entry, exit, result, result_source, result_observed_at,
+                    payout_percent, stake_amount, profit_loss, score
+                    FROM signals WHERE {' AND '.join(clauses)}
+                    ORDER BY id DESC LIMIT ?""",
+                params,
+            )
+            return list(reversed([dict(row) for row in rows]))
 
     def recent(self, limit: int = 100) -> list[dict]:
         with self.connect() as connection:

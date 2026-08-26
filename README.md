@@ -1,22 +1,26 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.6 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.7 para Windows x64 configurado no GitHub Actions.
 
-Candidato Windows 1.2.6: contexto noticioso por ativo, 200 candles analíticos e simulação com stop/meta.
+Candidato Windows 1.2.7: contexto real de timeframe superior, avaliação auditável no gráfico e saldo local dos sinais.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-No Windows, confirme `FileVersion 1.2.6` nas propriedades do instalador antes de substituir uma versão anterior.
+No Windows, confirme `FileVersion 1.2.7` nas propriedades do instalador antes de substituir uma versão anterior.
 
-## Destaques da versão 1.2.6
+## Destaques da versão 1.2.7
 
 - Toda decisão ao vivo usa **exatamente 200 candles analíticos**. Quando a vela atual está aberta, o app busca uma vela adicional e calcula o sinal pelas 200 anteriores já fechadas; se a fonte não entregar essa base, a análise aguarda com motivo explícito.
+- A direção passa por um segundo contexto público com **200 candles fechados do timeframe superior real**: `1m→5m`, `3m/5m→15m`, `15m→1h` e `30m/1h→4h`. Um sinal contrário a uma tendência superior confirmada é bloqueado e o timeframe, regime, fonte e quantidade de candles ficam auditáveis.
 - As notícias passam por filtro de relevância do ativo. O painel mostra quantidade recente, manchetes específicas, contexto de mercado, sentimento, alto risco, fontes e idade da última notícia, em vez de tratar todo o feed como notícia do ativo.
 - Em criptomoedas, contexto recente fortemente contrário aparece como aviso ou bloqueio quando a proteção rigorosa está ativa. Notícias não criam sinal sozinhas e, em Forex, não são convertidas artificialmente em direção sem relação clara com o par.
 - As fontes públicas são atualizadas a cada 60 segundos. O histórico completo grava o resumo noticioso e os 200 candles efetivamente usados na decisão.
-- O ajuste avançado oferece **Sinais manuais** e **Simulação automática (sem ordens reais)**. A simulação registra entradas confirmadas, calcula resultado pelo feed público e para de abrir novas posições simuladas ao atingir o stop ou a meta da sessão.
-- Valor por sinal, stop da sessão e meta são campos editáveis. Desativar a simulação mantém gráfico, análise, voz e sinais ativos para operação manual na VEX/BullEx ou em outra plataforma.
+- Todo sinal confirmado é marcado no próprio gráfico com entrada, expiração e resultado `WIN/LOSS/DRAW`. `PÚB` identifica resultado calculado pelo preço público e `OBS` identifica resultado informado manualmente pelo usuário.
+- O ajuste avançado recebe **Saldo inicial da avaliação** e **Valor por sinal avaliado**. O painel calcula o saldo local continuamente — por exemplo, R$ 300 menos uma perda de R$ 20 resulta em R$ 280 — sem stop/meta automático e sem interromper novos sinais.
+- O antigo botão de simulação automática, os limites de stop/meta da sessão e o seletor de modo de execução foram removidos. A avaliação gráfica fica sempre auditável, enquanto a entrada na plataforma continua manual.
 - A integração VEX/BullEx permanece somente leitura: não recebe credenciais, não lê saldo, não clica em compra/venda e não envia ordens.
+
+Configuração inicial recomendada para forward test: **EQUILIBRADO + CONFIRMAÇÃO + gráfico 5m + expiração 5m**, payout informado corretamente e pelo menos 100 sinais concluídos antes de comparar combinações. Essa configuração é um protocolo de teste, não promessa de acerto.
 
 ## Recursos preservados da versão 1.2.5
 
@@ -241,7 +245,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.6 acrescenta regressões para 200 candles analíticos fechados, relevância das notícias por ativo, conflito noticioso auditável e limites da sessão simulada. Fechamento incremental de Forex, projeção segura do contador, pullback invertido, CHOCH, histórico, Excel, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, interface e Windows permanecem cobertos.
+A versão 1.2.7 acrescenta regressões para timeframe superior real com 200 candles, bloqueio de conflito direcional, marcação de entradas/resultados no gráfico e saldo de avaliação contínuo. Fechamento incremental de Forex, notícias do ativo, projeção segura do contador, pullback invertido, CHOCH, histórico, Excel, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, interface e Windows permanecem cobertos.
 
 ## Dados locais
 
@@ -257,7 +261,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 
 ## Limitações honestas
 
-- Não executa ordens reais nem promete lucro ou taxa fixa de acerto. O modo automático é uma simulação identificada como tal.
+- Não executa ordens reais, não lê saldo da VEX/BullEx e não promete lucro ou taxa fixa de acerto. Resultados `PÚB` e o saldo de avaliação são cálculos locais, não operações da plataforma.
 - Os filtros mais rigorosos reduzem a quantidade de sinais; `AGUARDAR` é uma decisão válida.
 - Cada ativo/timeframe/horizonte precisa de treinamento próprio para usar a IA.
 - Twelve Data e Alpha Vantage exigem chaves gratuitas apenas se forem configuradas; o Forex público não exige chave, mas sua disponibilidade não é garantida.
