@@ -4,6 +4,8 @@ Build automático da versão 1.2.5 para Windows x64 configurado no GitHub Action
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
+No Windows, confirme `FileVersion 1.2.5` nas propriedades do instalador antes de substituir uma versão anterior.
+
 ## Destaques da versão 1.2.5
 
 - No início de uma vela nova, a análise usa a vela anterior já fechada para decidir a entrada, enquanto mantém a vela atual aberta no gráfico e no histórico.
