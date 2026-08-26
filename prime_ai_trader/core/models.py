@@ -123,6 +123,10 @@ class Signal:
     reversal_votes: int = 0
     reversal_reasons: list[str] = field(default_factory=list)
     all_waiting_reasons: list[str] = field(default_factory=list)
+    news_context_label: str = "SEM DADOS"
+    news_context_summary: str = ""
+    news_relevant_count: int = 0
+    news_latest_age_minutes: float | None = None
 
 
 @dataclass(slots=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import re
 from threading import Lock
@@ -31,6 +31,123 @@ class NewsItem:
     sentiment: str
     high_risk: bool
     source: str = ""
+
+
+@dataclass(slots=True)
+class AssetNewsContext:
+    symbol: str
+    label: str
+    summary: str
+    relevant_count: int
+    asset_specific_count: int
+    market_wide_count: int
+    fresh_count: int
+    positive_count: int
+    negative_count: int
+    neutral_count: int
+    high_risk_count: int
+    latest_at: datetime | None
+    latest_age_minutes: float | None
+    sources: list[str]
+    directional_bias: str = ""
+
+
+_CURRENCY_TERMS = {
+    "USD": ("usd", "dollar", "federal reserve", "fed", "fomc"),
+    "EUR": ("eur", "euro", "ecb", "european central bank"),
+    "GBP": ("gbp", "pound", "sterling", "boe", "bank of england"),
+    "JPY": ("jpy", "yen", "boj", "bank of japan"),
+    "CHF": ("chf", "franc", "snb", "swiss national bank"),
+    "AUD": ("aud", "australian dollar", "rba", "reserve bank of australia"),
+    "CAD": ("cad", "canadian dollar", "boc", "bank of canada"),
+    "NZD": ("nzd", "new zealand dollar", "rbnz", "reserve bank of new zealand"),
+}
+
+
+def _contains_term(text: str, term: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(term.lower())}(?!\w)", text.lower()) is not None
+
+
+def _news_relevance(item: NewsItem, symbol: str, market: str) -> str:
+    """Classifica a manchete sem tratar feeds genéricos como notícia do ativo."""
+    title = item.title.lower()
+    base, quote = (symbol.upper().split("/") + [""])[:2]
+    if market == "Criptomoedas":
+        name = CRYPTO_NAMES.get(base, base)
+        direct_terms = {base.lower(), name.lower(), symbol.lower()}
+        if any(_contains_term(title, term) for term in direct_terms if len(term) >= 3):
+            return "ATIVO"
+        market_terms = ("crypto", "cryptocurrency", "bitcoin", "stablecoin", "exchange")
+        if item.high_risk or any(_contains_term(title, term) for term in market_terms):
+            return "MERCADO"
+        return ""
+    pair_terms = (symbol.lower(), symbol.replace("/", "").lower())
+    if any(_contains_term(title, term) for term in pair_terms):
+        return "ATIVO"
+    currencies = (*_CURRENCY_TERMS.get(base, (base.lower(),)),
+                  *_CURRENCY_TERMS.get(quote, (quote.lower(),)))
+    if any(_contains_term(title, term) for term in currencies):
+        return "ATIVO"
+    market_terms = ("forex", "interest rate", "inflation", "cpi", "payroll", "unemployment")
+    if item.high_risk or any(_contains_term(title, term) for term in market_terms):
+        return "MERCADO"
+    return ""
+
+
+def summarize_asset_news(items: list[NewsItem], symbol: str, market: str, *,
+                         now: datetime | None = None,
+                         fresh_minutes: int = 180) -> tuple[AssetNewsContext, list[NewsItem]]:
+    """Retorna apenas notícias relevantes e um contexto auditável para a decisão."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    classified = [(item, _news_relevance(item, symbol, market)) for item in items]
+    relevant = [item for item, relevance in classified if relevance]
+    relevant.sort(key=lambda item: item.published_at, reverse=True)
+    fresh_limit = current - timedelta(minutes=fresh_minutes)
+    fresh = [item for item in relevant if item.published_at >= fresh_limit]
+    asset_count = sum(relevance == "ATIVO" for _, relevance in classified)
+    market_count = sum(relevance == "MERCADO" for _, relevance in classified)
+    positive = sum(item.sentiment == "POSITIVA" for item in fresh)
+    negative = sum(item.sentiment == "NEGATIVA" for item in fresh)
+    neutral = sum(item.sentiment == "NEUTRA" for item in fresh)
+    risky = sum(item.high_risk for item in fresh)
+    latest = relevant[0].published_at if relevant else None
+    latest_age = max(0.0, (current - latest).total_seconds() / 60) if latest else None
+    sources = list(dict.fromkeys(item.source or "Fonte pública" for item in relevant))
+    if not relevant:
+        label = "SEM DADOS"
+    elif not fresh:
+        label = "DESATUALIZADO"
+    elif positive >= negative + 2:
+        label = "POSITIVO"
+    elif negative >= positive + 2:
+        label = "NEGATIVO"
+    elif positive or negative:
+        label = "MISTO"
+    else:
+        label = "NEUTRO"
+    bias = ""
+    if market == "Criptomoedas" and label == "POSITIVO":
+        bias = "COMPRA"
+    elif market == "Criptomoedas" and label == "NEGATIVO":
+        bias = "VENDA"
+    if relevant:
+        age_text = f"última há {latest_age:.0f} min" if latest_age is not None else "idade indisponível"
+        summary = (
+            f"{symbol}: {len(fresh)} notícia(s) recente(s) relevante(s) "
+            f"({asset_count} específica(s), {market_count} de mercado) • "
+            f"contexto {label} • {risky} de alto risco • {age_text}"
+        )
+    else:
+        summary = f"{symbol}: nenhuma notícia relevante encontrada nas fontes públicas consultadas"
+    context = AssetNewsContext(
+        symbol=symbol, label=label, summary=summary,
+        relevant_count=len(relevant), asset_specific_count=asset_count,
+        market_wide_count=market_count, fresh_count=len(fresh),
+        positive_count=positive, negative_count=negative, neutral_count=neutral,
+        high_risk_count=risky, latest_at=latest, latest_age_minutes=latest_age,
+        sources=sources, directional_bias=bias,
+    )
+    return context, relevant
 
 
 def classify_text(text: str) -> tuple[str, bool]:
@@ -167,7 +284,7 @@ class RssNewsProvider(NewsProvider):
 class CompositeNewsProvider(NewsProvider):
     """Combina GDELT e feeds públicos, com cache e redundância entre fontes."""
 
-    def __init__(self, cache_seconds: int = 90) -> None:
+    def __init__(self, cache_seconds: int = 60) -> None:
         self.gdelt = GdeltNewsProvider(cache_seconds=cache_seconds)
         self.google = RssNewsProvider("Google Notícias", "https://news.google.com/rss/search", search=True)
         self.cointelegraph = RssNewsProvider("Cointelegraph", "https://cointelegraph.com/rss")

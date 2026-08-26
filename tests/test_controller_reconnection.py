@@ -38,7 +38,7 @@ class ControllerReconnectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
             generated = Signal(Direction.WAIT, SignalState.WAITING, 0, {"AGUARDAR": 1.0}, None, 5)
-            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(220)), patch.object(
                 controller.news_provider, "fetch", return_value=[]
             ), patch.object(controller.signal_engine, "generate", return_value=generated) as generate:
                 controller.analyze()
@@ -50,7 +50,7 @@ class ControllerReconnectTests(unittest.TestCase):
         risky = NewsItem("Fed interest rate decision", "https://example.test", datetime.now(timezone.utc), "NEUTRA", True)
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
-            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(220)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
                 snapshot = controller.analyze()
             self.assertFalse(snapshot.signal.blockers)
             self.assertTrue(snapshot.signal.warnings)
@@ -61,7 +61,7 @@ class ControllerReconnectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
             controller.settings.strict_risk_blocks = True
-            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(220)), patch.object(controller.news_provider, "fetch", return_value=[risky]):
                 snapshot = controller.analyze()
             self.assertTrue(snapshot.signal.blockers)
             self.assertEqual(snapshot.signal.state, SignalState.BLOCKED)
@@ -134,12 +134,12 @@ class ControllerReconnectTests(unittest.TestCase):
             controller.settings.market = Market.CRYPTO.value
             controller.settings.crypto_symbol = "ETH/USDT"
             controller.settings.timeframe = "15m"
-            candles = synthetic_candles(180)
+            candles = synthetic_candles(220)
             with patch.object(controller.binance, "fetch_candles", return_value=candles), patch.object(controller.news_provider, "fetch", return_value=[]):
                 snapshot = controller.analyze()
             self.assertEqual(snapshot.symbol, "ETH/USDT")
             self.assertEqual(snapshot.timeframe, "15m")
-            self.assertEqual(len(snapshot.candles), 180)
+            self.assertEqual(len(snapshot.candles), 200)
 
     def test_live_analysis_uses_latest_200_and_keeps_training_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
@@ -171,7 +171,7 @@ class ControllerReconnectTests(unittest.TestCase):
 
     def test_analysis_marks_confirmation_as_next_candle_entry(self) -> None:
         opened = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-        candles = synthetic_candles(180)
+        candles = synthetic_candles(201)
         candles[-2].open_time = opened - timedelta(minutes=1)
         candles[-2].closed = True
         candles[-1] = replace(
@@ -200,13 +200,16 @@ class ControllerReconnectTests(unittest.TestCase):
                 snapshot = controller.analyze()
         self.assertTrue(generate.call_args.args[6])
         self.assertTrue(snapshot.signal.next_candle_entry)
-        self.assertEqual(len(snapshot.indicators), len(snapshot.candles) - 1)
+        self.assertEqual(len(snapshot.indicators), 200)
+        self.assertEqual(len(snapshot.candles), 200)
+        self.assertEqual(snapshot.chart_indicators.index[-1], snapshot.candles[-1].open_time)
+        self.assertNotEqual(snapshot.indicators.index[-1], snapshot.candles[-1].open_time)
 
-    def test_live_analysis_requires_at_least_100_candles(self) -> None:
+    def test_live_analysis_requires_at_least_200_candles(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
-            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(99)):
-                with self.assertRaisesRegex(ValueError, "pelo menos 100"):
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(199)):
+                with self.assertRaisesRegex(ValueError, "pelo menos 200"):
                     controller.analyze()
 
     def test_websocket_reconnects_after_transient_failure(self) -> None:

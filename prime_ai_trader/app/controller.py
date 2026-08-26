@@ -28,7 +28,10 @@ from ..fibonacci.auto import FibonacciResult, automatic_fibonacci
 from ..forex.public import ResilientForexProvider
 from ..indicators.technical import calculate_all, candles_frame
 from ..ml.models import ModelManager, TrainingReport, purge_size_from_context
-from ..news.provider import CompositeNewsProvider, NewsItem, market_news_query
+from ..news.provider import (
+    AssetNewsContext, CompositeNewsProvider, NewsItem, market_news_query,
+    summarize_asset_news,
+)
 from ..platform.vex import VexPlatformSnapshot, compare_platform_market
 from ..priceaction.structure import MarketStructure, analyze_structure
 from ..radar.engine import RadarEngine, RadarItem
@@ -39,20 +42,26 @@ from ..signals.timing import (
 from ..strategies.context import strategy_key
 
 
-LIVE_MINIMUM_CANDLES = 100
+LIVE_MINIMUM_CANDLES = 200
+LIVE_FETCH_MINIMUM_CANDLES = 201
 LIVE_MAXIMUM_CANDLES = 200
 TRAINING_MINIMUM_CANDLES = 1600
+MANUAL_EXECUTION_MODE = "SINAIS MANUAIS"
+SIMULATION_EXECUTION_MODE = "SIMULAÇÃO AUTOMÁTICA"
 
 
 @dataclass(slots=True)
 class AnalysisSnapshot:
     candles: list[Candle]
     indicators: pd.DataFrame
+    chart_indicators: pd.DataFrame
     features: pd.DataFrame
     structure: MarketStructure
+    chart_structure: MarketStructure
     fibonacci: FibonacciResult | None
     signal: Signal
     news: list[NewsItem]
+    news_context: AssetNewsContext
     calendar_events: list[EconomicEvent]
     symbol: str
     timeframe: str
@@ -61,6 +70,21 @@ class AnalysisSnapshot:
     data_source: str = ""
     forex_reference_rate: float | None = None
     history_candles: list[Candle] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class SimulationSessionSummary:
+    started_at: datetime
+    profit_loss: float
+    stop_loss: float
+    profit_target: float
+    operations: int
+    wins: int
+    losses: int
+    draws: int
+    pending: int
+    status: str
+    can_open: bool
 
 
 class TradingController:
@@ -91,6 +115,7 @@ class TradingController:
         self.last_radar_note = ""
         self.websocket_online = False
         self.platform_snapshot: VexPlatformSnapshot | None = None
+        self._simulation_fallback_started_at = datetime.now(timezone.utc)
         self._last_settings_signature = json.dumps(
             asdict(self.settings), sort_keys=True, ensure_ascii=False,
         )
@@ -120,7 +145,8 @@ class TradingController:
                     "reason_summary": (
                         f"{self.settings.market} • {self.symbol()} • "
                         f"{self.settings.timeframe}/{self.settings.horizon_minutes}m • "
-                        f"{self.settings.sensitivity} • {self.settings.mode}"
+                        f"{self.settings.sensitivity} • {self.settings.mode} • "
+                        f"{self.settings.execution_mode}"
                     ),
                     "settings": asdict(self.settings),
                 })
@@ -180,6 +206,130 @@ class TradingController:
             return candles[:-1]
         return candles
 
+    def _live_analysis_windows(self, history: list[Candle], timeframe: str
+                               ) -> tuple[list[Candle], list[Candle], bool]:
+        """Separa as 200 velas do gráfico das 200 velas válidas para decisão."""
+        if len(history) < LIVE_MINIMUM_CANDLES:
+            raise ValueError(
+                "A API retornou poucos candles. São necessários pelo menos "
+                "200 candles para analisar o contexto do ativo."
+            )
+        chart_candles = history[-LIVE_MAXIMUM_CANDLES:]
+        candidates = history[-LIVE_FETCH_MINIMUM_CANDLES:]
+        eligible = self._decision_candles(candidates, timeframe)
+        next_candle_entry = len(eligible) < len(candidates)
+        decision_candles = eligible[-LIVE_MINIMUM_CANDLES:]
+        if len(decision_candles) < LIVE_MINIMUM_CANDLES:
+            raise ValueError(
+                "A análise aguarda 200 candles analíticos fechados. "
+                "A fonte entregou uma vela aberta sem histórico fechado suficiente."
+            )
+        return chart_candles, decision_candles, next_candle_entry
+
+    @staticmethod
+    def _chart_context(candles: list[Candle], decision_candles: list[Candle],
+                       indicators: pd.DataFrame,
+                       structure: MarketStructure) -> tuple[pd.DataFrame, MarketStructure]:
+        """Mantém overlays alinhados ao gráfico sem usar a vela aberta na decisão."""
+        if ([item.open_time for item in candles]
+                == [item.open_time for item in decision_candles]):
+            return indicators, structure
+        chart_indicators = calculate_all(candles_frame(candles))
+        chart_atr = TradingController._value(chart_indicators["atr_14"].iloc[-1])
+        return chart_indicators, analyze_structure(chart_indicators, chart_atr)
+
+    @staticmethod
+    def _apply_news_context(signal: Signal, context: AssetNewsContext, *,
+                            strict: bool) -> Signal:
+        signal.news_context_label = context.label
+        signal.news_context_summary = context.summary
+        signal.news_relevant_count = context.relevant_count
+        signal.news_latest_age_minutes = context.latest_age_minutes
+        if context.relevant_count == 0:
+            signal.warnings.append(
+                "Contexto noticioso sem manchetes relevantes; decisão baseada apenas no mercado e nos indicadores"
+            )
+            return signal
+        if context.fresh_count == 0:
+            signal.warnings.append(
+                "As notícias relevantes encontradas estão desatualizadas e não influenciaram a direção"
+            )
+            return signal
+        if signal.direction == Direction.WAIT or not context.directional_bias:
+            return signal
+        if signal.direction.value == context.directional_bias:
+            signal.confluences.append(
+                f"Contexto de notícias recentes {context.label.lower()} alinhado com a direção"
+            )
+            return signal
+        conflict = (
+            f"Contexto de notícias recentes {context.label.lower()} conflita com o sinal "
+            f"de {signal.direction.value.lower()}"
+        )
+        if not strict:
+            signal.warnings.append(conflict)
+            return signal
+        signal.blockers.append(conflict)
+        signal.waiting_reasons.insert(0, conflict)
+        signal.all_waiting_reasons.insert(0, conflict)
+        signal.direction = Direction.WAIT
+        signal.state = SignalState.BLOCKED
+        signal.entry = None
+        signal.technical_stop = None
+        signal.technical_target = None
+        signal.technical_room_ratio = None
+        signal.technical_levels_note = ""
+        return signal
+
+    def _simulation_started_at(self) -> datetime:
+        raw = self.settings.simulation_session_started_at
+        try:
+            parsed = datetime.fromisoformat(raw)
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return self._simulation_fallback_started_at
+
+    def configure_execution_mode(self, mode: str) -> None:
+        if mode not in {MANUAL_EXECUTION_MODE, SIMULATION_EXECUTION_MODE}:
+            raise ValueError("Modo de operação inválido.")
+        if mode == SIMULATION_EXECUTION_MODE and self.settings.execution_mode != mode:
+            started = datetime.now(timezone.utc)
+            self._simulation_fallback_started_at = started
+            self.settings.simulation_session_started_at = started.isoformat()
+            self._last_saved_signature = None
+        self.settings.execution_mode = mode
+
+    def reset_simulation_session(self) -> SimulationSessionSummary:
+        started = datetime.now(timezone.utc)
+        self._simulation_fallback_started_at = started
+        self.settings.simulation_session_started_at = started.isoformat()
+        self._last_saved_signature = None
+        self.save_settings()
+        return self.simulation_summary()
+
+    def simulation_summary(self) -> SimulationSessionSummary:
+        started_at = self._simulation_started_at()
+        values = self.repository.simulation_session(started_at)
+        profit_loss = float(values.get("profit_loss") or 0.0)
+        stop_loss = max(0.01, float(self.settings.session_stop_loss))
+        profit_target = max(0.01, float(self.settings.session_profit_target))
+        if profit_loss >= profit_target:
+            status = "META ATINGIDA"
+        elif profit_loss <= -stop_loss:
+            status = "STOP ATINGIDO"
+        else:
+            status = "ATIVA"
+        automatic = self.settings.execution_mode == SIMULATION_EXECUTION_MODE
+        return SimulationSessionSummary(
+            started_at=started_at, profit_loss=profit_loss,
+            stop_loss=stop_loss, profit_target=profit_target,
+            operations=int(values.get("operations") or 0),
+            wins=int(values.get("wins") or 0), losses=int(values.get("losses") or 0),
+            draws=int(values.get("draws") or 0), pending=int(values.get("pending") or 0),
+            status=status if automatic else MANUAL_EXECUTION_MODE,
+            can_open=automatic and status == "ATIVA",
+        )
+
     @staticmethod
     def _merge_history_candle(history: list[Candle], candle: Candle) -> list[Candle]:
         merged = history.copy()
@@ -232,21 +382,21 @@ class TradingController:
         }
         self.logger.info("Iniciando análise | mercado=%s símbolo=%s timeframe=%s", market, symbol, timeframe)
         history_candles = provider.fetch_candles(
-            symbol, timeframe, limit=max(limit, LIVE_MINIMUM_CANDLES),
+            symbol, timeframe, limit=max(limit, LIVE_FETCH_MINIMUM_CANDLES),
         )
-        if len(history_candles) < LIVE_MINIMUM_CANDLES:
-            raise ValueError(
-                "A API retornou poucos candles. São necessários pelo menos 100 candles."
-            )
-        candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
-        decision_candles = self._decision_candles(candles, timeframe)
-        next_candle_entry = len(decision_candles) < len(candles)
+        candles, decision_candles, next_candle_entry = self._live_analysis_windows(
+            history_candles, timeframe,
+        )
         frame = candles_frame(decision_candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
+        chart_indicators, chart_structure = self._chart_context(
+            candles, decision_candles, indicators, structure,
+        )
         fibonacci = automatic_fibonacci(indicators)
         features = build_features(frame, market, symbol)
+        raw_news: list[NewsItem] = []
         news: list[NewsItem] = []
         calendar_events: list[EconomicEvent] = []
         blockers: list[str] = []
@@ -262,7 +412,7 @@ class TradingController:
                 )
                 reference_job = executor.submit(self.forex.reference.fetch_reference_rate, symbol)
                 try:
-                    news = news_job.result()
+                    raw_news = news_job.result()
                 except Exception as exc:
                     self.logger.warning("Notícias indisponíveis: %s", exc)
                 try:
@@ -275,9 +425,11 @@ class TradingController:
                     self.logger.info("Referência diária opcional indisponível: %s", exc)
         else:
             try:
-                news = self.news_provider.fetch(query, limit=12)
+                raw_news = self.news_provider.fetch(query, limit=12)
             except Exception as exc:
                 self.logger.warning("Notícias indisponíveis: %s", exc)
+
+        news_context, news = summarize_asset_news(raw_news, symbol, market)
 
         recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
         risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
@@ -302,6 +454,7 @@ class TradingController:
         )
         signal.next_candle_entry = next_candle_entry
         signal.warnings.extend(warnings)
+        signal = self._apply_news_context(signal, news_context, strict=strict_risk_blocks)
         signal = self._apply_quality_gate(signal, market, symbol, timeframe, horizon_minutes)
         signal = self._apply_platform_alignment(signal, market, symbol, float(indicators["close"].iloc[-1]))
         calibrated, samples = self.repository.calibration(
@@ -310,17 +463,21 @@ class TradingController:
         )
         signal.calibrated_rate, signal.calibrated_samples = calibrated, samples
         snapshot = AnalysisSnapshot(
-            candles, indicators, features, structure, fibonacci, signal, news,
-            calendar_events, symbol, timeframe, market, datetime.now(timezone.utc),
-            provider.last_provider_name, reference_rate, history_candles,
+            candles=candles, indicators=indicators, chart_indicators=chart_indicators,
+            features=features, structure=structure, chart_structure=chart_structure,
+            fibonacci=fibonacci, signal=signal, news=news,
+            news_context=news_context, calendar_events=calendar_events,
+            symbol=symbol, timeframe=timeframe, market=market,
+            generated_at=datetime.now(timezone.utc), data_source=provider.last_provider_name,
+            forex_reference_rate=reference_rate, history_candles=history_candles,
         )
         self.snapshot = snapshot
         self._snapshot_cache[(market, symbol, timeframe)] = (time.monotonic(), snapshot)
+        self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         signal_id = self._record_signal(
             signal, market, symbol, timeframe, decision_candles, indicators, mode,
         )
         self._record_decision(snapshot, signal_id=signal_id)
-        self._settle_pending(symbol, timeframe, float(indicators["close"].iloc[-1]), candles)
         return snapshot
 
     def _record_signal(self, signal: Signal, market: str, symbol: str,
@@ -328,9 +485,24 @@ class TradingController:
                        indicators: pd.DataFrame, mode: str) -> int | None:
         if signal.state != SignalState.CONFIRMED or signal.direction == Direction.WAIT or not candles:
             return None
-        signature = (symbol, timeframe, candles[-1].open_time, signal.direction.value)
+        execution_mode = self.settings.execution_mode
+        signature = (
+            symbol, timeframe, candles[-1].open_time, signal.direction.value, execution_mode,
+        )
         if signature == self._last_saved_signature:
             return None
+        platform = self.settings.platform_name
+        if execution_mode == SIMULATION_EXECUTION_MODE:
+            session = self.simulation_summary()
+            if not session.can_open:
+                message = (
+                    f"Simulação pausada: {session.status.lower()} com resultado "
+                    f"R$ {session.profit_loss:+.2f}; os sinais manuais continuam visíveis"
+                )
+                if message not in signal.warnings:
+                    signal.warnings.append(message)
+                return None
+            platform = "SIMULAÇÃO"
         last = indicators.iloc[-1]
         values = {key: self._value(last.get(key)) for key in (
             "rsi_14", "macd", "macd_signal", "adx_14", "plus_di", "minus_di",
@@ -338,7 +510,7 @@ class TradingController:
         )}
         signal_id = self.repository.save_signal(
             signal, market, symbol, timeframe, values, mode,
-            platform=self.settings.platform_name,
+            platform=platform,
             strategy=strategy_key(market), sensitivity=self.settings.sensitivity,
             stake_amount=self.settings.stake_amount,
         )
@@ -430,12 +602,15 @@ class TradingController:
             "fibonacci": asdict(snapshot.fibonacci) if snapshot.fibonacci else None,
             "recent_candles": [item.as_dict() for item in snapshot.candles[-8:]],
             "news": [asdict(item) for item in snapshot.news[:12]],
+            "news_context": asdict(snapshot.news_context),
             "economic_events": [asdict(item) for item in snapshot.calendar_events[:12]],
             "visible_platform": visible_platform,
             "source_lag_seconds": signal.source_lag_seconds,
             "forex_reference_rate": snapshot.forex_reference_rate,
-            "analysis_candles": len(snapshot.candles),
+            "analysis_candles": len(snapshot.indicators),
+            "chart_candles": len(snapshot.candles),
             "training_candles": len(snapshot.history_candles or snapshot.candles),
+            "simulation_session": asdict(self.simulation_summary()),
         })
         try:
             return self.repository.record_decision(payload)
@@ -480,19 +655,25 @@ class TradingController:
         history_candles = self._merge_history_candle(
             snapshot.history_candles or snapshot.candles, candle,
         )
-        candles = history_candles[-LIVE_MAXIMUM_CANDLES:]
-        decision_candles = self._decision_candles(candles, snapshot.timeframe)
-        next_candle_entry = len(decision_candles) < len(candles)
+        candles, decision_candles, next_candle_entry = self._live_analysis_windows(
+            history_candles, snapshot.timeframe,
+        )
         frame = candles_frame(decision_candles)
         indicators = calculate_all(frame)
         last_atr = self._value(indicators["atr_14"].iloc[-1])
         structure = analyze_structure(indicators, last_atr)
+        chart_indicators, chart_structure = self._chart_context(
+            candles, decision_candles, indicators, structure,
+        )
         fibonacci = automatic_fibonacci(indicators)
         features = build_features(frame, snapshot.market, snapshot.symbol)
         blockers: list[str] = []
         warnings: list[str] = []
+        news_context, news = summarize_asset_news(
+            snapshot.news, snapshot.symbol, snapshot.market,
+        )
         recent_limit = datetime.now(timezone.utc) - timedelta(minutes=60)
-        risky = [item for item in snapshot.news if item.high_risk and item.published_at >= recent_limit]
+        risky = [item for item in news if item.high_risk and item.published_at >= recent_limit]
         if risky:
             message = f"Notícia de alto risco: {risky[0].title[:90]}"
             (blockers if self.settings.strict_risk_blocks else warnings).append(message)
@@ -515,6 +696,9 @@ class TradingController:
         )
         signal.next_candle_entry = next_candle_entry
         signal.warnings.extend(warnings)
+        signal = self._apply_news_context(
+            signal, news_context, strict=self.settings.strict_risk_blocks,
+        )
         signal = self._apply_quality_gate(
             signal, snapshot.market, snapshot.symbol, snapshot.timeframe, self.settings.horizon_minutes,
         )
@@ -528,18 +712,21 @@ class TradingController:
             result_source="MANUAL",
         )
         self.snapshot = AnalysisSnapshot(
-            candles, indicators, features, structure, fibonacci, signal,
-            snapshot.news, snapshot.calendar_events, snapshot.symbol,
-            snapshot.timeframe, snapshot.market, datetime.now(timezone.utc),
-            snapshot.data_source, snapshot.forex_reference_rate,
-            history_candles,
+            candles=candles, indicators=indicators, chart_indicators=chart_indicators,
+            features=features, structure=structure, chart_structure=chart_structure,
+            fibonacci=fibonacci, signal=signal, news=news,
+            news_context=news_context, calendar_events=snapshot.calendar_events,
+            symbol=snapshot.symbol, timeframe=snapshot.timeframe, market=snapshot.market,
+            generated_at=datetime.now(timezone.utc), data_source=snapshot.data_source,
+            forex_reference_rate=snapshot.forex_reference_rate,
+            history_candles=history_candles,
         )
         self._snapshot_cache[snapshot_key] = (time.monotonic(), self.snapshot)
+        self._settle_pending(snapshot.symbol, snapshot.timeframe,
+                             float(indicators["close"].iloc[-1]), candles)
         signal_id = self._record_signal(signal, snapshot.market, snapshot.symbol, snapshot.timeframe,
                                         decision_candles, indicators, self.settings.mode)
         self._record_decision(self.snapshot, signal_id=signal_id)
-        self._settle_pending(snapshot.symbol, snapshot.timeframe,
-                             float(indicators["close"].iloc[-1]), candles)
         return self.snapshot
 
     def _apply_platform_alignment(self, signal: Signal, market: str, symbol: str,
@@ -731,9 +918,13 @@ class TradingController:
         if force:
             self.news_provider.clear_cache()
         query = market_news_query(self.symbol(), self.settings.market)
-        items = self.news_provider.fetch(query, limit=12)
+        raw_items = self.news_provider.fetch(query, limit=12)
+        context, items = summarize_asset_news(
+            raw_items, self.symbol(), self.settings.market,
+        )
         if self.snapshot and self._snapshot_matches_settings():
             self.snapshot.news = items
+            self.snapshot.news_context = context
             self._snapshot_cache[(self.settings.market, self.symbol(), self.settings.timeframe)] = (
                 time.monotonic(), self.snapshot,
             )

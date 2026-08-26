@@ -256,7 +256,7 @@ class PublicMarketSourceTests(unittest.TestCase):
 
     def test_interface_has_live_news_and_manual_refresh(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_right)
-        self.assertIn("NOTÍCIAS AO VIVO", source)
+        self.assertIn("NOTÍCIAS RECENTES DO ATIVO", source)
         self.assertIn("refresh_news_panel", source)
 
 

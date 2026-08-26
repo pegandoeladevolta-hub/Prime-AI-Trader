@@ -14,7 +14,10 @@ from tkinter import messagebox, ttk
 
 import pandas as pd
 
-from ..app.controller import AnalysisSnapshot, TradingController
+from ..app.controller import (
+    AnalysisSnapshot, MANUAL_EXECUTION_MODE, SIMULATION_EXECUTION_MODE,
+    TradingController,
+)
 from ..audio.voice import VoiceService
 from ..config.settings import app_data_dir
 from ..core.models import CRYPTO_DEFAULTS, FOREX_DEFAULTS, Direction, Market, SignalState, TIMEFRAMES
@@ -132,6 +135,12 @@ class PrimeAITraderApp(tk.Tk):
         self.horizon_var = tk.StringVar(value=str(settings.horizon_minutes))
         self.payout_var = tk.StringVar(value=str(settings.payout_percent))
         self.stake_var = tk.StringVar(value=f"{settings.stake_amount:.2f}")
+        self.simulation_auto_var = tk.BooleanVar(
+            value=settings.execution_mode == SIMULATION_EXECUTION_MODE,
+        )
+        self.session_stop_var = tk.StringVar(value=f"{settings.session_stop_loss:.2f}")
+        self.session_target_var = tk.StringVar(value=f"{settings.session_profit_target:.2f}")
+        self.simulation_status_var = tk.StringVar(value="Modo: sinais manuais")
         self.platform_var = tk.StringVar(value=settings.platform_name)
         self.sensitivity_var = tk.StringVar(value=settings.sensitivity)
         self.profile_hint_var = tk.StringVar(value=sensitivity_profile(settings.sensitivity).description)
@@ -168,7 +177,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Label(footer, text="●", style="Muted.TLabel", foreground=COLORS["green"], font=("Segoe UI", 11)).pack(side="left", padx=(11, 3), pady=6)
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", font=("Segoe UI", 9)).pack(side="left")
         ttk.Label(footer, text="◈ PROTEGIDO", style="Muted.TLabel", foreground=COLORS["text"]).pack(side="right", padx=(8, 12))
-        ttk.Label(footer, text="VERSÃO 1.2.5", style="Muted.TLabel").pack(side="right", padx=12)
+        ttk.Label(footer, text="VERSÃO 1.2.6", style="Muted.TLabel").pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=116)
         self.task_progress.pack(side="right", padx=8)
 
@@ -231,7 +240,23 @@ class PrimeAITraderApp(tk.Tk):
         self._advanced_button.pack(fill="x", pady=(4, 4))
         self.advanced_panel = ttk.Frame(panel, style="Panel.TFrame")
         self.payout_combo = self._combo(self.advanced_panel, "Pagamento da plataforma (%)", self.payout_var, ["70", "74", "75", "78", "80", "82", "85", "90", "95"], self._save_form)
-        self._combo(self.advanced_panel, "Valor da entrada (R$)", self.stake_var, ["10.00", "20.00", "50.00", "80.00", "100.00"], self._save_form)
+        ttk.Checkbutton(
+            self.advanced_panel,
+            text="Simulação automática (sem ordens reais)",
+            variable=self.simulation_auto_var,
+            command=self._execution_mode_changed,
+        ).pack(anchor="w", pady=(2, 4))
+        self._number_field(self.advanced_panel, "Valor por sinal/simulação (R$)", self.stake_var)
+        self._number_field(self.advanced_panel, "Stop da sessão simulada (R$)", self.session_stop_var)
+        self._number_field(self.advanced_panel, "Meta da sessão simulada (R$)", self.session_target_var)
+        ttk.Label(
+            self.advanced_panel, textvariable=self.simulation_status_var,
+            style="Muted.TLabel", wraplength=238, justify="left",
+        ).pack(anchor="w", pady=(1, 3))
+        ttk.Button(
+            self.advanced_panel, text="REINICIAR SESSÃO SIMULADA",
+            style="Tool.TButton", command=self._reset_simulation_session,
+        ).pack(fill="x", pady=(1, 5))
         self._combo(self.advanced_panel, "Janela de risco antes de evento", self.impact_block_var, ["5", "10", "15"], self._save_form)
         ttk.Button(self.advanced_panel, text="↻  CARREGAR ATIVOS DISPONÍVEIS", style="Secondary.TButton", command=self.refresh_symbols).pack(fill="x", pady=(3, 6))
         ttk.Checkbutton(self.advanced_panel, text="Bloquear automaticamente por notícia/evento", variable=self.strict_risk_blocks_var, command=self._save_form).pack(anchor="w", pady=(2, 4))
@@ -272,6 +297,14 @@ class PrimeAITraderApp(tk.Tk):
         combo.pack(fill="x", pady=(0, 5))
         combo.bind("<<ComboboxSelected>>", lambda _: callback())
         return combo
+
+    def _number_field(self, parent, label: str, variable) -> ttk.Entry:
+        ttk.Label(parent, text=label, style="Field.TLabel").pack(anchor="w", pady=(4, 3))
+        entry = ttk.Entry(parent, textvariable=variable, font=("Segoe UI", 10))
+        entry.pack(fill="x", pady=(0, 5))
+        entry.bind("<FocusOut>", lambda _: self._save_form())
+        entry.bind("<Return>", lambda _: self._save_form())
+        return entry
 
     def _build_center(self, parent) -> None:
         center = tk.Frame(parent, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
@@ -503,7 +536,7 @@ class PrimeAITraderApp(tk.Tk):
         ttk.Separator(panel).pack(fill="x", pady=(12, 9))
         news_header = ttk.Frame(panel, style="Panel.TFrame")
         news_header.pack(fill="x")
-        ttk.Label(news_header, text="NOTÍCIAS AO VIVO", style="Section.TLabel").pack(side="left")
+        ttk.Label(news_header, text="NOTÍCIAS RECENTES DO ATIVO", style="Section.TLabel").pack(side="left")
         ttk.Button(news_header, text="↻", style="Tool.TButton", width=3, command=self.refresh_news_panel).pack(side="right")
         self.news_source_label = ttk.Label(panel, text="Aguardando fontes públicas…", style="Muted.TLabel", wraplength=265)
         self.news_source_label.pack(anchor="w", pady=(3, 6))
@@ -514,7 +547,7 @@ class PrimeAITraderApp(tk.Tk):
             label.bind("<Button-1>", lambda _, position=index: self._open_news(position))
             self.news_labels.append(label)
         ttk.Separator(panel).pack(fill="x", pady=11)
-        warning = ttk.Label(panel, text="Assistente de análise. Não executa ordens e não garante lucro.", style="Muted.TLabel", wraplength=265, justify="left")
+        warning = ttk.Label(panel, text="Sinais manuais ou simulação automática. Nunca envia ordens reais e não garante lucro.", style="Muted.TLabel", wraplength=265, justify="left")
         warning.pack(anchor="w")
 
     def _save_form(self) -> None:
@@ -532,6 +565,24 @@ class PrimeAITraderApp(tk.Tk):
         except ValueError:
             settings.stake_amount = 80.0
             self.stake_var.set("80.00")
+        try:
+            settings.session_stop_loss = max(
+                0.01, float(self.session_stop_var.get().replace(",", ".")),
+            )
+        except ValueError:
+            settings.session_stop_loss = 80.0
+            self.session_stop_var.set("80.00")
+        try:
+            settings.session_profit_target = max(
+                0.01, float(self.session_target_var.get().replace(",", ".")),
+            )
+        except ValueError:
+            settings.session_profit_target = 80.0
+            self.session_target_var.set("80.00")
+        self.controller.configure_execution_mode(
+            SIMULATION_EXECUTION_MODE if self.simulation_auto_var.get()
+            else MANUAL_EXECUTION_MODE,
+        )
         settings.platform_name = self.platform_var.get()
         settings.sensitivity = self.sensitivity_var.get()
         self.profile_hint_var.set(sensitivity_profile(settings.sensitivity).description)
@@ -544,6 +595,30 @@ class PrimeAITraderApp(tk.Tk):
         settings.high_impact_block_minutes = int(self.impact_block_var.get())
         settings.strict_risk_blocks = self.strict_risk_blocks_var.get()
         self.controller.save_settings()
+        self._render_simulation_status()
+
+    def _execution_mode_changed(self) -> None:
+        self._save_form()
+        mode = "simulação automática" if self.simulation_auto_var.get() else "sinais manuais"
+        self.status_var.set(f"Modo alterado para {mode}")
+
+    def _reset_simulation_session(self) -> None:
+        self.controller.reset_simulation_session()
+        self._render_simulation_status()
+        self.status_var.set("Sessão simulada reiniciada")
+
+    def _render_simulation_status(self) -> None:
+        summary = self.controller.simulation_summary()
+        if self.controller.settings.execution_mode == MANUAL_EXECUTION_MODE:
+            self.simulation_status_var.set(
+                "Modo: sinais manuais • análise e alertas continuam ativos",
+            )
+            return
+        self.simulation_status_var.set(
+            f"Simulação {summary.status.lower()} • resultado R$ {summary.profit_loss:+.2f} • "
+            f"stop -R$ {summary.stop_loss:.2f} • meta +R$ {summary.profit_target:.2f} • "
+            f"{summary.pending} pendente(s)"
+        )
 
     def _platform_changed(self) -> None:
         if self._platform_bridge and self._platform_bridge.running:
@@ -1090,7 +1165,7 @@ class PrimeAITraderApp(tk.Tk):
             self._render_indicators(snapshot)
             self.status_var.set(f"Notícias atualizadas • {len(snapshot.news)} manchetes")
 
-    def _schedule_news_refresh(self, token: int, delay_ms: int = 90_000) -> None:
+    def _schedule_news_refresh(self, token: int, delay_ms: int = 60_000) -> None:
         if self._news_refresh_job is not None:
             self.after_cancel(self._news_refresh_job)
         self._news_refresh_job = self.after(delay_ms, lambda: self._auto_refresh_news(token))
@@ -1205,22 +1280,26 @@ class PrimeAITraderApp(tk.Tk):
         self.start_analysis()
 
     def render_snapshot(self, snapshot: AnalysisSnapshot) -> None:
-        last = snapshot.indicators.iloc[-1]
+        last = snapshot.chart_indicators.iloc[-1]
         atr = None if pd.isna(last.get("atr_14")) else float(last.get("atr_14"))
         zones = display_zones(
-            snapshot.structure, float(last["close"]), atr, max_each=2,
+            snapshot.chart_structure, float(last["close"]), atr, max_each=2,
         )
         for name, value in self.controller.settings.overlays.items():
             self.chart.overlays[name] = value
         context_key = f"{snapshot.market}|{snapshot.symbol}|{snapshot.timeframe}"
-        self.chart.set_data(snapshot.candles, snapshot.indicators, zones, snapshot.fibonacci,
-                            snapshot.structure, snapshot.signal, context_key=context_key)
-        self.context_var.set(f"{snapshot.symbol}   •   {snapshot.market.upper()}   •   {snapshot.timeframe}")
+        self.chart.set_data(snapshot.candles, snapshot.chart_indicators, zones, snapshot.fibonacci,
+                            snapshot.chart_structure, snapshot.signal, context_key=context_key)
+        self.context_var.set(
+            f"{snapshot.symbol}   •   {snapshot.market.upper()}   •   {snapshot.timeframe}   •   "
+            f"{len(snapshot.indicators)} CANDLES ANALÍTICOS"
+        )
         self.updated_var.set(f"ATUALIZADO {snapshot.generated_at.astimezone().strftime('%H:%M:%S')}")
         self._render_indicators(snapshot)
         self._render_signal(snapshot)
         self._render_news(snapshot)
         self._render_insights(snapshot)
+        self._render_simulation_status()
         self._refresh_recent_signals()
 
     def _render_insights(self, snapshot: AnalysisSnapshot) -> None:
@@ -1230,8 +1309,7 @@ class PrimeAITraderApp(tk.Tk):
             reasons.insert(0, signal.waiting_reasons[0].rstrip("."))
         if not reasons:
             reasons = [signal.setup_name or "Mercado em análise"]
-        risk_count = sum(item.high_risk for item in snapshot.news)
-        news_note = f"{risk_count} notícia(s) de risco em acompanhamento" if risk_count else "Nenhuma notícia crítica no momento"
+        news_note = snapshot.news_context.summary
         self.ai_explanation_label.configure(text=". ".join(reasons[:3]) + f". {news_note}.")
         if not self.audio_var.get():
             title, detail, wave_color = "Alertas de voz desativados", "Ative a voz no painel lateral", COLORS["muted"]
@@ -1274,8 +1352,11 @@ class PrimeAITraderApp(tk.Tk):
     def _render_news(self, snapshot: AnalysisSnapshot) -> None:
         self._news_items = snapshot.news[: len(self.news_labels)]
         sources = getattr(self.controller.news_provider, "last_sources", [])
-        summary = ", ".join(sources[:3]) if sources else snapshot.data_source or "Fontes públicas"
-        self.news_source_label.configure(text=f"{len(snapshot.news)} manchetes • {summary}")
+        summary = ", ".join(snapshot.news_context.sources[:3] or sources[:3])
+        source_note = f" • {summary}" if summary else ""
+        self.news_source_label.configure(
+            text=f"{snapshot.news_context.summary}{source_note}",
+        )
         for index, label in enumerate(self.news_labels):
             if index >= len(self._news_items):
                 label.pack_forget()
@@ -1304,7 +1385,10 @@ class PrimeAITraderApp(tk.Tk):
             "fib": f"{snapshot.fibonacci.nearest_ratio * 100:.1f}%  PRÓXIMO" if snapshot.fibonacci else "SEM SWING",
             "volume": f"Rel {f('volume_relative', 2)}x" if real_volume else "SEM VOLUME CENTRALIZADO",
             "price_action": f"{snapshot.structure.trend} {' '.join(snapshot.structure.sequence)}",
-            "news": f"{sum(item.high_risk for item in snapshot.news)} alto risco / {len(snapshot.news)}",
+            "news": (
+                f"{snapshot.news_context.label} • {snapshot.news_context.fresh_count} recentes • "
+                f"{snapshot.news_context.high_risk_count} risco"
+            ),
         }
         for key, text in values.items():
             self.indicator_values[key].configure(text=text)

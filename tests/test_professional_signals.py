@@ -101,7 +101,7 @@ class ProfessionalSignalTests(unittest.TestCase):
     def test_live_websocket_confirmed_signal_is_saved(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"XDG_DATA_HOME": temp}):
             controller = TradingController()
-            candles = synthetic_candles(180)
+            candles = synthetic_candles(220)
             wait = Signal(Direction.WAIT, SignalState.WAITING, 55, {"AGUARDAR": 1}, None, 5)
             confirmed = Signal(Direction.BUY, SignalState.CONFIRMED, 82, {"COMPRA": 0.75}, candles[-1].close, 5)
             with patch.object(controller.binance, "fetch_candles", return_value=candles), patch.object(

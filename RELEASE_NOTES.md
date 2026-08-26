@@ -1,5 +1,25 @@
 # Release notes
 
+## 1.2.6 — 26/08/2026
+
+### Contexto do ativo e 200 candles analíticos
+
+- A janela de decisão passa a exigir exatamente 200 candles analíticos. Se existir uma vela aberta, o controlador busca até 201 registros e usa as 200 velas anteriores fechadas.
+- O gráfico continua limitado aos 200 candles mais recentes, enquanto o histórico maior permanece disponível para treinamento e backtest.
+- Feed genérico deixa de ser tratado como contexto específico: as manchetes são classificadas como notícia do ativo, notícia ampla do mercado ou irrelevante para o ativo selecionado.
+- O contexto auditável inclui notícias recentes, sentimento, alto risco, fontes e idade. Conflito forte em criptomoedas gera aviso ou bloqueio conforme a proteção rigorosa; Forex não recebe direção artificial por sentimento genérico.
+- Atualização automática das fontes públicas passa para 60 segundos, sem alegar latência que o provedor externo não garante.
+
+### Sinais manuais e simulação automática
+
+- Novo controle **Simulação automática (sem ordens reais)** pode ser ligado ou desligado sem pausar análise, alertas e sinais.
+- Valor por sinal, stop de perda e meta de lucro da sessão simulada são campos livres e persistentes.
+- Cada sinal confirmado da simulação é identificado separadamente no SQLite; o resultado é inferido pelo feed público e não é misturado com resultado observado manualmente.
+- Ao alcançar `-stop` ou `+meta`, nenhuma nova posição simulada é registrada. O sinal técnico continua visível para uso manual.
+- Um botão reinicia a sessão simulada e seus limites sem apagar o histórico anterior.
+- VEX e BullEx permanecem integrações visuais somente leitura, sem senha, saldo, cliques ou ordens.
+- Validação local: 344 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.2.5 — 26/08/2026
 
 ### Confirmação no início da próxima vela

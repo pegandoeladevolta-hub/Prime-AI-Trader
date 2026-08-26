@@ -4,6 +4,7 @@ import inspect
 import logging
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from prime_ai_trader.app.controller import TradingController
@@ -34,6 +35,16 @@ class ModernDashboardTests(unittest.TestCase):
         for variable in ("self.payout_var", "self.impact_block_var", "self.strict_risk_blocks_var"):
             self.assertIn(variable, source)
         self.assertIn("AJUSTES AVANÇADOS", source)
+
+    def test_simulation_can_be_disabled_and_uses_free_numeric_fields(self) -> None:
+        source = inspect.getsource(PrimeAITraderApp._build_left)
+        for item in (
+            "Simulação automática (sem ordens reais)", "self.simulation_auto_var",
+            "self.session_stop_var", "self.session_target_var", "self._number_field",
+            "REINICIAR SESSÃO SIMULADA",
+        ):
+            self.assertIn(item, source)
+        self.assertEqual(AppSettings().execution_mode, "SINAIS MANUAIS")
 
     def test_sensitivity_modes_and_voice_controls_remain_visible(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_left)
@@ -75,7 +86,7 @@ class ModernDashboardTests(unittest.TestCase):
 
     def test_right_panel_retains_signal_confidence_timer_news_and_reasoning(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_right)
-        for item in ("SINAL DA IA", "Confiança", "TEMPO RESTANTE", "Motivos da análise", "NOTÍCIAS AO VIVO"):
+        for item in ("SINAL DA IA", "Confiança", "TEMPO RESTANTE", "Motivos da análise", "NOTÍCIAS RECENTES DO ATIVO"):
             self.assertIn(item, source)
 
     def test_signal_history_uses_database_without_blocking_ui(self) -> None:
@@ -115,6 +126,10 @@ class ModernDashboardTests(unittest.TestCase):
         controller.symbol.return_value = "BTC/USDT"
         controller.secrets = {}
         controller.logger = logging.getLogger("prime_ai_trader.tests.visual")
+        controller.simulation_summary.return_value = SimpleNamespace(
+            status="SINAIS MANUAIS", profit_loss=0.0, stop_loss=80.0,
+            profit_target=80.0, pending=0,
+        )
         app = None
         try:
             with patch.object(PrimeAITraderApp, "_apply_window_icon", lambda _self: None):

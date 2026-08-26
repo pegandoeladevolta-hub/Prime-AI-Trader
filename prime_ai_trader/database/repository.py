@@ -293,6 +293,18 @@ class Repository:
                 (symbol, timeframe),
             )]
 
+    def simulation_session(self, started_at: datetime) -> dict:
+        """Resume somente operações simuladas da sessão atual."""
+        with self.connect() as connection:
+            return dict(connection.execute(
+                """SELECT COUNT(*) operations,
+                   SUM(result='WIN') wins, SUM(result='LOSS') losses, SUM(result='DRAW') draws,
+                   SUM(result IS NULL) pending,
+                   SUM(CASE WHEN result IS NOT NULL THEN COALESCE(profit_loss, 0) ELSE 0 END) profit_loss
+                   FROM signals WHERE platform='SIMULAÇÃO' AND created_at>=?""",
+                (started_at.astimezone(timezone.utc).isoformat(),),
+            ).fetchone())
+
     def recent(self, limit: int = 100) -> list[dict]:
         with self.connect() as connection:
             return [dict(row) for row in connection.execute("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,))]

@@ -146,7 +146,7 @@ class OperationHistoryControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"XDG_DATA_HOME": temporary}):
             controller = TradingController()
             controller.secrets["twelve_data_key"] = "SEGREDO_NUNCA_EXPORTAR"
-            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(180)), patch.object(
+            with patch.object(controller.binance, "fetch_candles", return_value=synthetic_candles(220)), patch.object(
                 controller.news_provider, "fetch", return_value=[],
             ):
                 controller.analyze()

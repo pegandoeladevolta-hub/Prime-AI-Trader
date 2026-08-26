@@ -1,19 +1,29 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.5 para Windows x64 configurado no GitHub Actions.
+Build automático da versão 1.2.6 para Windows x64 configurado no GitHub Actions.
 
 Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
 
-No Windows, confirme `FileVersion 1.2.5` nas propriedades do instalador antes de substituir uma versão anterior.
+No Windows, confirme `FileVersion 1.2.6` nas propriedades do instalador antes de substituir uma versão anterior.
 
-## Destaques da versão 1.2.5
+## Destaques da versão 1.2.6
+
+- Toda decisão ao vivo usa **exatamente 200 candles analíticos**. Quando a vela atual está aberta, o app busca uma vela adicional e calcula o sinal pelas 200 anteriores já fechadas; se a fonte não entregar essa base, a análise aguarda com motivo explícito.
+- As notícias passam por filtro de relevância do ativo. O painel mostra quantidade recente, manchetes específicas, contexto de mercado, sentimento, alto risco, fontes e idade da última notícia, em vez de tratar todo o feed como notícia do ativo.
+- Em criptomoedas, contexto recente fortemente contrário aparece como aviso ou bloqueio quando a proteção rigorosa está ativa. Notícias não criam sinal sozinhas e, em Forex, não são convertidas artificialmente em direção sem relação clara com o par.
+- As fontes públicas são atualizadas a cada 60 segundos. O histórico completo grava o resumo noticioso e os 200 candles efetivamente usados na decisão.
+- O ajuste avançado oferece **Sinais manuais** e **Simulação automática (sem ordens reais)**. A simulação registra entradas confirmadas, calcula resultado pelo feed público e para de abrir novas posições simuladas ao atingir o stop ou a meta da sessão.
+- Valor por sinal, stop da sessão e meta são campos editáveis. Desativar a simulação mantém gráfico, análise, voz e sinais ativos para operação manual na VEX/BullEx ou em outra plataforma.
+- A integração VEX/BullEx permanece somente leitura: não recebe credenciais, não lê saldo, não clica em compra/venda e não envia ordens.
+
+## Recursos preservados da versão 1.2.5
 
 - No início de uma vela nova, a análise usa a vela anterior já fechada para decidir a entrada, enquanto mantém a vela atual aberta no gráfico e no histórico.
 - A cotação incremental de Forex agora encerra explicitamente a vela anterior quando abre o próximo minuto; o bot deixa de ficar preso em `EM FORMAÇÃO` por falta de fechamento no histórico local.
 - Um sinal recém-confirmado não é mais descartado quando VEX/BullEx ainda mostra 1–2 segundos do ciclo anterior: ele é destinado à vela seguinte e o contador visual acompanha o novo ciclo.
 - A exceção temporal vale somente para sinal direcional novo, confirmado por candle fechado e dentro da janela curta de entrada. Sinal antigo, preço invalidado, stop cruzado e entrada realmente tardia continuam bloqueados.
 - CHOCH, direção do pullback, momentum, padrões de candle, fonte atrasada, reversão, payout e demais filtros profissionais permanecem inalterados. Esta atualização não muda o schema dos modelos e não exige novo treinamento por si só.
-- A suíte passa a 337 testes locais aprovados, mais um smoke test visual executado no build Windows.
+- A suíte automatizada e o smoke test visual do Windows continuam obrigatórios antes do instalador.
 
 ## Recursos preservados da versão 1.2.4
 
@@ -40,7 +50,7 @@ No Windows, confirme `FileVersion 1.2.5` nas propriedades do instalador antes de
 - Todo sinal direcional recebe **stop técnico de invalidação** e **alvo técnico**, calculados simetricamente para compra/venda por ATR, pivôs, suporte/resistência, timeframe e expiração.
 - Entrada, stop e alvo ficam visíveis no gráfico e no cartão da operação. São referências de análise e educação; não enviam nem encerram ordens em contratos de expiração fixa.
 - O gráfico exibe no máximo dois suportes e duas resistências relevantes: o nível mais próximo e o mais forte/recente de cada lado. As etiquetas compactas `S1/S2/R1/R2` e a redução dos pivôs removem poluição visual.
-- A análise ao vivo exige ao menos 100 candles completos e usa os 200 mais recentes. Treinamento e backtest preservam separadamente até 2.000 candles, sem reduzir a base histórica.
+- A análise ao vivo exige 200 candles analíticos e usa uma vela adicional quando precisa excluir a vela atual aberta. Treinamento e backtest preservam separadamente até 2.000 candles, sem reduzir a base histórica.
 - Sinal contra a estrutura atual aguarda CHOCH/fechamento; uma mudança recente só pode antecipar o próximo pivô quando regime, eficiência e pelo menos três votos de momentum estiverem alinhados.
 - Stop, alvo e espaço técnico são gravados com o sinal no SQLite por migração aditiva, sem apagar o histórico existente.
 - Stop, alvo, estratégias específicas por mercado e treinamento separado por contexto permanecem disponíveis.
@@ -229,7 +239,7 @@ Saídas:
 python -m unittest discover -s tests -v
 ```
 
-A versão 1.2.5 acrescenta regressões para fechamento incremental da vela Forex, decisão pela última vela fechada no início do novo minuto e projeção segura do contador da plataforma. Os casos espelhados de pullback invertido, cruzamento temporário da EMA 9, retomadas, CHOCH real, histórico completo, Excel, reversão, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, notícias, interface e Windows permanecem ativos.
+A versão 1.2.6 acrescenta regressões para 200 candles analíticos fechados, relevância das notícias por ativo, conflito noticioso auditável e limites da sessão simulada. Fechamento incremental de Forex, projeção segura do contador, pullback invertido, CHOCH, histórico, Excel, IA, backtest, payout, SQLite, VEX/BullEx, fontes públicas, interface e Windows permanecem cobertos.
 
 ## Dados locais
 
@@ -245,7 +255,7 @@ Em Windows, o programa grava em `%APPDATA%\PrimeAITrader`:
 
 ## Limitações honestas
 
-- Não executa ordens nem promete lucro ou taxa fixa de acerto.
+- Não executa ordens reais nem promete lucro ou taxa fixa de acerto. O modo automático é uma simulação identificada como tal.
 - Os filtros mais rigorosos reduzem a quantidade de sinais; `AGUARDAR` é uma decisão válida.
 - Cada ativo/timeframe/horizonte precisa de treinamento próprio para usar a IA.
 - Twelve Data e Alpha Vantage exigem chaves gratuitas apenas se forem configuradas; o Forex público não exige chave, mas sua disponibilidade não é garantida.
