@@ -13,6 +13,9 @@ _CRYPTO_HINTS = (
     "USDT", "USDC", "CRYPTO", "BITCOIN", "ETHEREUM",
 )
 
+ANALYSIS_DEPTHS = {500, 1000, 1500, 2000, 3000}
+LIVE_CHART_CANDLES = 200
+
 
 class _NoExternalNews:
     def fetch(self, *args, **kwargs):
@@ -36,7 +39,6 @@ class MT5TradingController(TradingController):
     def __init__(self) -> None:
         super().__init__()
         self.mt5 = MT5Bridge(self.settings.mt5_terminal_path or None)
-        # O motor 1.2.6 mantém suas interfaces, porém todas apontam para o MT5.
         self.binance = self.mt5
         self.crypto = self.mt5
         self.forex = self.mt5
@@ -115,10 +117,51 @@ class MT5TradingController(TradingController):
     def refresh_symbols(self) -> list[str]:
         return self.mt5.list_symbols()
 
+    def analysis_candles(self) -> int:
+        """Profundidade realmente usada pelo motor ao vivo, não só pelo gráfico."""
+        try:
+            depth = int(self.settings.mt5_analysis_candles)
+        except (TypeError, ValueError, AttributeError):
+            depth = 2000
+        if depth not in ANALYSIS_DEPTHS:
+            depth = 2000
+            self.settings.mt5_analysis_candles = depth
+        return depth
+
+    def _live_analysis_windows(self, history, timeframe: str):
+        """Usa contexto profundo para decisão e mantém só 200 candles visíveis.
+
+        Indicadores, price action, estrutura, Fibonacci e features recebem a janela
+        completa escolhida pelo usuário. A janela menor existe apenas para desenho.
+        """
+        depth = self.analysis_candles()
+        if len(history) < depth:
+            raise ValueError(
+                f"O MT5 entregou apenas {len(history)} candles. A análise atual exige "
+                f"{depth} candles. Reduza a profundidade ou carregue mais histórico no MT5."
+            )
+        chart_candles = history[-LIVE_CHART_CANDLES:]
+        candidates = history[-min(len(history), depth + 1):]
+        eligible = self._decision_candles(candidates, timeframe)
+        next_candle_entry = len(eligible) < len(candidates)
+        decision_candles = eligible[-depth:]
+        if len(decision_candles) < depth:
+            raise ValueError(
+                f"A análise aguarda {depth} candles analíticos fechados. "
+                "O MT5 ainda não entregou histórico fechado suficiente."
+            )
+        return chart_candles, decision_candles, next_candle_entry
+
+    def analyze(self, limit: int = 500):
+        """Força o MT5 a fornecer a profundidade escolhida para cada releitura."""
+        required = self.analysis_candles() + 1
+        return super().analyze(limit=max(int(limit), required))
+
     def model_context(self) -> dict[str, str | int]:
         """Cada combinação escolhida pelo usuário possui seu próprio modelo."""
         context = super().model_context()
         context["execution_profile"] = self.settings.mt5_execution_profile
+        context["analysis_candles"] = self.analysis_candles()
         context["training_candles"] = int(self.settings.mt5_training_candles)
         return context
 
@@ -130,16 +173,16 @@ class MT5TradingController(TradingController):
             "compatible": compatible,
             "context": context,
             "report": report,
+            "analysis_candles": self.analysis_candles(),
             "requested_candles": int(self.settings.mt5_training_candles),
             "loaded_candles": len(self.snapshot.history_candles) if self.snapshot else 0,
         }
 
     def train(self) -> TrainingReport:
-        """Treina a IA 1.2.6 com histórico profundo vindo exclusivamente do MT5.
+        """Treina a IA com histórico profundo vindo exclusivamente do MT5.
 
-        A janela de decisão ao vivo permanece com os mesmos 200 candles da versão
-        que já estava funcionando. O histórico adicional é usado para treinamento
-        e validação temporal, sem mudar os critérios do sinal ao vivo.
+        O treinamento pode usar até 10.000 candles e o motor ao vivo passa a usar
+        de 500 a 3.000 candles, conforme a profundidade selecionada pelo usuário.
         """
         limit = int(self.settings.mt5_training_candles)
         if limit not in {2000, 3000, 5000, 10000}:
@@ -151,6 +194,6 @@ class MT5TradingController(TradingController):
             raise ValueError(
                 f"O MT5 entregou apenas {loaded} candles para treinamento. "
                 "São necessários pelo menos 1600 candles históricos para manter "
-                "a validação temporal da IA da versão 1.2.6."
+                "a validação temporal da IA."
             )
         return super().train()
