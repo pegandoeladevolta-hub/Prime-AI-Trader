@@ -69,8 +69,10 @@ class AppSettings:
     mt5_deviation_points: int = 20
     mt5_auto_execute_signals: bool = False
     mt5_execution_profile: str = "SÓ SINAIS"
-    # Quantidade usada quando o usuário manda TREINAR IA. O motor de sinais ao
-    # vivo continua usando sua janela de 200 candles para preservar a lógica 1.2.6.
+    # Janela realmente usada pelos indicadores, estrutura, Fibonacci, features e
+    # motor de decisão ao vivo. O gráfico continua exibindo somente a parte recente.
+    mt5_analysis_candles: int = 2000
+    # Quantidade usada quando o usuário manda TREINAR IA.
     mt5_training_candles: int = 5000
     external_context_enabled: bool = False
 
@@ -153,6 +155,8 @@ class SettingsStore:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             loaded = AppSettings(**{k: v for k, v in values.items() if k in allowed})
+            if loaded.mt5_analysis_candles not in {500, 1000, 1500, 2000, 3000}:
+                loaded.mt5_analysis_candles = 2000
             if loaded.mt5_training_candles not in {2000, 3000, 5000, 10000}:
                 loaded.mt5_training_candles = 5000
             return loaded
