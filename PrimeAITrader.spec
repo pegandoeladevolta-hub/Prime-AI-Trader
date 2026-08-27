@@ -12,6 +12,7 @@ a = Analysis(
     hiddenimports=[
         "sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree",
         "tkinter.ttk", "tkinter.messagebox", "tkinter.filedialog", "openpyxl",
+        "MetaTrader5",
     ],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=["matplotlib"], noarchive=False,
 )
