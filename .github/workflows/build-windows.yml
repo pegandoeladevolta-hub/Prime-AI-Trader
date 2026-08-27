@@ -1,10 +1,10 @@
-name: Build PRIME AI TRADER for Windows
+name: Build PRIME TRADER for Windows
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/windows-installer
+      - feature/prime-trader-mt5-v126
     paths-ignore:
       - BUILD_STATUS.json
 
@@ -39,19 +39,19 @@ jobs:
       - name: Verify deliverables
         shell: powershell
         run: |
-          if (-not (Test-Path "release\PrimeAITrader.exe")) { throw "PrimeAITrader.exe was not generated" }
-          if (-not (Test-Path "release\PrimeAITrader-Setup-x64.exe")) { throw "Installer was not generated" }
-          Get-FileHash "release\PrimeAITrader.exe" -Algorithm SHA256
-          Get-FileHash "release\PrimeAITrader-Setup-x64.exe" -Algorithm SHA256
+          if (-not (Test-Path "release\PrimeTrader.exe")) { throw "PrimeTrader.exe was not generated" }
+          if (-not (Test-Path "release\PrimeTrader-Setup-x64.exe")) { throw "Installer was not generated" }
+          Get-FileHash "release\PrimeTrader.exe" -Algorithm SHA256
+          Get-FileHash "release\PrimeTrader-Setup-x64.exe" -Algorithm SHA256
 
       - name: Upload Windows installer
         id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: PRIME-AI-TRADER-Windows-x64
+          name: PRIME-TRADER-Windows-x64
           path: |
-            release/PrimeAITrader.exe
-            release/PrimeAITrader-Setup-x64.exe
+            release/PrimeTrader.exe
+            release/PrimeTrader-Setup-x64.exe
             README.md
             RELEASE_NOTES.md
             VALIDATION_REPORT.md
@@ -74,7 +74,7 @@ jobs:
             run_id = [long]$env:BUILD_RUN_ID
             commit_sha = $env:BUILD_COMMIT_SHA
             artifact_id = if ($env:BUILD_ARTIFACT_ID) { [long]$env:BUILD_ARTIFACT_ID } else { 0 }
-            artifact_name = "PRIME-AI-TRADER-Windows-x64"
+            artifact_name = "PRIME-TRADER-Windows-x64"
             artifact_url = $env:BUILD_ARTIFACT_URL
             artifact_digest = $env:BUILD_ARTIFACT_DIGEST
           } | ConvertTo-Json
@@ -82,5 +82,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- BUILD_STATUS.json
-          git commit -m "Registra instalador Windows gerado"
+          git commit -m "Registra instalador Windows do Prime Trader"
           git push origin "HEAD:${{ github.ref_name }}"
