@@ -1,0 +1,83 @@
+name: Patch Prime Trader source
+
+on:
+  push:
+    branches:
+      - feature/prime-trader-mt5-v126
+    paths:
+      - .github/workflows/patch-prime-trader-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply source compatibility fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("prime_ai_trader/ui/prime_trader.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''    def _build_variables(self) -> None:\n        super()._build_variables()\n        settings = self.controller.settings\n        settings.platform_name = "MT5"\n        settings.platform_sync_enabled = False\n'''
+          new = '''    def _build_variables(self) -> None:\n        settings = self.controller.settings\n        # A primeira abertura do Prime Trader aplica a combinação que foi\n        # aprovada no uso da v1.2.6, sem alterar os defaults internos do motor.\n        if not settings.prime_trader_profile_initialized:\n            settings.timeframe = "1m"\n            settings.horizon_minutes = 1\n            settings.sensitivity = "RÁPIDO"\n            settings.mode = "PRICE ACTION"\n            settings.prime_trader_profile_initialized = True\n        settings.platform_name = "MT5"\n        settings.platform_sync_enabled = False\n        settings.bullex_sync_authorized = False\n        settings.platform_auto_asset = False\n        settings.platform_auto_payout = False\n        settings.platform_auto_horizon = False\n        settings.platform_block_mismatch = False\n        settings.execution_mode = "SINAIS MANUAIS"\n        self.controller.settings_store.save(settings)\n        super()._build_variables()\n'''
+          if old not in text:
+              raise SystemExit("Trecho _build_variables esperado não encontrado")
+          text = text.replace(old, new, 1)
+
+          old = '''            ttk.Button(\n                self.asset_tab_holder, text="MT5 • conecte sua conta",\n                style="AssetTab.TButton", state="disabled",\n            ).pack(side="left")\n'''
+          new = '''            ttk.Button(\n                self.asset_tab_holder, text="MT5 • conecte sua conta",\n                style="AssetTab.TButton", state="disabled",\n                command=self.connect_mt5,\n            ).pack(side="left")\n'''
+          if old not in text:
+              raise SystemExit("Botão MT5 placeholder esperado não encontrado")
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+              'ttk.Button(panel, text="ABRIR LOGS", style="Secondary.TButton", command=self.open_logs).pack(fill="x", pady=3)',
+              'ttk.Button(panel, text="ABRIR LOGS", style="Secondary.TButton", command=self._open_logs).pack(fill="x", pady=3)',
+              1,
+          )
+          text = text.replace(
+              'ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self.open_health).pack(fill="x", pady=3)',
+              'ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self._open_health).pack(fill="x", pady=3)',
+              1,
+          )
+          text = text.replace(
+              'ttk.Button(panel, text="APIs AUXILIARES", style="Secondary.TButton", command=self.open_api_settings).pack(fill="x", pady=3)',
+              'ttk.Button(panel, text="APIs AUXILIARES", style="Secondary.TButton", command=self._open_api_settings).pack(fill="x", pady=3)',
+              1,
+          )
+
+          marker = '''    def _choose_mt5_terminal(self) -> None:\n'''
+          wrappers = '''    def _open_logs(self) -> None:\n        super().open_logs()\n\n    def _open_health(self) -> None:\n        super().open_health()\n\n    def _open_api_settings(self) -> None:\n        super().open_api_settings()\n\n'''
+          if marker not in text:
+              raise SystemExit("Ponto de inserção dos wrappers não encontrado")
+          text = text.replace(marker, wrappers + marker, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Verify patch syntax
+        shell: python
+        run: |
+          import ast
+          from pathlib import Path
+          source = Path("prime_ai_trader/ui/prime_trader.py").read_text(encoding="utf-8")
+          ast.parse(source)
+          assert 'settings.timeframe = "1m"' in source
+          assert 'command=self._open_logs' in source
+          print("Prime Trader source patch OK")
+
+      - name: Commit patched source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add prime_ai_trader/ui/prime_trader.py
+          git commit -m "Preserva núcleo v1.2.6 e corrige contratos da UI Prime Trader"
+          git push origin HEAD:feature/prime-trader-mt5-v126
