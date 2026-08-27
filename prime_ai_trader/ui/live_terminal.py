@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from datetime import datetime
 
 from ..core.models import Direction, SignalState
 from ..platform.mt5 import MT5ExecutionError, MT5UnavailableError
-from .prime_terminal import EXEC_AUTO, PrimeTraderApp
+from .prime_terminal import EXEC_AUTO
+from .prime_terminal_execution import PrimeTraderApp
 
 
 class PrimeTraderLiveApp(PrimeTraderApp):
@@ -16,18 +20,69 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         super().__init__(controller)
         self._auto_job = self.after(350, self._auto_execution_tick)
 
+    @staticmethod
+    def _fast_analysis_interval(timeframe: str, sensitivity: str) -> float:
+        """Recalcula sinais com baixa latência sem mudar os critérios da estratégia."""
+        base = {
+            "1m": 1.25,
+            "3m": 1.75,
+            "5m": 2.5,
+            "15m": 4.0,
+            "30m": 5.5,
+            "1h": 7.0,
+            "4h": 10.0,
+        }.get(timeframe, 2.5)
+        factor = {
+            "RÁPIDO": 0.75,
+            "EQUILIBRADO": 1.0,
+            "CONSERVADOR": 1.35,
+        }.get(str(sensitivity).upper(), 1.0)
+        return max(0.9, min(12.0, base * factor))
+
     def _analysis_ready(self, snapshot, token: int, context: tuple[str, str, str]) -> None:
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
         if token != self._analysis_token or context != current or not self._analysis_active:
             return
         self.render_snapshot(snapshot)
+        interval = self._fast_analysis_interval(
+            snapshot.timeframe, self.sensitivity_var.get(),
+        )
         self.status_var.set(
             f"MT5 ativo • {snapshot.symbol} • {snapshot.timeframe} • "
-            f"{self.sensitivity_var.get()} • {self.mode_var.get()}"
+            f"{self.sensitivity_var.get()} • {self.mode_var.get()} • "
+            f"releitura ~{interval:.1f}s"
         )
-        # O método legado chama controller.binance.stream_candles; no controlador
-        # MT5 essa referência aponta para o próprio MT5Bridge.
         self._start_crypto_stream(token, context)
+
+    def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
+        """Stream de candles MT5 com reavaliação rápida do motor 1.2.6."""
+        symbol = self.controller.symbol()
+        timeframe = self.controller.settings.timeframe
+        stop_event = self._stop_event
+
+        def on_candle(candle) -> None:
+            if stop_event.is_set() or token != self._analysis_token:
+                return
+            self.controller.websocket_online = True
+            self._post_ui(self._queue_live_chart, candle, token)
+            now = time.monotonic()
+            interval = self._fast_analysis_interval(
+                timeframe, self.controller.settings.sensitivity,
+            )
+            if candle.closed or now - self._last_live_analysis >= interval:
+                self._last_live_analysis = now
+                self._post_ui(self._process_live, candle, token, context)
+
+        async def run() -> None:
+            await self.controller.mt5.stream_candles(
+                symbol, timeframe, on_candle, stop_event,
+            )
+
+        self._stream_thread = threading.Thread(
+            target=lambda: asyncio.run(run()), daemon=True,
+            name="prime-mt5-live",
+        )
+        self._stream_thread.start()
 
     def _flush_live_chart(self, token: int) -> None:
         self._live_ui_job = None
