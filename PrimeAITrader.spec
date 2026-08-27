@@ -12,13 +12,14 @@ a = Analysis(
     hiddenimports=[
         "sklearn.utils._cython_blas", "sklearn.neighbors._quad_tree",
         "tkinter.ttk", "tkinter.messagebox", "tkinter.filedialog", "openpyxl",
+        "MetaTrader5",
     ],
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=["matplotlib"], noarchive=False,
 )
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="PrimeAITrader",
+    name="PrimeTrader",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
