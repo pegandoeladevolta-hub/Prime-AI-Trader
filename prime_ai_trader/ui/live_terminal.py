@@ -8,7 +8,7 @@ from datetime import datetime
 from ..core.models import Direction, SignalState
 from ..platform.mt5 import MT5ExecutionError, MT5UnavailableError
 from .prime_terminal import EXEC_AUTO
-from .prime_terminal_execution import PrimeTraderApp
+from .prime_terminal_ai import PrimeTraderApp
 
 
 class PrimeTraderLiveApp(PrimeTraderApp):
