@@ -4,7 +4,7 @@ import sys
 import tkinter as tk
 from tkinter import messagebox
 
-from .app.controller import TradingController
+from .app.mt5_controller import MT5TradingController
 from .logging_setup import configure_logging
 from .ui.live_terminal import PrimeTraderLiveApp
 
@@ -12,7 +12,7 @@ from .ui.live_terminal import PrimeTraderLiveApp
 def main() -> int:
     logger = configure_logging()
     try:
-        controller = TradingController()
+        controller = MT5TradingController()
         app = PrimeTraderLiveApp(controller)
         app.mainloop()
         return 0
