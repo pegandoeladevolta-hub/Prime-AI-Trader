@@ -41,9 +41,9 @@ jobs:
         shell: powershell
         run: |
           if (-not (Test-Path "release\PrimeAITrader.exe")) { throw "PrimeAITrader.exe was not generated" }
-          if (-not (Test-Path "release\PrimeAITrader-Setup-x64.exe")) { throw "Installer was not generated" }
+          if (-not (Test-Path "release\PrimeTrader-Setup-x64.exe")) { throw "PrimeTrader-Setup-x64.exe was not generated" }
           Get-FileHash "release\PrimeAITrader.exe" -Algorithm SHA256
-          Get-FileHash "release\PrimeAITrader-Setup-x64.exe" -Algorithm SHA256
+          Get-FileHash "release\PrimeTrader-Setup-x64.exe" -Algorithm SHA256
 
       - name: Upload Windows installer
         id: upload
@@ -52,7 +52,7 @@ jobs:
           name: PRIME-TRADER-Windows-x64
           path: |
             release/PrimeAITrader.exe
-            release/PrimeAITrader-Setup-x64.exe
+            release/PrimeTrader-Setup-x64.exe
             README.md
             RELEASE_NOTES.md
             VALIDATION_REPORT.md
@@ -81,7 +81,7 @@ jobs:
           } | ConvertTo-Json
           Set-Content -Path "BUILD_STATUS.json" -Value $status -Encoding utf8
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
           git add -- BUILD_STATUS.json
           git commit -m "Registra instalador Windows gerado"
           git push origin "HEAD:${{ github.ref_name }}"
