@@ -1,7 +1,7 @@
-#define MyAppName "PRIME AI TRADER"
-#define MyAppVersion "1.2.6"
+#define MyAppName "PRIME TRADER"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "PRIME"
-#define MyAppExeName "PrimeAITrader.exe"
+#define MyAppExeName "PrimeTrader.exe"
 
 [Setup]
 AppId={{D648BC0B-532F-4A0B-A234-4B85C89FE5B4}
@@ -9,12 +9,12 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\PrimeAITrader
+DefaultDirName={autopf}\PrimeTrader
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=license_pt_BR.txt
 OutputDir=..\release
-OutputBaseFilename=PrimeAITrader-Setup-x64
+OutputBaseFilename=PrimeTrader-Setup-x64
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -25,7 +25,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
-VersionInfoDescription=Instalador do PRIME AI TRADER
+VersionInfoDescription=Instalador do PRIME TRADER
 VersionInfoProductName={#MyAppName}
 CloseApplications=yes
 RestartApplications=no
@@ -39,11 +39,11 @@ Name: "desktopicon"; Description: "Criar um atalho na Área de Trabalho"; GroupD
 Name: "cleancache"; Description: "Limpar cache e modelos de versões antigas (mantém chaves, configurações e histórico)"; GroupDescription: "Atualização segura:"; Flags: checkedonce
 
 [Files]
-Source: "..\release\PrimeAITrader.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\release\PrimeTrader.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\RELEASE_NOTES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config\apis.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
-Source: "..\scripts\Limpar-Cache-PrimeAITrader.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\scripts\Limpar-Cache-PrimeAITrader.cmd"; DestDir: "{app}"; DestName: "Limpar-Cache-PrimeTrader.cmd"; Flags: ignoreversion
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\cache"
@@ -56,11 +56,11 @@ Type: filesandordirs; Name: "{app}\__pycache__"
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{group}\Limpar cache e modelos antigos"; Filename: "{app}\Limpar-Cache-PrimeAITrader.cmd"; WorkingDir: "{app}"
+Name: "{group}\Limpar cache e modelos antigos"; Filename: "{app}\Limpar-Cache-PrimeTrader.cmd"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME AI TRADER"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME TRADER"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
