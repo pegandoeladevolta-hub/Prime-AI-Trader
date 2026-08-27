@@ -11,6 +11,7 @@ from .prime_terminal_execution import PrimeTraderApp as ExecutionPrimeTraderApp
 class PrimeTraderApp(ExecutionPrimeTraderApp):
     """Prime Trader com IA contextual e gerenciamento visual das posições MT5."""
 
+    ANALYSIS_DEPTHS = (500, 1000, 1500, 2000, 3000)
     TRAINING_DEPTHS = (2000, 3000, 5000, 10000)
 
     def __init__(self, controller) -> None:
@@ -21,14 +22,18 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
 
     def _build_variables(self) -> None:
         super()._build_variables()
-        depth = int(getattr(self.controller.settings, "mt5_training_candles", 5000))
-        if depth not in self.TRAINING_DEPTHS:
-            depth = 5000
-        self.training_candles_var = tk.StringVar(master=self, value=str(depth))
+        analysis_depth = int(getattr(self.controller.settings, "mt5_analysis_candles", 2000))
+        if analysis_depth not in self.ANALYSIS_DEPTHS:
+            analysis_depth = 2000
+        training_depth = int(getattr(self.controller.settings, "mt5_training_candles", 5000))
+        if training_depth not in self.TRAINING_DEPTHS:
+            training_depth = 5000
+        self.analysis_candles_var = tk.StringVar(master=self, value=str(analysis_depth))
+        self.training_candles_var = tk.StringVar(master=self, value=str(training_depth))
         self.ai_status_var = tk.StringVar(master=self, value="IA • verificando configuração…")
         self.ai_context_var = tk.StringVar(
             master=self,
-            value="Motor ao vivo: 200 candles • histórico da IA: aguardando",
+            value=f"Análise ao vivo: {analysis_depth} candles • histórico da IA: aguardando",
         )
 
     def _build_center(self, parent) -> None:
@@ -63,7 +68,7 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         card.pack(**pack_args)
 
         tk.Label(
-            card, text="IA DA CONFIGURAÇÃO", bg="#0f1619", fg="#e8eef1",
+            card, text="IA E PROFUNDIDADE DE MERCADO", bg="#0f1619", fg="#e8eef1",
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w", padx=10, pady=(9, 2))
         tk.Label(
@@ -75,14 +80,30 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
             font=("Segoe UI", 7), wraplength=245, justify="left",
         ).pack(anchor="w", padx=10, pady=(0, 7))
 
-        row = tk.Frame(card, bg="#0f1619")
-        row.pack(fill="x", padx=10, pady=(0, 8))
+        analysis_row = tk.Frame(card, bg="#0f1619")
+        analysis_row.pack(fill="x", padx=10, pady=(0, 5))
         tk.Label(
-            row, text="HISTÓRICO MT5", bg="#0f1619", fg="#66757c",
+            analysis_row, text="ANÁLISE AO VIVO", bg="#0f1619", fg="#66757c",
+            font=("Segoe UI Semibold", 7),
+        ).pack(side="left")
+        self.analysis_depth_combo = ttk.Combobox(
+            analysis_row, textvariable=self.analysis_candles_var,
+            values=[str(value) for value in self.ANALYSIS_DEPTHS],
+            state="readonly", width=8, font=("Segoe UI", 8),
+        )
+        self.analysis_depth_combo.pack(side="right")
+        self.analysis_depth_combo.bind(
+            "<<ComboboxSelected>>", lambda _: self._analysis_depth_changed(),
+        )
+
+        training_row = tk.Frame(card, bg="#0f1619")
+        training_row.pack(fill="x", padx=10, pady=(0, 8))
+        tk.Label(
+            training_row, text="TREINO DA IA", bg="#0f1619", fg="#66757c",
             font=("Segoe UI Semibold", 7),
         ).pack(side="left")
         self.training_depth_combo = ttk.Combobox(
-            row, textvariable=self.training_candles_var,
+            training_row, textvariable=self.training_candles_var,
             values=[str(value) for value in self.TRAINING_DEPTHS],
             state="readonly", width=8, font=("Segoe UI", 8),
         )
@@ -97,6 +118,21 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
             font=("Segoe UI Semibold", 9), pady=9,
         ).pack(fill="x", padx=10, pady=(0, 10))
 
+    def _analysis_depth_changed(self) -> None:
+        try:
+            depth = int(self.analysis_candles_var.get())
+        except ValueError:
+            depth = 2000
+        if depth not in self.ANALYSIS_DEPTHS:
+            depth = 2000
+            self.analysis_candles_var.set(str(depth))
+        self.controller.settings.mt5_analysis_candles = depth
+        self.controller.save_settings()
+        self._refresh_ai_status()
+        self.status_var.set(f"Profundidade da análise ao vivo: {depth} candles")
+        if getattr(self, "_analysis_active", False):
+            self.refresh_analysis()
+
     def _training_depth_changed(self) -> None:
         try:
             depth = int(self.training_candles_var.get())
@@ -109,15 +145,24 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         self._refresh_ai_status()
 
     def _save_form(self) -> None:
+        if hasattr(self, "analysis_candles_var"):
+            try:
+                analysis_depth = int(self.analysis_candles_var.get())
+            except ValueError:
+                analysis_depth = 2000
+            if analysis_depth not in self.ANALYSIS_DEPTHS:
+                analysis_depth = 2000
+                self.analysis_candles_var.set(str(analysis_depth))
+            self.controller.settings.mt5_analysis_candles = analysis_depth
         if hasattr(self, "training_candles_var"):
             try:
-                depth = int(self.training_candles_var.get())
+                training_depth = int(self.training_candles_var.get())
             except ValueError:
-                depth = 5000
-            if depth not in self.TRAINING_DEPTHS:
-                depth = 5000
-                self.training_candles_var.set(str(depth))
-            self.controller.settings.mt5_training_candles = depth
+                training_depth = 5000
+            if training_depth not in self.TRAINING_DEPTHS:
+                training_depth = 5000
+                self.training_candles_var.set(str(training_depth))
+            self.controller.settings.mt5_training_candles = training_depth
         super()._save_form()
 
     def _refresh_ai_status(self) -> None:
@@ -128,6 +173,7 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         except Exception:
             self.ai_status_var.set("IA • estado indisponível")
             return
+        analysis = int(state.get("analysis_candles") or 0)
         requested = int(state.get("requested_candles") or 0)
         loaded = int(state.get("loaded_candles") or 0)
         if state.get("compatible"):
@@ -138,8 +184,8 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         else:
             self.ai_status_var.set("IA PRECISA TREINAR PARA ESTA CONFIGURAÇÃO")
         self.ai_context_var.set(
-            f"Motor ao vivo: 200 candles • treino solicitado: {requested} • "
-            f"histórico carregado: {loaded}"
+            f"Análise ao vivo: {analysis} candles • treino: {requested} • "
+            f"histórico carregado: {loaded} • gráfico visível: 200"
         )
 
     def _configuration_changed(self) -> None:
@@ -155,10 +201,25 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
             self._connect_mt5()
             if not self.mt5_connected.get():
                 return
+        self._analysis_depth_changed_silent()
         self._training_depth_changed()
         depth = int(self.training_candles_var.get())
-        self.ai_status_var.set(f"IA TREINANDO • carregando até {depth} candles do MT5…")
+        analysis = int(self.analysis_candles_var.get())
+        self.ai_status_var.set(
+            f"IA TREINANDO • análise {analysis} • carregando até {depth} candles do MT5…"
+        )
         super().train_ai()
+
+    def _analysis_depth_changed_silent(self) -> None:
+        try:
+            depth = int(self.analysis_candles_var.get())
+        except ValueError:
+            depth = 2000
+        if depth not in self.ANALYSIS_DEPTHS:
+            depth = 2000
+            self.analysis_candles_var.set(str(depth))
+        self.controller.settings.mt5_analysis_candles = depth
+        self.controller.save_settings()
 
     def _training_ready(self, report) -> None:
         super()._training_ready(report)
