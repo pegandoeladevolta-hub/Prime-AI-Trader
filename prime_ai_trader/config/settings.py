@@ -57,8 +57,7 @@ class AppSettings:
     platform_auto_horizon: bool = True
     platform_block_mismatch: bool = True
 
-    # Nova arquitetura: o Prime Trader pode usar exclusivamente o terminal MT5
-    # como fonte de candles/preço e como destino das ordens.
+    # Arquitetura MT5: preço/candles vêm do terminal e as ordens voltam para ele.
     market_data_source: str = "PUBLIC"
     mt5_symbol: str = ""
     mt5_terminal_path: str = ""
@@ -70,6 +69,9 @@ class AppSettings:
     mt5_deviation_points: int = 20
     mt5_auto_execute_signals: bool = False
     mt5_execution_profile: str = "SÓ SINAIS"
+    # Quantidade usada quando o usuário manda TREINAR IA. O motor de sinais ao
+    # vivo continua usando sua janela de 200 candles para preservar a lógica 1.2.6.
+    mt5_training_candles: int = 5000
     external_context_enabled: bool = False
 
     overlays: dict[str, bool] = field(default_factory=lambda: {
@@ -150,7 +152,10 @@ class SettingsStore:
         try:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
-            return AppSettings(**{k: v for k, v in values.items() if k in allowed})
+            loaded = AppSettings(**{k: v for k, v in values.items() if k in allowed})
+            if loaded.mt5_training_candles not in {2000, 3000, 5000, 10000}:
+                loaded.mt5_training_candles = 5000
+            return loaded
         except (OSError, ValueError, TypeError):
             return AppSettings()
 
