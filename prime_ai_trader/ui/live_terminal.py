@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import tkinter as tk
+from datetime import datetime
 
 from ..core.models import Direction, SignalState
 from ..platform.mt5 import MT5ExecutionError, MT5UnavailableError
-from .prime_terminal import PrimeTraderApp
+from .prime_terminal import EXEC_AUTO, PrimeTraderApp
 
 
 class PrimeTraderLiveApp(PrimeTraderApp):
-    """Acrescenta autoexecução opcional sem alterar o motor de sinais 1.2.6."""
+    """Atualização ao vivo e execução automática usando o mesmo terminal MT5."""
 
     def __init__(self, controller) -> None:
         self._last_auto_signature = None
@@ -16,75 +16,43 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         super().__init__(controller)
         self._auto_job = self.after(350, self._auto_execution_tick)
 
-    def _build_prime_nav(self, parent) -> None:
-        rail = tk.Frame(
-            parent, bg="#0a0e10", width=78,
-            highlightbackground="#1b2328", highlightthickness=1,
+    def _analysis_ready(self, snapshot, token: int, context: tuple[str, str, str]) -> None:
+        current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
+        if token != self._analysis_token or context != current or not self._analysis_active:
+            return
+        self.render_snapshot(snapshot)
+        self.status_var.set(
+            f"MT5 ativo • {snapshot.symbol} • {snapshot.timeframe} • "
+            f"{self.sensitivity_var.get()} • {self.mode_var.get()}"
         )
-        rail.grid(row=0, column=0, sticky="nsw")
-        rail.grid_propagate(False)
-        items = (
-            ("▥", "GRÁFICO", self.refresh_analysis),
-            ("✦", "SINAIS", self.open_performance),
-            ("≡", "HISTÓRICO", self.open_decision_history),
-            ("◎", "NOTÍCIAS", self._show_news),
-            ("◈", "RADAR", self.run_radar),
-            ("⚙", "AJUSTES", self.open_api_settings),
-        )
-        for icon, label, command in items:
-            holder = tk.Frame(rail, bg="#0a0e10")
-            holder.pack(fill="x", pady=(8, 1))
-            tk.Button(
-                holder, text=icon, command=command, bd=0, relief="flat",
-                bg="#0a0e10", fg="#aab4b9", activebackground="#12191d",
-                activeforeground="#14d8a7", font=("Segoe UI Symbol", 16), pady=2,
-            ).pack(fill="x")
-            tk.Label(
-                holder, text=label, bg="#0a0e10", fg="#6f7c82",
-                font=("Segoe UI", 7),
-            ).pack()
-        tk.Button(
-            rail, text="▶", command=self.start_analysis, bd=0, relief="flat",
-            bg="#0c6f58", fg="white", activebackground="#0e8a6d",
-            font=("Segoe UI", 15, "bold"), pady=8,
-        ).pack(side="bottom", fill="x", padx=8, pady=(4, 12))
+        # O método legado chama controller.binance.stream_candles; no controlador
+        # MT5 essa referência aponta para o próprio MT5Bridge.
+        self._start_crypto_stream(token, context)
 
-    def _show_news(self) -> None:
-        snapshot = self.controller.snapshot
-        window = tk.Toplevel(self)
-        window.title("Prime Trader • Notícias")
-        window.geometry("720x520")
-        window.configure(bg="#0b0f12")
-        tk.Label(
-            window, text="NOTÍCIAS RECENTES DO ATIVO", bg="#0b0f12",
-            fg="#eef2f4", font=("Segoe UI Semibold", 13),
-        ).pack(anchor="w", padx=18, pady=(16, 8))
-        text = tk.Text(
-            window, bg="#0e1417", fg="#c8d2d6", insertbackground="white",
-            relief="flat", wrap="word", font=("Segoe UI", 10), padx=12, pady=12,
-        )
-        text.pack(fill="both", expand=True, padx=18, pady=(0, 18))
-        if snapshot is None:
-            text.insert("end", "Inicie uma análise para carregar as notícias relacionadas ao ativo atual.")
-        elif not snapshot.news:
-            text.insert("end", "Nenhuma notícia relevante foi retornada pelas fontes públicas nesta análise.")
-        else:
-            for item in snapshot.news[:15]:
-                when = item.published_at.astimezone().strftime("%d/%m %H:%M")
-                source = getattr(item, "source", "") or "Fonte pública"
-                text.insert("end", f"{when}  •  {source}\n{item.title}\n\n")
-        text.configure(state="disabled")
+    def _flush_live_chart(self, token: int) -> None:
+        self._live_ui_job = None
+        if token != self._analysis_token or self._pending_live_candle is None:
+            return
+        candle = self._pending_live_candle
+        self._pending_live_candle = None
+        self.chart.update_last_candle(candle)
+        self.updated_var.set(f"MT5 • PREÇO AO VIVO {datetime.now().strftime('%H:%M:%S')}")
 
     def _auto_execution_tick(self) -> None:
         try:
             snapshot = self.controller.snapshot
-            enabled = bool(self.mt5_auto.get()) and bool(self.mt5_armed.get())
+            enabled = (
+                self.execution_profile_var.get() == EXEC_AUTO
+                and bool(self.mt5_auto.get())
+                and bool(self.mt5_armed.get())
+            )
             if enabled and snapshot is not None:
                 signal = snapshot.signal
                 if signal.state == SignalState.CONFIRMED and signal.direction != Direction.WAIT:
                     candle_key = snapshot.candles[-1].open_time if snapshot.candles else snapshot.generated_at
                     signature = (
                         snapshot.market, snapshot.symbol, snapshot.timeframe,
+                        self.sensitivity_var.get(), self.mode_var.get(),
                         candle_key, signal.direction.value,
                     )
                     if signature != self._last_auto_signature:
@@ -101,12 +69,12 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             if not self.mt5_connected.get():
                 raise MT5UnavailableError("MT5 não conectado; sinal não foi executado.")
             signal = snapshot.signal
-            symbol = self._mt5_symbol(snapshot.symbol)
             volume = float(self.mt5_volume.get().replace(",", "."))
-            sl = float(signal.technical_stop or 0.0)
-            tp = float(signal.technical_target or 0.0)
             kwargs = dict(
-                symbol=symbol, volume=volume, sl=sl, tp=tp,
+                symbol=snapshot.symbol,
+                volume=volume,
+                sl=float(signal.technical_stop or 0.0),
+                tp=float(signal.technical_target or 0.0),
                 deviation=self.controller.settings.mt5_deviation_points,
                 armed=True,
             )
@@ -124,8 +92,6 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         except (ValueError, MT5ExecutionError, MT5UnavailableError) as exc:
             self.status_var.set(f"AUTO MT5 NÃO EXECUTOU: {exc}")
 
-    # Wrappers diretos: o validador da interface exige que handlers usados por
-    # botões estejam declarados na própria classe que cria esses botões.
     def start_analysis(self):
         return super().start_analysis()
 
@@ -138,11 +104,8 @@ class PrimeTraderLiveApp(PrimeTraderApp):
     def open_decision_history(self):
         return super().open_decision_history()
 
-    def run_radar(self):
-        return super().run_radar()
-
-    def open_api_settings(self):
-        return super().open_api_settings()
+    def pause_analysis(self, silent: bool = False):
+        return super().pause_analysis(silent=silent)
 
     def _close(self) -> None:
         if self._auto_job is not None:
