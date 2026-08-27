@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "prime-ai-trader"
-version = "1.2.6"
-description = "Assistente quantitativo desktop para criptomoedas e Forex"
+name = "prime-trader"
+version = "1.4.0"
+description = "Terminal desktop Prime Trader com motor Price Action v1.2.6 e integração MetaTrader 5"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -17,6 +17,7 @@ dependencies = [
   "cryptography>=44,<48",
   "openpyxl>=3.1,<4",
   "tzdata>=2025.2,<2027",
+  "MetaTrader5>=5.0.45,<6; platform_system == 'Windows'",
 ]
 
 [tool.setuptools.packages.find]
