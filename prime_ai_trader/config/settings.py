@@ -31,16 +31,19 @@ class AppSettings:
     market: str = "Criptomoedas"
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
-    timeframe: str = "1m"
-    horizon_minutes: int = 1
+    # Defaults internos originais da 1.2.6 são preservados para manter
+    # compatibilidade de modelos/testes. A interface Prime Trader aplica o perfil
+    # preferido M1 + RÁPIDO + PRICE ACTION ao iniciar.
+    timeframe: str = "5m"
+    horizon_minutes: int = 5
     payout_percent: int = 80
     stake_amount: float = 80.0
     execution_mode: str = "SINAIS MANUAIS"
     session_stop_loss: float = 80.0
     session_profit_target: float = 80.0
     simulation_session_started_at: str = ""
-    sensitivity: str = "RÁPIDO"
-    mode: str = "PRICE ACTION"
+    sensitivity: str = "EQUILIBRADO"
+    mode: str = "CONFIRMAÇÃO"
     audio_enabled: bool = True
     audio_volume: int = 70
     voice_pre_signal: bool = False
@@ -49,15 +52,15 @@ class AppSettings:
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
 
-    # Compatibilidade de leitura com settings antigos. A interface nova não expõe
-    # VEX/BullEx e força MT5 como única plataforma de execução.
+    # Campos legados permanecem somente como contrato interno da 1.2.6. A nova
+    # interface não expõe VEX/BullEx e usa MT5 como plataforma de execução.
     platform_sync_enabled: bool = False
-    platform_name: str = "MT5"
+    platform_name: str = "VEX"
     bullex_sync_authorized: bool = False
-    platform_auto_asset: bool = False
-    platform_auto_payout: bool = False
-    platform_auto_horizon: bool = False
-    platform_block_mismatch: bool = False
+    platform_auto_asset: bool = True
+    platform_auto_payout: bool = True
+    platform_auto_horizon: bool = True
+    platform_block_mismatch: bool = True
 
     mt5_terminal_path: str = ""
     mt5_auto_connect: bool = True
@@ -149,11 +152,7 @@ class SettingsStore:
         try:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
-            loaded = AppSettings(**{k: v for k, v in values.items() if k in allowed})
-            loaded.platform_name = "MT5"
-            loaded.platform_sync_enabled = False
-            loaded.bullex_sync_authorized = False
-            return loaded
+            return AppSettings(**{k: v for k, v in values.items() if k in allowed})
         except (OSError, ValueError, TypeError):
             return AppSettings()
 
