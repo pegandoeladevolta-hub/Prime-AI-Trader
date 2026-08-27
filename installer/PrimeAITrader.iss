@@ -1,4 +1,4 @@
-#define MyAppName "PRIME AI TRADER"
+#define MyAppName "PRIME TRADER"
 #define MyAppVersion "1.2.6"
 #define MyAppPublisher "PRIME"
 #define MyAppExeName "PrimeAITrader.exe"
@@ -9,12 +9,13 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+; Mantém a pasta histórica para atualização in-place da base 1.2.6.
 DefaultDirName={autopf}\PrimeAITrader
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=license_pt_BR.txt
 OutputDir=..\release
-OutputBaseFilename=PrimeAITrader-Setup-x64
+OutputBaseFilename=PrimeTrader-Setup-x64
 SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -25,7 +26,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
-VersionInfoDescription=Instalador do PRIME AI TRADER
+VersionInfoDescription=Instalador do PRIME TRADER
 VersionInfoProductName={#MyAppName}
 CloseApplications=yes
 RestartApplications=no
@@ -60,7 +61,7 @@ Name: "{group}\Limpar cache e modelos antigos"; Filename: "{app}\Limpar-Cache-Pr
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME AI TRADER"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Abrir PRIME TRADER"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
