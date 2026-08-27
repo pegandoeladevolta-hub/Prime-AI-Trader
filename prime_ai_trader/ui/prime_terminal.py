@@ -17,9 +17,21 @@ class PrimeTraderApp(PrimeAITraderApp):
         self.title("PRIME TRADER")
 
     def _build_variables(self) -> None:
-        # Tk já foi inicializado quando o método é chamado pelo construtor base.
+        # Mantemos os defaults internos da 1.2.6 para compatibilidade, mas o
+        # produto Prime Trader abre no perfil que apresentou melhor comportamento
+        # nos testes do usuário: M1 + RÁPIDO + PRICE ACTION.
         super()._build_variables()
         settings = self.controller.settings
+        settings.timeframe = "1m"
+        settings.horizon_minutes = 1
+        settings.sensitivity = "RÁPIDO"
+        settings.mode = "PRICE ACTION"
+        settings.platform_sync_enabled = False
+        self.timeframe_var.set("1m")
+        self.horizon_var.set("1")
+        self.sensitivity_var.set("RÁPIDO")
+        self.mode_var.set("PRICE ACTION")
+
         self.mt5_connected = tk.BooleanVar(master=self, value=False)
         # Sempre inicia desarmado por segurança, mesmo que a sessão anterior tenha
         # sido fechada com execução habilitada.
@@ -360,6 +372,29 @@ class PrimeTraderApp(PrimeAITraderApp):
     @staticmethod
     def _mt5_symbol(symbol: str) -> str:
         return symbol.replace("/", "")
+
+    # Wrappers diretos mantêm o contrato de botões auditável: cada handler
+    # referenciado por esta classe existe explicitamente nela.
+    def start_analysis(self):
+        return super().start_analysis()
+
+    def refresh_analysis(self):
+        return super().refresh_analysis()
+
+    def open_performance(self):
+        return super().open_performance()
+
+    def open_decision_history(self):
+        return super().open_decision_history()
+
+    def refresh_news_panel(self):
+        return super().refresh_news_panel()
+
+    def run_radar(self):
+        return super().run_radar()
+
+    def open_api_settings(self):
+        return super().open_api_settings()
 
     def _close(self) -> None:
         try:
