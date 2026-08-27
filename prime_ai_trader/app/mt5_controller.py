@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from ..core.models import Market
+from ..ml.models import TrainingReport
 from ..platform.mt5 import MT5AccountSnapshot
-from ..platform.mt5_robust import MT5Bridge
+from ..platform.mt5_positions import MT5Bridge
 from .controller import TradingController
 
 
@@ -30,13 +31,12 @@ class _NoExternalCalendar:
 
 
 class MT5TradingController(TradingController):
-    """Controlador em que candles, ticks, ativos e ordens vêm do mesmo MT5."""
+    """Controlador em que candles, ticks, ativos, IA e ordens usam o mesmo MT5."""
 
     def __init__(self) -> None:
         super().__init__()
         self.mt5 = MT5Bridge(self.settings.mt5_terminal_path or None)
-        # O motor 1.2.6 mantém as mesmas interfaces, porém todas apontam para o
-        # terminal MT5. Binance/Yahoo deixam de participar da leitura do gráfico.
+        # O motor 1.2.6 mantém suas interfaces, porém todas apontam para o MT5.
         self.binance = self.mt5
         self.crypto = self.mt5
         self.forex = self.mt5
@@ -114,3 +114,43 @@ class MT5TradingController(TradingController):
 
     def refresh_symbols(self) -> list[str]:
         return self.mt5.list_symbols()
+
+    def model_context(self) -> dict[str, str | int]:
+        """Cada combinação escolhida pelo usuário possui seu próprio modelo."""
+        context = super().model_context()
+        context["execution_profile"] = self.settings.mt5_execution_profile
+        context["training_candles"] = int(self.settings.mt5_training_candles)
+        return context
+
+    def ai_training_state(self) -> dict[str, object]:
+        context = self.model_context()
+        compatible = self.model_manager.is_compatible(context)
+        report = self.model_manager.report if compatible else None
+        return {
+            "compatible": compatible,
+            "context": context,
+            "report": report,
+            "requested_candles": int(self.settings.mt5_training_candles),
+            "loaded_candles": len(self.snapshot.history_candles) if self.snapshot else 0,
+        }
+
+    def train(self) -> TrainingReport:
+        """Treina a IA 1.2.6 com histórico profundo vindo exclusivamente do MT5.
+
+        A janela de decisão ao vivo permanece com os mesmos 200 candles da versão
+        que já estava funcionando. O histórico adicional é usado para treinamento
+        e validação temporal, sem mudar os critérios do sinal ao vivo.
+        """
+        limit = int(self.settings.mt5_training_candles)
+        if limit not in {2000, 3000, 5000, 10000}:
+            limit = 5000
+            self.settings.mt5_training_candles = limit
+        snapshot = self.analyze(limit=limit)
+        loaded = len(snapshot.history_candles)
+        if loaded < 1600:
+            raise ValueError(
+                f"O MT5 entregou apenas {loaded} candles para treinamento. "
+                "São necessários pelo menos 1600 candles históricos para manter "
+                "a validação temporal da IA da versão 1.2.6."
+            )
+        return super().train()
