@@ -19,7 +19,7 @@ def app_data_dir() -> Path:
         root = Path(os.environ.get("APPDATA", Path.home()))
     else:
         root = Path.home() / ".local" / "share"
-    path = root / "PrimeAITrader"
+    path = root / "PrimeTrader"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -29,16 +29,16 @@ class AppSettings:
     market: str = "Criptomoedas"
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
-    timeframe: str = "5m"
-    horizon_minutes: int = 5
+    timeframe: str = "1m"
+    horizon_minutes: int = 1
     payout_percent: int = 80
     stake_amount: float = 80.0
     execution_mode: str = "SINAIS MANUAIS"
     session_stop_loss: float = 80.0
     session_profit_target: float = 80.0
     simulation_session_started_at: str = ""
-    sensitivity: str = "EQUILIBRADO"
-    mode: str = "CONFIRMAÇÃO"
+    sensitivity: str = "RÁPIDO"
+    mode: str = "PRICE ACTION"
     audio_enabled: bool = True
     audio_volume: int = 70
     voice_pre_signal: bool = False
@@ -46,13 +46,26 @@ class AppSettings:
     voice_alerts: bool = True
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
+
+    # Execução: somente MetaTrader 5. Campos antigos de VEX/BullEx são mantidos
+    # apenas para migração silenciosa de settings.json; não são exibidos nem usados.
     platform_sync_enabled: bool = False
-    platform_name: str = "VEX"
+    platform_name: str = "MT5"
     bullex_sync_authorized: bool = False
-    platform_auto_asset: bool = True
-    platform_auto_payout: bool = True
-    platform_auto_horizon: bool = True
-    platform_block_mismatch: bool = True
+    platform_auto_asset: bool = False
+    platform_auto_payout: bool = False
+    platform_auto_horizon: bool = False
+    platform_block_mismatch: bool = False
+
+    mt5_terminal_path: str = ""
+    mt5_auto_connect: bool = True
+    mt5_execution_armed: bool = False
+    mt5_default_volume: float = 0.01
+    mt5_default_sl: float = 0.0
+    mt5_default_tp: float = 0.0
+    mt5_deviation_points: int = 20
+    mt5_auto_execute_signals: bool = False
+
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
         "swings": True, "trend": True, "signals": True, "levels": True,
@@ -66,7 +79,7 @@ class _DataBlob(ctypes.Structure):
 def _dpapi_protect(raw: bytes) -> bytes:
     source = _DataBlob(len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_byte)))
     target = _DataBlob()
-    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(source), "PrimeAITrader", None, None, None, 0, ctypes.byref(target)):
+    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(source), "PrimeTrader", None, None, None, 0, ctypes.byref(target)):
         raise ctypes.WinError()
     try:
         return ctypes.string_at(target.pbData, target.cbData)
@@ -87,7 +100,7 @@ def _dpapi_unprotect(raw: bytes) -> bytes:
 
 def _fallback_key() -> bytes:
     import hashlib
-    seed = f"{platform.node()}|{os.getuid() if hasattr(os, 'getuid') else 0}|PrimeAITrader".encode()
+    seed = f"{platform.node()}|{os.getuid() if hasattr(os, 'getuid') else 0}|PrimeTrader".encode()
     return base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
 
 
@@ -133,7 +146,12 @@ class SettingsStore:
         try:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
-            return AppSettings(**{k: v for k, v in values.items() if k in allowed})
+            loaded = AppSettings(**{k: v for k, v in values.items() if k in allowed})
+            # VEX/BullEx não fazem mais parte do produto. Migra automaticamente.
+            loaded.platform_name = "MT5"
+            loaded.platform_sync_enabled = False
+            loaded.bullex_sync_authorized = False
+            return loaded
         except (OSError, ValueError, TypeError):
             return AppSettings()
 
