@@ -19,8 +19,6 @@ def app_data_dir() -> Path:
         root = Path(os.environ.get("APPDATA", Path.home()))
     else:
         root = Path.home() / ".local" / "share"
-    # Mantém o diretório legado para não perder banco, modelos, histórico e chaves
-    # da versão 1.2.6 após a mudança de nome visual para Prime Trader.
     path = root / "PrimeAITrader"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -31,9 +29,6 @@ class AppSettings:
     market: str = "Criptomoedas"
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
-    # Defaults internos originais da 1.2.6 são preservados para manter
-    # compatibilidade de modelos/testes. A interface Prime Trader aplica o perfil
-    # preferido M1 + RÁPIDO + PRICE ACTION ao iniciar.
     timeframe: str = "5m"
     horizon_minutes: int = 5
     payout_percent: int = 80
@@ -52,8 +47,8 @@ class AppSettings:
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
 
-    # Campos legados permanecem somente como contrato interno da 1.2.6. A nova
-    # interface não expõe VEX/BullEx e usa MT5 como plataforma de execução.
+    # Campos legados continuam existindo para abrir bases 1.2.6 sem quebrar o
+    # histórico, mas não são expostos na interface Prime Trader.
     platform_sync_enabled: bool = False
     platform_name: str = "VEX"
     bullex_sync_authorized: bool = False
@@ -62,6 +57,10 @@ class AppSettings:
     platform_auto_horizon: bool = True
     platform_block_mismatch: bool = True
 
+    # Nova arquitetura: o Prime Trader pode usar exclusivamente o terminal MT5
+    # como fonte de candles/preço e como destino das ordens.
+    market_data_source: str = "PUBLIC"
+    mt5_symbol: str = ""
     mt5_terminal_path: str = ""
     mt5_auto_connect: bool = True
     mt5_execution_armed: bool = False
@@ -70,6 +69,8 @@ class AppSettings:
     mt5_default_tp: float = 0.0
     mt5_deviation_points: int = 20
     mt5_auto_execute_signals: bool = False
+    mt5_execution_profile: str = "SÓ SINAIS"
+    external_context_enabled: bool = False
 
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
@@ -84,7 +85,6 @@ class _DataBlob(ctypes.Structure):
 def _dpapi_protect(raw: bytes) -> bytes:
     source = _DataBlob(len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_byte)))
     target = _DataBlob()
-    # Mantém a descrição legada para preservar compatibilidade com secrets.dat.
     if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(source), "PrimeAITrader", None, None, None, 0, ctypes.byref(target)):
         raise ctypes.WinError()
     try:
@@ -111,8 +111,6 @@ def _fallback_key() -> bytes:
 
 
 class SecretStore:
-    """Usa Windows DPAPI; o fallback existe apenas para desenvolvimento fora do Windows."""
-
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or app_data_dir() / "secrets.dat"
 
