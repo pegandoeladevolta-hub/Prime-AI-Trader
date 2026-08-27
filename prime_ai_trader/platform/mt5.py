@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from ..core.models import Candle
 
 
 class MT5UnavailableError(RuntimeError):
@@ -39,19 +43,30 @@ class MT5OrderResult:
 
 
 class MT5Bridge:
-    """Integração local com um terminal MetaTrader 5 instalado no Windows.
+    """Ponte única entre o Prime Trader e o terminal MetaTrader 5 local.
 
-    O Prime Trader não armazena login/senha do broker. A conexão usa o terminal
-    já autenticado pelo próprio usuário. A execução real só ocorre quando o
-    chamador passa ``armed=True`` explicitamente.
+    Além de enviar/encerrar ordens, esta classe fornece os símbolos, ticks e
+    candles usados pelo gráfico e pelo motor de sinais. Assim o Prime Trader não
+    precisa misturar o preço do MT5 com Yahoo/Binance.
     """
 
     MAGIC = 260826
+    name = "MetaTrader 5"
+    last_provider_name = "MetaTrader 5"
+    last_warning = ""
+    recommended_poll_ms = 2_000
+    recommended_quote_ms = 1_000
+
+    _TIMEFRAME_SECONDS = {
+        "1m": 60, "3m": 180, "5m": 300, "15m": 900,
+        "30m": 1800, "1h": 3600, "4h": 14400,
+    }
 
     def __init__(self, terminal_path: str | Path | None = None) -> None:
         self.terminal_path = str(terminal_path) if terminal_path else None
         self._mt5 = None
         self.connected = False
+        self.reference = self
 
     def _module(self):
         if self._mt5 is not None:
@@ -60,11 +75,19 @@ class MT5Bridge:
             import MetaTrader5 as mt5  # type: ignore
         except ImportError as exc:
             raise MT5UnavailableError(
-                "O conector MetaTrader5 não está instalado. Instale o componente "
-                "oficial no ambiente do Prime Trader e mantenha o terminal MT5 instalado."
+                "O conector MetaTrader5 não está instalado. Mantenha o MetaTrader 5 "
+                "instalado no Windows e reinstale o Prime Trader."
             ) from exc
         self._mt5 = mt5
         return mt5
+
+    def _ensure_connected(self) -> None:
+        if self.connected:
+            mt5 = self._module()
+            if mt5.account_info() is not None:
+                return
+            self.connected = False
+        self.connect()
 
     def connect(self) -> MT5AccountSnapshot:
         mt5 = self._module()
@@ -77,8 +100,8 @@ class MT5Bridge:
         if info is None:
             mt5.shutdown()
             raise MT5UnavailableError(
-                "O MT5 abriu, mas não existe uma conta autenticada no terminal. "
-                "Entre na conta diretamente no MetaTrader e tente novamente."
+                "O MT5 foi encontrado, mas não existe conta autenticada no terminal. "
+                "Entre na conta dentro do MetaTrader 5 e conecte novamente."
             )
         self.connected = True
         return self._account_snapshot(info)
@@ -91,6 +114,7 @@ class MT5Bridge:
                 self.connected = False
 
     def account(self) -> MT5AccountSnapshot:
+        self._ensure_connected()
         mt5 = self._module()
         info = mt5.account_info()
         if info is None:
@@ -111,17 +135,165 @@ class MT5Bridge:
             trade_allowed=bool(getattr(info, "trade_allowed", False)),
         )
 
+    def _timeframe_constant(self, timeframe: str) -> int:
+        mt5 = self._module()
+        names = {
+            "1m": "TIMEFRAME_M1", "3m": "TIMEFRAME_M3", "5m": "TIMEFRAME_M5",
+            "15m": "TIMEFRAME_M15", "30m": "TIMEFRAME_M30",
+            "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4",
+        }
+        name = names.get(timeframe)
+        if not name or not hasattr(mt5, name):
+            raise MT5UnavailableError(f"Time frame {timeframe} não é suportado pelo MT5.")
+        return int(getattr(mt5, name))
+
+    @staticmethod
+    def _rate_value(row, key: str, default: float = 0.0):
+        try:
+            return row[key]
+        except Exception:
+            return getattr(row, key, default)
+
+    def fetch_candles(
+        self, symbol: str, timeframe: str, limit: int = 500,
+        start: datetime | None = None, end: datetime | None = None,
+    ) -> list[Candle]:
+        self._ensure_connected()
+        mt5 = self._module()
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            raise MT5UnavailableError(
+                f"O ativo {symbol} não existe na conta/servidor MT5 conectado."
+            )
+        if not bool(getattr(info, "visible", False)):
+            if not mt5.symbol_select(symbol, True):
+                raise MT5UnavailableError(f"Não foi possível ativar {symbol} no Market Watch.")
+        tf = self._timeframe_constant(timeframe)
+        if start is not None and end is not None and hasattr(mt5, "copy_rates_range"):
+            rows = mt5.copy_rates_range(symbol, tf, start, end)
+        else:
+            rows = mt5.copy_rates_from_pos(symbol, tf, 0, max(2, int(limit)))
+        if rows is None or len(rows) == 0:
+            raise MT5UnavailableError(
+                f"O MT5 não retornou candles de {symbol} em {timeframe}: {mt5.last_error()}"
+            )
+        seconds = self._TIMEFRAME_SECONDS[timeframe]
+        now = datetime.now(timezone.utc)
+        result: list[Candle] = []
+        for row in rows:
+            opened = datetime.fromtimestamp(int(self._rate_value(row, "time")), tz=timezone.utc)
+            theoretical_close = opened + timedelta(seconds=seconds)
+            closed = theoretical_close <= now
+            real_volume = float(self._rate_value(row, "real_volume", 0.0) or 0.0)
+            tick_volume = float(self._rate_value(row, "tick_volume", 0.0) or 0.0)
+            result.append(Candle(
+                open_time=opened,
+                open=float(self._rate_value(row, "open")),
+                high=float(self._rate_value(row, "high")),
+                low=float(self._rate_value(row, "low")),
+                close=float(self._rate_value(row, "close")),
+                volume=real_volume if real_volume > 0 else tick_volume,
+                close_time=theoretical_close if closed else None,
+                quote_volume=0.0,
+                trades=int(tick_volume),
+                taker_buy_volume=0.0,
+                closed=closed,
+            ))
+        return result[-int(limit):]
+
+    async def stream_candles(
+        self, symbol: str, timeframe: str, callback: Callable[[Candle], None], stop_event,
+    ) -> None:
+        """Atualiza o candle diretamente do terminal MT5, sem Binance/Yahoo."""
+        last_signature = None
+        while not stop_event.is_set():
+            try:
+                candles = self.fetch_candles(symbol, timeframe, limit=2)
+                if candles:
+                    candle = candles[-1]
+                    signature = (
+                        candle.open_time, candle.open, candle.high, candle.low,
+                        candle.close, candle.volume, candle.closed,
+                    )
+                    if signature != last_signature:
+                        last_signature = signature
+                        callback(candle)
+                await asyncio.sleep(0.75)
+            except Exception:
+                await asyncio.sleep(2.0)
+
+    def test_connection(self) -> tuple[bool, float | None, str]:
+        started = time.perf_counter()
+        try:
+            account = self.connect()
+            return True, (time.perf_counter() - started) * 1000, f"{account.server} • {account.login}"
+        except Exception as exc:
+            return False, None, str(exc)
+
     def symbols(self) -> list[str]:
+        return self.list_symbols()
+
+    def list_symbols(self) -> list[str]:
+        self._ensure_connected()
         mt5 = self._module()
         rows = mt5.symbols_get() or ()
-        return [str(row.name) for row in rows]
+        enabled: list[tuple[int, str]] = []
+        disabled_mode = getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", None)
+        for row in rows:
+            name = str(getattr(row, "name", "")).strip()
+            if not name:
+                continue
+            trade_mode = getattr(row, "trade_mode", None)
+            if disabled_mode is not None and trade_mode == disabled_mode:
+                continue
+            visible_rank = 0 if bool(getattr(row, "visible", False)) else 1
+            enabled.append((visible_rank, name))
+        return [name for _, name in sorted(set(enabled), key=lambda item: (item[0], item[1]))]
+
+    def symbol_details(self, symbol: str) -> dict[str, Any]:
+        self._ensure_connected()
+        mt5 = self._module()
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return {}
+        return {
+            "name": str(getattr(info, "name", symbol)),
+            "description": str(getattr(info, "description", "")),
+            "path": str(getattr(info, "path", "")),
+            "currency_base": str(getattr(info, "currency_base", "")),
+            "currency_profit": str(getattr(info, "currency_profit", "")),
+            "visible": bool(getattr(info, "visible", False)),
+            "trade_mode": int(getattr(info, "trade_mode", 0)),
+        }
+
+    def tick(self, symbol: str) -> dict[str, float]:
+        self._ensure_connected()
+        mt5 = self._module()
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            raise MT5UnavailableError(f"Sem cotação atual para {symbol}.")
+        return {
+            "bid": float(getattr(tick, "bid", 0.0)),
+            "ask": float(getattr(tick, "ask", 0.0)),
+            "last": float(getattr(tick, "last", 0.0)),
+            "time": float(getattr(tick, "time", 0.0)),
+        }
+
+    def fetch_reference_rate(self, symbol: str) -> float | None:
+        values = self.tick(symbol)
+        bid, ask, last = values["bid"], values["ask"], values["last"]
+        if bid > 0 and ask > 0:
+            return (bid + ask) / 2
+        return last if last > 0 else bid if bid > 0 else ask if ask > 0 else None
 
     def positions(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        self._ensure_connected()
         mt5 = self._module()
         rows = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
         return [row._asdict() for row in (rows or ())]
 
     def history(self, days: int = 30) -> list[dict[str, Any]]:
+        self._ensure_connected()
         mt5 = self._module()
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=max(1, days))
@@ -150,6 +322,7 @@ class MT5Bridge:
             )
         if volume <= 0:
             raise MT5ExecutionError("O volume deve ser maior que zero.")
+        self._ensure_connected()
         mt5 = self._module()
         account = self.account()
         if not account.trade_allowed:
@@ -194,6 +367,7 @@ class MT5Bridge:
                        armed: bool = False) -> MT5OrderResult:
         if not armed:
             raise MT5ExecutionError("Execução real desarmada.")
+        self._ensure_connected()
         mt5 = self._module()
         rows = mt5.positions_get(ticket=int(ticket)) or ()
         if not rows:
