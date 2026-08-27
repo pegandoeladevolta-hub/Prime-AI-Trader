@@ -51,6 +51,12 @@ class AppSettings:
     platform_auto_payout: bool = True
     platform_auto_horizon: bool = True
     platform_block_mismatch: bool = True
+    mt5_terminal_path: str = ""
+    mt5_symbol: str = ""
+    mt5_contracts: int = 1
+    mt5_stop_amount: float = 20.0
+    mt5_target_amount: float = 40.0
+    mt5_read_only: bool = True
     overlays: dict[str, bool] = field(default_factory=lambda: {
         "sr": True, "fibonacci": True, "ema": True, "bollinger": True,
         "swings": True, "trend": True, "signals": True, "levels": True,

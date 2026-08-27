@@ -9,17 +9,41 @@ from unittest.mock import MagicMock, patch
 
 from prime_ai_trader.app.controller import TradingController
 from prime_ai_trader.config.settings import AppSettings
-from prime_ai_trader.ui.dashboard import INDICATOR_LAYOUT, PrimeAITraderApp, recent_signal_display
+from prime_ai_trader.ui.dashboard import (
+    INDICATOR_LAYOUT, PrimeAITraderApp, format_mt5_money, recent_signal_display,
+)
 from prime_ai_trader.ui.theme import COLORS, configure_style
 
 
 class ModernDashboardTests(unittest.TestCase):
-    def test_reference_layout_has_modern_three_column_dashboard(self) -> None:
+    def test_reference_layout_has_vex_terminal_shell(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_ui)
         self.assertIn("self._build_left(content)", source)
         self.assertIn("self._build_center(content)", source)
         self.assertIn("self._build_right(content)", source)
-        self.assertIn("PROTEGIDO", source)
+        for item in ("_build_vex_header", "_build_vex_rail", "_build_vex_trade_panel", "_build_vex_footer"):
+            self.assertIn(item, source)
+
+    def test_vex_trade_panel_has_clear_mt5_controls_and_blocked_orders(self) -> None:
+        source = inspect.getsource(PrimeAITraderApp._build_vex_trade_panel)
+        for item in (
+            "OPERAÇÃO MT5", "Clear • leitura local", "Contratos",
+            "Stop financeiro (R$)", "Meta financeira (R$)",
+            "COMPRAR", "VENDER", "ENCERRAR POSIÇÃO", 'state="disabled"',
+            "EM DESENVOLVIMENTO",
+        ):
+            self.assertIn(item, source)
+
+    def test_mt5_account_header_distinguishes_demo_and_real(self) -> None:
+        header_source = inspect.getsource(PrimeAITraderApp._build_vex_header)
+        render_source = inspect.getsource(PrimeAITraderApp._apply_mt5_snapshot)
+        self.assertIn("CONECTAR MT5", header_source)
+        self.assertIn('account.mode == "REAL"', render_source)
+        self.assertTrue(AppSettings().mt5_read_only)
+
+    def test_mt5_balance_uses_brazilian_currency_format(self) -> None:
+        self.assertEqual(format_mt5_money(1233.4, "BRL"), "R$ 1.233,40")
+        self.assertEqual(format_mt5_money(-20.0, "BRL"), "R$ -20,00")
 
     def test_original_operational_actions_remain_available(self) -> None:
         source = inspect.getsource(PrimeAITraderApp._build_left)

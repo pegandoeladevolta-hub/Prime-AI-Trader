@@ -1,6 +1,6 @@
 PRIME AI TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 1.2.7
+Versão 1.3.0
 
 1. O PRIME AI TRADER é um assistente de análise. Ele registra e avalia sinais no próprio gráfico, mas não executa ordens reais e não substitui orientação financeira profissional.
 
@@ -14,8 +14,10 @@ Versão 1.2.7
 
 6. O software é fornecido no estado em que se encontra, acompanhado de logs e resultados auditáveis. Nenhuma taxa de acerto fixa é prometida.
 
-7. A sincronização opcional com plataformas é somente visual e local. Ela não solicita senha, não lê cookies/tokens/saldo/carteira, não clica em compra ou venda e não executa operações. O saldo de avaliação é calculado exclusivamente a partir dos sinais e preços públicos do aplicativo; não é o saldo da VEX, BullEx ou de qualquer corretora.
+7. A sincronização opcional com VEX/BullEx é somente visual e local. Ela não solicita senha, não lê cookies/tokens/saldo/carteira, não clica em compra ou venda e não executa operações. O saldo de avaliação é calculado exclusivamente a partir dos sinais e preços públicos do aplicativo; não é o saldo dessas plataformas.
 
-8. A BullEx permanece desabilitada por padrão. A CVM publicou alerta informando que Digital Smart LLC/BULLEX não possui autorização para intermediar valores mobiliários ou captar recursos de investidores no Brasil (Ato Declaratório CVM 23.539). O aplicativo não promove depósitos nem contorna restrições legais.
+8. A integração MetaTrader 5 reutiliza exclusivamente a sessão aberta pelo usuário no terminal oficial instalado no mesmo Windows. A versão 1.3.0 lê conta demo/real, saldo, patrimônio, candles, posições e histórico, mas não recebe credenciais e não contém envio, alteração ou encerramento de ordens.
+
+9. A BullEx permanece desabilitada por padrão. A CVM publicou alerta informando que Digital Smart LLC/BULLEX não possui autorização para intermediar valores mobiliários ou captar recursos de investidores no Brasil (Ato Declaratório CVM 23.539). O aplicativo não promove depósitos nem contorna restrições legais.
 
 Ao prosseguir com a instalação, o usuário declara que leu e aceitou estes termos.

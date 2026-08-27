@@ -6,3 +6,4 @@ websockets>=14,<17
 cryptography>=44,<48
 openpyxl>=3.1,<4
 tzdata>=2025.2,<2027
+MetaTrader5>=5.0.45,<6; platform_system == "Windows"

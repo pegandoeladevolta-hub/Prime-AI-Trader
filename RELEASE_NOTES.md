@@ -1,5 +1,28 @@
 # Release notes
 
+## 1.3.0 — 27/08/2026
+
+### Interface operacional no padrão visual VEX
+
+- Nova composição com menu vertical compacto, ativos em abas no topo, gráfico dominante no centro, conta no cabeçalho e painel operacional estreito à direita.
+- A identidade permanece PRIME AI TRADER; marca, logotipo e arquivos proprietários da VEX não são copiados.
+- Os painéis de configuração, sinais, notícias, histórico, backtest, treinamento e voz continuam disponíveis em gavetas auxiliares, preservando espaço para o gráfico.
+- Controles de contratos, stop financeiro e meta financeira substituem a semântica de expiração fixa no painel destinado à B3.
+- Comprar, vender e encerrar posição aparecem na posição visual solicitada, mas ficam desabilitados e identificados como `EM DESENVOLVIMENTO` nesta etapa.
+
+### Conector local MetaTrader 5 / Clear
+
+- Reutiliza a sessão já aberta no terminal MetaTrader 5 oficial; o aplicativo não pede nem armazena login ou senha.
+- Distingue conta `DEMO`, `CONCURSO` e `REAL`, exibindo saldo, patrimônio, P&L, servidor e situação da conexão.
+- Lê os ativos visíveis, candles reais do terminal, posições abertas e histórico de negócios.
+- O gráfico pode exibir até 500 candles recebidos do MT5 nos timeframes 1m, 3m, 5m, 15m, 30m, 1h e 4h.
+- O conector é explicitamente somente leitura e não implementa envio, alteração ou encerramento de ordens.
+
+### Reparo da base 1.2.7
+
+- O arquivo `dashboard.py` do commit remoto 1.2.7 estava armazenado como dados binários e impedia o uso confiável do código-fonte; a interface foi restaurada a partir da última versão textual validada e recebeu novamente os controles de avaliação da 1.2.7.
+- Permanecem preservados 200 candles analíticos, contexto superior, notícias do ativo, avaliação gráfica, histórico Excel, VEX/BullEx visual, IA, radar, backtest e alertas de voz.
+
 ## 1.2.7 — 26/08/2026
 
 ### Contexto superior real e filtro profissional

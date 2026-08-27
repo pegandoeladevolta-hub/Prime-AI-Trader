@@ -1,14 +1,19 @@
 # PRIME AI TRADER
 
-Build automático da versão 1.2.7 para Windows x64 configurado no GitHub Actions.
+Candidato 1.3.0 para Windows x64: interface no padrão visual VEX e conector local, oficial e somente leitura para MetaTrader 5/Clear.
 
-Candidato Windows 1.2.7: contexto real de timeframe superior, avaliação auditável no gráfico e saldo local dos sinais.
+Assistente quantitativo desktop para análise e acompanhamento de mercado. A versão 1.3.0 lê conta, candles, posições e histórico do terminal MT5 já autenticado, mas **não envia ordens**.
 
-Build Windows 1.2.7 solicitado após 348 testes locais executados sem falhas.
+No Windows, confirme `FileVersion 1.3.0` nas propriedades do instalador antes de substituir uma versão anterior.
 
-Assistente quantitativo desktop para análise de criptomoedas e Forex. O aplicativo gera cenários de **COMPRA**, **VENDA** ou **AGUARDAR**, mas **não envia ordens** a corretoras.
+## Destaques da versão 1.3.0
 
-No Windows, confirme `FileVersion 1.2.7` nas propriedades do instalador antes de substituir uma versão anterior.
+- Layout com menu vertical à esquerda, abas de ativos no topo, gráfico central dominante e painel operacional à direita, seguindo a organização da referência VEX com identidade PRIME.
+- Conexão ao terminal MetaTrader 5 já instalado e autenticado na Clear, sem solicitar ou armazenar credenciais.
+- Identificação visível de conta demo/real, saldo, patrimônio, P&L, ativos, candles, posições abertas e histórico.
+- Gráfico MT5 para ativos disponibilizados pelo próprio terminal; nenhum símbolo ou saldo é inventado.
+- Botões Comprar, Vender e Encerrar ficam desabilitados e marcados como **Em desenvolvimento** até que uma etapa específica de execução seja validada.
+- O instalador `mt5setup.exe` permanece separado e não é alterado nem redistribuído dentro do Prime AI Trader.
 
 ## Destaques da versão 1.2.7
 

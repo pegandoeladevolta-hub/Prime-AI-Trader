@@ -1,9 +1,9 @@
-﻿{
-    "status":  "failure",
-    "run_id":  33005677249,
-    "commit_sha":  "573abb50c1394fde0d77e1f886927c46f94f4d51",
-    "artifact_id":  0,
-    "artifact_name":  "PRIME-AI-TRADER-Windows-x64",
-    "artifact_url":  "",
-    "artifact_digest":  ""
+{
+  "status": "pending",
+  "run_id": 0,
+  "commit_sha": "",
+  "artifact_id": 0,
+  "artifact_name": "PRIME-AI-TRADER-Windows-x64",
+  "artifact_url": "",
+  "artifact_digest": ""
 }

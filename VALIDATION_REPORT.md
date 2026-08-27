@@ -1,12 +1,15 @@
-# Relatório de validação — PRIME AI TRADER 1.2.7
+# Relatório de validação — PRIME AI TRADER 1.3.0
 
-Data: 26/08/2026
+Data: 27/08/2026
 
 ## Auditoria concluída
 
 | Área | Verificação |
 |---|---|
-| Interface | Layout aprovado e cartão de voz compacto preservados; seletor VEX/BULLEX e registro manual foram adicionados sem remover ações. |
+| Interface VEX | Menu vertical compacto, abas de ativos, gráfico dominante, conta no cabeçalho e painel operacional à direita; gavetas preservam todas as ações analíticas antigas. |
+| Reparo 1.2.7 | O `dashboard.py` binário do branch remoto foi substituído pela última base textual validada e recebeu novamente avaliação gráfica, contexto superior e recursos atuais. |
+| MetaTrader 5 | Conector local sem credenciais lê modo demo/real, saldo, patrimônio, P&L, ativos, candles, posições e histórico da sessão oficial já aberta. |
+| Ordens MT5 | Nenhum método de envio, alteração ou encerramento existe no gateway; botões permanecem desabilitados e rotulados `EM DESENVOLVIMENTO`. |
 | Smoke test Windows | A interface completa é instanciada em Windows; plataformas, áudio, indicadores, controles e timeframes são conferidos. |
 | VEX Invest | Navegador dedicado, perfil separado, endpoint loopback e leitura somente de ativo, payout, preço, expiração e tempo visíveis. |
 | BullEx | Opt-in, perfil separado, hosts permitidos, alerta CVM obrigatório e mesma leitura visual sem execução. |
@@ -55,11 +58,11 @@ Data: 26/08/2026
 ## Testes executados
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **347 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado local: **358 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
 
-Os testes cobrem indicadores, BOS/CHOCH, pullbacks invertidos, correção versus tendência, retomadas, histórico completo, Excel, origem manual/inferida, proteção contra fórmulas, privacidade, virada simétrica, fluxo taker ausente, invalidação, vencimento, áudio, M1, janela de 200 candles analíticos, timeframe superior real, relevância noticiosa por ativo, saldo de avaliação, marcações no gráfico, níveis técnicos, biblioteca causal, purga, modelos separados, backtest, payout, SQLite, VEX/BullEx, loopback, providers, interface e instalador.
+Os testes cobrem indicadores, BOS/CHOCH, pullbacks invertidos, correção versus tendência, retomadas, histórico completo, Excel, origem manual/inferida, proteção contra fórmulas, privacidade, virada simétrica, fluxo taker ausente, invalidação, vencimento, áudio, M1, janela de 200 candles analíticos, timeframe superior real, relevância noticiosa por ativo, saldo de avaliação, marcações no gráfico, níveis técnicos, biblioteca causal, purga, modelos separados, backtest, payout, SQLite, VEX/BullEx, MetaTrader 5 somente leitura, conta demo/real, candles/posições/histórico MT5, loopback, providers, interface e instalador.
 
 Na matriz determinística atual de vinte cenários com modelo alinhado, Price Action produz 4/3/3 leituras, Confirmação 3/3/3 e Quantitativo 3/3/2, respectivamente nos perfis rápido/equilibrado/conservador. Antes da auditoria, sete das dez leituras rápidas de Confirmação continham pullback explicitamente não confirmado. A remoção dessas falsas confirmações preserva a ordem Rápido ≥ Equilibrado ≥ Conservador e a cobertura positiva. Essa matriz mede regressão e segurança, não taxa de acerto futura, desempenho financeiro ou promessa de lucro.
 
@@ -71,6 +74,6 @@ Indecisão isolada dentro de tendência alinhada ainda pode virar aviso nos perf
 
 `build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
 
-Identificador do candidato validado: `1.2.7`.
+Identificador do candidato validado: `1.3.0`.
 
-O candidato Windows deve repetir obrigatoriamente os 348 testes (347 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+O candidato Windows deve repetir obrigatoriamente os 359 testes (358 locais + smoke visual Windows), validar Tkinter, pacote MetaTrader5, PyInstaller e somente então gerar os dois executáveis com Inno Setup.

@@ -18,6 +18,13 @@ def market_price_decimals(context_key: str, price: float = 0.0) -> int:
     if parts and parts[0].casefold() == "forex":
         symbol = parts[1] if len(parts) > 1 else ""
         return 3 if symbol.upper().endswith("/JPY") else 5
+    if parts and parts[0].casefold() == "b3":
+        symbol = parts[1].upper() if len(parts) > 1 else ""
+        if symbol.startswith(("WIN", "IND")):
+            return 0
+        if symbol.startswith(("WDO", "DOL")):
+            return 1
+        return 2
     return 4
 
 

@@ -29,6 +29,8 @@ Assert-NativeSuccess "Suíte completa de testes"
 Assert-NativeSuccess "Compilação estática do código"
 & ".\.build-venv\Scripts\python.exe" -c "from tkinter import filedialog, messagebox, ttk; print('Tkinter completo')"
 Assert-NativeSuccess "Validação do Tkinter completo"
+& ".\.build-venv\Scripts\python.exe" -c "import MetaTrader5 as mt5; print('MetaTrader5 Python', mt5.__version__)"
+Assert-NativeSuccess "Validação do conector MetaTrader5"
 
 Write-Host "[4/6] Gerando PrimeAITrader.exe"
 & ".\.build-venv\Scripts\pyinstaller.exe" --noconfirm --clean PrimeAITrader.spec
