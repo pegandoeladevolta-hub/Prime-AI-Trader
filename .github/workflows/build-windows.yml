@@ -7,9 +7,14 @@ on:
       - feature/prime-trader-mt5-v126
     paths-ignore:
       - BUILD_STATUS.json
+      - VALIDATION_REPORT.md
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: prime-trader-windows-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows:
@@ -45,7 +50,6 @@ jobs:
           Get-FileHash "release\PrimeTrader-Setup-x64.exe" -Algorithm SHA256
 
       - name: Upload Windows installer
-        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: PRIME-TRADER-Windows-x64
@@ -57,30 +61,3 @@ jobs:
             VALIDATION_REPORT.md
           if-no-files-found: error
           retention-days: 7
-
-      - name: Publish build status
-        if: always()
-        shell: powershell
-        env:
-          BUILD_JOB_STATUS: ${{ job.status }}
-          BUILD_RUN_ID: ${{ github.run_id }}
-          BUILD_COMMIT_SHA: ${{ github.sha }}
-          BUILD_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-          BUILD_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-          BUILD_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
-        run: |
-          $status = [ordered]@{
-            status = $env:BUILD_JOB_STATUS
-            run_id = [long]$env:BUILD_RUN_ID
-            commit_sha = $env:BUILD_COMMIT_SHA
-            artifact_id = if ($env:BUILD_ARTIFACT_ID) { [long]$env:BUILD_ARTIFACT_ID } else { 0 }
-            artifact_name = "PRIME-TRADER-Windows-x64"
-            artifact_url = $env:BUILD_ARTIFACT_URL
-            artifact_digest = $env:BUILD_ARTIFACT_DIGEST
-          } | ConvertTo-Json
-          Set-Content -Path "BUILD_STATUS.json" -Value $status -Encoding utf8
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- BUILD_STATUS.json
-          git commit -m "Registra instalador Windows do Prime Trader"
-          git push origin "HEAD:${{ github.ref_name }}"
