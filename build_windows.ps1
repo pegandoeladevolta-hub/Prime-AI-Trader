@@ -30,7 +30,7 @@ Assert-NativeSuccess "Compilação estática do código"
 & ".\.build-venv\Scripts\python.exe" -c "from tkinter import filedialog, messagebox, ttk; print('Tkinter completo')"
 Assert-NativeSuccess "Validação do Tkinter completo"
 
-Write-Host "[4/6] Gerando PrimeAITrader.exe"
+Write-Host "[4/6] Gerando executável"
 & ".\.build-venv\Scripts\pyinstaller.exe" --noconfirm --clean PrimeAITrader.spec
 Assert-NativeSuccess "Empacotamento do aplicativo"
 New-Item -ItemType Directory -Force release | Out-Null
@@ -47,7 +47,7 @@ if (-not $Iscc) {
     throw "Inno Setup 6 não encontrado. Instale em https://jrsoftware.org/isinfo.php e execute novamente."
 }
 
-Write-Host "[6/6] Gerando PrimeAITrader-Setup-x64.exe"
+Write-Host "[6/6] Gerando PrimeTrader-Setup-x64.exe"
 & $Iscc "installer\PrimeAITrader.iss"
 Assert-NativeSuccess "Compilação do instalador"
 
