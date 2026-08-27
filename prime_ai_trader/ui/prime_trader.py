@@ -36,10 +36,25 @@ class PrimeTraderApp(PrimeAITraderApp):
         self.minsize(1240, 760)
 
     def _build_variables(self) -> None:
-        super()._build_variables()
         settings = self.controller.settings
+        # A primeira abertura do Prime Trader aplica a combinação que foi
+        # aprovada no uso da v1.2.6, sem alterar os defaults internos do motor.
+        if not settings.prime_trader_profile_initialized:
+            settings.timeframe = "1m"
+            settings.horizon_minutes = 1
+            settings.sensitivity = "RÁPIDO"
+            settings.mode = "PRICE ACTION"
+            settings.prime_trader_profile_initialized = True
         settings.platform_name = "MT5"
         settings.platform_sync_enabled = False
+        settings.bullex_sync_authorized = False
+        settings.platform_auto_asset = False
+        settings.platform_auto_payout = False
+        settings.platform_auto_horizon = False
+        settings.platform_block_mismatch = False
+        settings.execution_mode = "SINAIS MANUAIS"
+        self.controller.settings_store.save(settings)
+        super()._build_variables()
         self.mt5_status_var = tk.StringVar(value="MT5 DESCONECTADO")
         self.mt5_mode_var = tk.StringVar(value="SEM CONTA")
         self.mt5_balance_var = tk.StringVar(value="R$ —")
@@ -191,6 +206,7 @@ class PrimeTraderApp(PrimeAITraderApp):
             ttk.Button(
                 self.asset_tab_holder, text="MT5 • conecte sua conta",
                 style="AssetTab.TButton", state="disabled",
+                command=self.connect_mt5,
             ).pack(side="left")
             return
         if current not in choices:
@@ -396,9 +412,9 @@ class PrimeTraderApp(PrimeAITraderApp):
             panel, text="Bloqueios estritos de risco", variable=self.strict_risk_blocks_var,
             command=self._save_form,
         ).pack(anchor="w", pady=(2, 10))
-        ttk.Button(panel, text="ABRIR LOGS", style="Secondary.TButton", command=self.open_logs).pack(fill="x", pady=3)
-        ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self.open_health).pack(fill="x", pady=3)
-        ttk.Button(panel, text="APIs AUXILIARES", style="Secondary.TButton", command=self.open_api_settings).pack(fill="x", pady=3)
+        ttk.Button(panel, text="ABRIR LOGS", style="Secondary.TButton", command=self._open_logs).pack(fill="x", pady=3)
+        ttk.Button(panel, text="MONITOR DE SAÚDE", style="Secondary.TButton", command=self._open_health).pack(fill="x", pady=3)
+        ttk.Button(panel, text="APIs AUXILIARES", style="Secondary.TButton", command=self._open_api_settings).pack(fill="x", pady=3)
 
         tk.Label(
             panel,
@@ -409,6 +425,15 @@ class PrimeTraderApp(PrimeAITraderApp):
             bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 8),
             wraplength=265, justify="left",
         ).pack(side="bottom", anchor="w", pady=10)
+
+    def _open_logs(self) -> None:
+        super().open_logs()
+
+    def _open_health(self) -> None:
+        super().open_health()
+
+    def _open_api_settings(self) -> None:
+        super().open_api_settings()
 
     def _choose_mt5_terminal(self) -> None:
         path = filedialog.askopenfilename(
