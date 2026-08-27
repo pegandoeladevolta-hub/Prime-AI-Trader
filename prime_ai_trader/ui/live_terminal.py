@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 
 from ..core.models import Direction, SignalState
@@ -12,50 +13,138 @@ from .prime_terminal_ai import PrimeTraderApp
 
 
 class PrimeTraderLiveApp(PrimeTraderApp):
-    """Atualização ao vivo e execução automática usando o mesmo terminal MT5."""
+    """Atualização ao vivo e execução automática usando o mesmo terminal MT5.
+
+    O contexto profundo continua sendo analisado pelo motor, mas uma pré-leitura
+    intravela só é anunciada depois de permanecer na mesma direção por leituras
+    consecutivas. Fechamentos de candle têm prioridade para não perder a janela
+    de confirmação enquanto uma releitura pesada ainda estiver em andamento.
+    """
+
+    FORMING_STREAK_REQUIRED = 3
+    FORMING_MIN_STABLE_SECONDS = 1.6
 
     def __init__(self, controller) -> None:
         self._last_auto_signature = None
         self._auto_job = None
+        self._forming_candidate = None
+        self._forming_streak = 0
+        self._forming_first_seen = 0.0
+        self._pending_closed_analysis = None
+        self._closed_retry_job = None
         super().__init__(controller)
         self._auto_job = self.after(350, self._auto_execution_tick)
 
     @staticmethod
     def _fast_analysis_interval(timeframe: str, sensitivity: str) -> float:
-        """Recalcula sinais com baixa latência sem mudar os critérios da estratégia."""
+        """Cadência da pré-leitura; confirmação continua prioritária no fechamento."""
         base = {
-            "1m": 1.25,
-            "3m": 1.75,
-            "5m": 2.5,
-            "15m": 4.0,
-            "30m": 5.5,
-            "1h": 7.0,
-            "4h": 10.0,
-        }.get(timeframe, 2.5)
+            "1m": 1.8,
+            "3m": 2.2,
+            "5m": 3.0,
+            "15m": 4.5,
+            "30m": 6.0,
+            "1h": 8.0,
+            "4h": 11.0,
+        }.get(timeframe, 3.0)
         factor = {
-            "RÁPIDO": 0.75,
+            "RÁPIDO": 0.90,
             "EQUILIBRADO": 1.0,
-            "CONSERVADOR": 1.35,
+            "CONSERVADOR": 1.25,
         }.get(str(sensitivity).upper(), 1.0)
-        return max(0.9, min(12.0, base * factor))
+        return max(1.5, min(14.0, base * factor))
+
+    def _effective_analysis_interval(self, timeframe: str, sensitivity: str) -> float:
+        """Evita sobrepor cálculos profundos sem atrasar o fechamento do candle."""
+        base = self._fast_analysis_interval(timeframe, sensitivity)
+        try:
+            depth = int(self.controller.analysis_candles())
+        except Exception:
+            depth = 500
+        depth_floor = {
+            500: 1.5,
+            1000: 1.7,
+            1500: 1.9,
+            2000: 2.1,
+            3000: 2.6,
+        }.get(depth, 2.1)
+        return max(base, depth_floor)
+
+    def _reset_forming_stability(self) -> None:
+        self._forming_candidate = None
+        self._forming_streak = 0
+        self._forming_first_seen = 0.0
+
+    def _forming_is_stable(self, signal) -> bool:
+        """Exige persistência antes de exibir/locutar COMPRA ou VENDA intravela."""
+        if signal.state != SignalState.FORMING or signal.direction == Direction.WAIT:
+            self._reset_forming_stability()
+            return True
+        now = time.monotonic()
+        if signal.direction != self._forming_candidate:
+            self._forming_candidate = signal.direction
+            self._forming_streak = 1
+            self._forming_first_seen = now
+            return False
+        self._forming_streak += 1
+        stable_for = now - self._forming_first_seen
+        return (
+            self._forming_streak >= self.FORMING_STREAK_REQUIRED
+            and stable_for >= self.FORMING_MIN_STABLE_SECONDS
+        )
+
+    def _stable_display_snapshot(self, snapshot):
+        """Filtra somente a apresentação da pré-leitura; não altera o sinal real."""
+        signal = snapshot.signal
+        if signal.state == SignalState.CONFIRMED:
+            self._reset_forming_stability()
+            return snapshot
+        if signal.state != SignalState.FORMING or signal.direction == Direction.WAIT:
+            self._reset_forming_stability()
+            return snapshot
+        if self._forming_is_stable(signal):
+            return snapshot
+        display_signal = replace(
+            signal,
+            direction=Direction.WAIT,
+            state=SignalState.WAITING,
+            entry=None,
+            waiting_reasons=[
+                "Pré-leitura intravela ainda oscilando; aguardando direção estabilizar"
+            ],
+            validation_note=(
+                f"Estabilizando pré-sinal: {self._forming_streak}/"
+                f"{self.FORMING_STREAK_REQUIRED} leituras na mesma direção"
+            ),
+        )
+        return replace(snapshot, signal=display_signal)
+
+    def render_snapshot(self, snapshot) -> None:
+        # O controller.snapshot permanece intacto para histórico/autoexecução.
+        # Apenas a interface e a voz deixam de alternar COMPRA/VENDA a cada tick.
+        super().render_snapshot(self._stable_display_snapshot(snapshot))
 
     def _analysis_ready(self, snapshot, token: int, context: tuple[str, str, str]) -> None:
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
         if token != self._analysis_token or context != current or not self._analysis_active:
             return
         self.render_snapshot(snapshot)
-        interval = self._fast_analysis_interval(
+        interval = self._effective_analysis_interval(
             snapshot.timeframe, self.sensitivity_var.get(),
         )
+        try:
+            depth = int(self.controller.analysis_candles())
+        except Exception:
+            depth = 0
         self.status_var.set(
             f"MT5 ativo • {snapshot.symbol} • {snapshot.timeframe} • "
             f"{self.sensitivity_var.get()} • {self.mode_var.get()} • "
-            f"releitura ~{interval:.1f}s"
+            f"contexto {depth or '—'} candles • pré-leitura ~{interval:.1f}s"
         )
         self._start_crypto_stream(token, context)
 
     def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
-        """Stream de candles MT5 com reavaliação rápida do motor 1.2.6."""
+        """Stream MT5: ticks atualizam o gráfico e fechamento recebe prioridade."""
         symbol = self.controller.symbol()
         timeframe = self.controller.settings.timeframe
         stop_event = self._stop_event
@@ -66,10 +155,18 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             self.controller.websocket_online = True
             self._post_ui(self._queue_live_chart, candle, token)
             now = time.monotonic()
-            interval = self._fast_analysis_interval(
+            if candle.closed:
+                self._last_live_analysis = now
+                self._post_ui(self._queue_closed_analysis, candle, token, context)
+                return
+            # Se um fechamento está aguardando CPU, não deixa uma pré-leitura aberta
+            # furar a fila e atrasar justamente o candle que pode confirmar o sinal.
+            if self._pending_closed_analysis is not None:
+                return
+            interval = self._effective_analysis_interval(
                 timeframe, self.controller.settings.sensitivity,
             )
-            if candle.closed or now - self._last_live_analysis >= interval:
+            if now - self._last_live_analysis >= interval:
                 self._last_live_analysis = now
                 self._post_ui(self._process_live, candle, token, context)
 
@@ -83,6 +180,32 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             name="prime-mt5-live",
         )
         self._stream_thread.start()
+
+    def _queue_closed_analysis(self, candle, token: int, context: tuple[str, str, str]) -> None:
+        """Nunca descarta o fechamento só porque outra análise ainda está rodando."""
+        if self._stop_event.is_set() or token != self._analysis_token:
+            return
+        self._pending_closed_analysis = candle
+        if self._closed_retry_job is None:
+            self._try_closed_analysis(token, context)
+
+    def _try_closed_analysis(self, token: int, context: tuple[str, str, str]) -> None:
+        self._closed_retry_job = None
+        if self._stop_event.is_set() or token != self._analysis_token:
+            self._pending_closed_analysis = None
+            return
+        candle = self._pending_closed_analysis
+        if candle is None:
+            return
+        if self._task_running:
+            self._closed_retry_job = self.after(
+                70, self._try_closed_analysis, token, context,
+            )
+            return
+        self._pending_closed_analysis = None
+        # Chama a rotina original somente quando a fila está livre. Como o candle
+        # está fechado, o SignalEngine pode produzir CONFIRMADO imediatamente.
+        super()._process_live(candle, token, context)
 
     def _flush_live_chart(self, token: int) -> None:
         self._live_ui_job = None
@@ -148,9 +271,12 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             self.status_var.set(f"AUTO MT5 NÃO EXECUTOU: {exc}")
 
     def start_analysis(self):
+        self._reset_forming_stability()
+        self._pending_closed_analysis = None
         return super().start_analysis()
 
     def refresh_analysis(self):
+        self._reset_forming_stability()
         return super().refresh_analysis()
 
     def open_performance(self):
@@ -160,6 +286,14 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         return super().open_decision_history()
 
     def pause_analysis(self, silent: bool = False):
+        self._reset_forming_stability()
+        self._pending_closed_analysis = None
+        if self._closed_retry_job is not None:
+            try:
+                self.after_cancel(self._closed_retry_job)
+            except Exception:
+                pass
+            self._closed_retry_job = None
         return super().pause_analysis(silent=silent)
 
     def _close(self) -> None:
@@ -169,4 +303,11 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             except Exception:
                 pass
             self._auto_job = None
+        if self._closed_retry_job is not None:
+            try:
+                self.after_cancel(self._closed_retry_job)
+            except Exception:
+                pass
+            self._closed_retry_job = None
+        self._pending_closed_analysis = None
         super()._close()
