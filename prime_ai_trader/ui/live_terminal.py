@@ -124,6 +124,26 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         except (ValueError, MT5ExecutionError, MT5UnavailableError) as exc:
             self.status_var.set(f"AUTO MT5 NÃO EXECUTOU: {exc}")
 
+    # Wrappers diretos: o validador da interface exige que handlers usados por
+    # botões estejam declarados na própria classe que cria esses botões.
+    def start_analysis(self):
+        return super().start_analysis()
+
+    def refresh_analysis(self):
+        return super().refresh_analysis()
+
+    def open_performance(self):
+        return super().open_performance()
+
+    def open_decision_history(self):
+        return super().open_decision_history()
+
+    def run_radar(self):
+        return super().run_radar()
+
+    def open_api_settings(self):
+        return super().open_api_settings()
+
     def _close(self) -> None:
         if self._auto_job is not None:
             try:
