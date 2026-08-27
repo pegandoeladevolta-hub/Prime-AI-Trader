@@ -27,14 +27,14 @@ Write-Host "[3/6] Executando testes"
 Assert-NativeSuccess "Suíte completa de testes"
 & ".\.build-venv\Scripts\python.exe" -m compileall -q prime_ai_trader tests
 Assert-NativeSuccess "Compilação estática do código"
-& ".\.build-venv\Scripts\python.exe" -c "from tkinter import filedialog, messagebox, ttk; print('Tkinter completo')"
-Assert-NativeSuccess "Validação do Tkinter completo"
+& ".\.build-venv\Scripts\python.exe" -c "from tkinter import filedialog, messagebox, ttk; import MetaTrader5; print('Tkinter e MetaTrader5 disponíveis')"
+Assert-NativeSuccess "Validação das dependências Windows"
 
-Write-Host "[4/6] Gerando PrimeAITrader.exe"
+Write-Host "[4/6] Gerando PrimeTrader.exe"
 & ".\.build-venv\Scripts\pyinstaller.exe" --noconfirm --clean PrimeAITrader.spec
 Assert-NativeSuccess "Empacotamento do aplicativo"
 New-Item -ItemType Directory -Force release | Out-Null
-Copy-Item "dist\PrimeAITrader.exe" "release\PrimeAITrader.exe" -Force
+Copy-Item "dist\PrimeTrader.exe" "release\PrimeTrader.exe" -Force
 
 Write-Host "[5/6] Localizando Inno Setup"
 $InnoCandidates = @(
@@ -47,7 +47,7 @@ if (-not $Iscc) {
     throw "Inno Setup 6 não encontrado. Instale em https://jrsoftware.org/isinfo.php e execute novamente."
 }
 
-Write-Host "[6/6] Gerando PrimeAITrader-Setup-x64.exe"
+Write-Host "[6/6] Gerando PrimeTrader-Setup-x64.exe"
 & $Iscc "installer\PrimeAITrader.iss"
 Assert-NativeSuccess "Compilação do instalador"
 
