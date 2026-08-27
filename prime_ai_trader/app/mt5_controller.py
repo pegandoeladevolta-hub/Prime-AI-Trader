@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..core.models import Market
-from ..platform.mt5 import MT5Bridge, MT5AccountSnapshot
+from ..platform.mt5 import MT5AccountSnapshot, MT5Bridge
 from .controller import TradingController
 
 
@@ -12,19 +12,37 @@ _CRYPTO_HINTS = (
 )
 
 
+class _NoExternalNews:
+    def fetch(self, *args, **kwargs):
+        return []
+
+    def clear_cache(self) -> None:
+        return None
+
+
+class _NoExternalCalendar:
+    def fetch(self, *args, **kwargs):
+        return []
+
+    def blocking_event(self, *args, **kwargs):
+        return None
+
+
 class MT5TradingController(TradingController):
-    """Versão do controlador em que preço/candles e ordens vêm do mesmo MT5."""
+    """Controlador em que candles, ticks, ativos e ordens vêm do mesmo MT5."""
 
     def __init__(self) -> None:
         super().__init__()
         self.mt5 = MT5Bridge(self.settings.mt5_terminal_path or None)
-        # O código analítico 1.2.6 usa esses nomes de provider. Na edição Prime
-        # Trader ambos apontam para o MT5, eliminando Yahoo/Binance do fluxo de
-        # preço, candles e sinal.
+        # O motor 1.2.6 mantém as mesmas interfaces, porém todas apontam para o
+        # terminal MT5. Binance/Yahoo deixam de participar da leitura do gráfico.
         self.binance = self.mt5
         self.crypto = self.mt5
         self.forex = self.mt5
+        self.news_provider = _NoExternalNews()
+        self.calendar_provider = _NoExternalCalendar()
         self.settings.market_data_source = "MT5"
+        self.settings.external_context_enabled = False
         self.settings.platform_name = "MT5"
         self.settings.platform_sync_enabled = False
         self.platform_snapshot = None
@@ -45,11 +63,8 @@ class MT5TradingController(TradingController):
     def _preferred_symbol(symbols: list[str]) -> str:
         if not symbols:
             return ""
-        # Se o broker oferecer cripto, prioriza BTC; caso contrário usa o primeiro
-        # ativo negociável/visível retornado pelo próprio terminal.
         for symbol in symbols:
-            upper = symbol.upper()
-            if "BTC" in upper:
+            if "BTC" in symbol.upper():
                 return symbol
         return symbols[0]
 
