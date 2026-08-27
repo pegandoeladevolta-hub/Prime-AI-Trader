@@ -19,7 +19,9 @@ def app_data_dir() -> Path:
         root = Path(os.environ.get("APPDATA", Path.home()))
     else:
         root = Path.home() / ".local" / "share"
-    path = root / "PrimeTrader"
+    # Mantém o diretório legado para não perder banco, modelos, histórico e chaves
+    # da versão 1.2.6 após a mudança de nome visual para Prime Trader.
+    path = root / "PrimeAITrader"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -47,8 +49,8 @@ class AppSettings:
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
 
-    # Execução: somente MetaTrader 5. Campos antigos de VEX/BullEx são mantidos
-    # apenas para migração silenciosa de settings.json; não são exibidos nem usados.
+    # Compatibilidade de leitura com settings antigos. A interface nova não expõe
+    # VEX/BullEx e força MT5 como única plataforma de execução.
     platform_sync_enabled: bool = False
     platform_name: str = "MT5"
     bullex_sync_authorized: bool = False
@@ -79,7 +81,8 @@ class _DataBlob(ctypes.Structure):
 def _dpapi_protect(raw: bytes) -> bytes:
     source = _DataBlob(len(raw), ctypes.cast(ctypes.create_string_buffer(raw), ctypes.POINTER(ctypes.c_byte)))
     target = _DataBlob()
-    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(source), "PrimeTrader", None, None, None, 0, ctypes.byref(target)):
+    # Mantém a descrição legada para preservar compatibilidade com secrets.dat.
+    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(source), "PrimeAITrader", None, None, None, 0, ctypes.byref(target)):
         raise ctypes.WinError()
     try:
         return ctypes.string_at(target.pbData, target.cbData)
@@ -100,7 +103,7 @@ def _dpapi_unprotect(raw: bytes) -> bytes:
 
 def _fallback_key() -> bytes:
     import hashlib
-    seed = f"{platform.node()}|{os.getuid() if hasattr(os, 'getuid') else 0}|PrimeTrader".encode()
+    seed = f"{platform.node()}|{os.getuid() if hasattr(os, 'getuid') else 0}|PrimeAITrader".encode()
     return base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
 
 
@@ -147,7 +150,6 @@ class SettingsStore:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             loaded = AppSettings(**{k: v for k, v in values.items() if k in allowed})
-            # VEX/BullEx não fazem mais parte do produto. Migra automaticamente.
             loaded.platform_name = "MT5"
             loaded.platform_sync_enabled = False
             loaded.bullex_sync_authorized = False
