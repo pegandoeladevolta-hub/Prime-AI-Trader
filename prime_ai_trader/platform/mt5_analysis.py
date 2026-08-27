@@ -25,6 +25,7 @@ class MT5AnalysisAdapter:
 
     def __init__(self, controller: TradingController) -> None:
         self.controller = controller
+        self._last_record_signature = None
 
     def analyze(self, candles, symbol: str, timeframe: str) -> AnalysisSnapshot:
         settings = self.controller.settings
@@ -101,10 +102,20 @@ class MT5AnalysisAdapter:
         self.controller._snapshot_cache[(MT5_MARKET, symbol, timeframe)] = (
             time.monotonic(), snapshot,
         )
-        try:
-            self.controller._record_decision(snapshot)
-        except Exception:
-            self.controller.logger.exception(
-                "Não foi possível registrar a decisão MT5 no histórico local"
-            )
+
+        record_signature = (
+            symbol,
+            timeframe,
+            decision_candles[-1].open_time,
+            signal.state.value,
+            signal.direction.value,
+        )
+        if record_signature != self._last_record_signature:
+            try:
+                self.controller._record_decision(snapshot)
+                self._last_record_signature = record_signature
+            except Exception:
+                self.controller.logger.exception(
+                    "Não foi possível registrar a decisão MT5 no histórico local"
+                )
         return snapshot
