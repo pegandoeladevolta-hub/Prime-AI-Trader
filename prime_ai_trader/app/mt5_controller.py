@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from ..core.models import Market
-from ..platform.mt5 import MT5AccountSnapshot, MT5Bridge
+from ..platform.mt5 import MT5AccountSnapshot
+from ..platform.mt5_robust import MT5Bridge
 from .controller import TradingController
 
 
