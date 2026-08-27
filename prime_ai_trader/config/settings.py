@@ -19,7 +19,7 @@ def app_data_dir() -> Path:
         root = Path(os.environ.get("APPDATA", Path.home()))
     else:
         root = Path.home() / ".local" / "share"
-    # O diretório legado é preservado para não perder histórico/configurações da v1.2.6.
+    # Mantém o diretório da v1.2.6 para preservar banco, modelos e preferências.
     path = root / "PrimeAITrader"
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -27,20 +27,21 @@ def app_data_dir() -> Path:
 
 @dataclass
 class AppSettings:
-    # Configuração aprovada pelo usuário na v1.2.6.
+    # Defaults internos originais da v1.2.6. Não alterá-los evita mudar a
+    # calibração/contratos do motor e mantém a suíte de regressão comparável.
     market: str = "Criptomoedas"
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
-    timeframe: str = "1m"
-    horizon_minutes: int = 1
+    timeframe: str = "5m"
+    horizon_minutes: int = 5
     payout_percent: int = 80
     stake_amount: float = 80.0
     execution_mode: str = "SINAIS MANUAIS"
     session_stop_loss: float = 80.0
     session_profit_target: float = 80.0
     simulation_session_started_at: str = ""
-    sensitivity: str = "RÁPIDO"
-    mode: str = "PRICE ACTION"
+    sensitivity: str = "EQUILIBRADO"
+    mode: str = "CONFIRMAÇÃO"
     audio_enabled: bool = True
     audio_volume: int = 70
     voice_pre_signal: bool = False
@@ -49,16 +50,18 @@ class AppSettings:
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
 
-    # Campos legados permanecem somente para migração de settings antigos.
+    # Campos legados continuam no schema apenas para compatibilidade do núcleo
+    # e migração segura de arquivos de configuração da v1.2.6.
     platform_sync_enabled: bool = False
-    platform_name: str = "MT5"
+    platform_name: str = "VEX"
     bullex_sync_authorized: bool = False
-    platform_auto_asset: bool = False
-    platform_auto_payout: bool = False
-    platform_auto_horizon: bool = False
-    platform_block_mismatch: bool = False
+    platform_auto_asset: bool = True
+    platform_auto_payout: bool = True
+    platform_auto_horizon: bool = True
+    platform_block_mismatch: bool = True
 
-    # MetaTrader 5 / Clear. Senha e login nunca são armazenados aqui.
+    # Prime Trader / MetaTrader 5. Login e senha nunca são armazenados aqui.
+    prime_trader_profile_initialized: bool = False
     mt5_terminal_path: str = ""
     mt5_symbol: str = ""
     mt5_contracts: int = 1
@@ -146,15 +149,7 @@ class SettingsStore:
             values = json.loads(self.path.read_text(encoding="utf-8"))
             allowed = AppSettings.__dataclass_fields__.keys()
             settings = AppSettings(**{k: v for k, v in values.items() if k in allowed})
-            # VEX/BullEx não fazem mais parte do fluxo operacional desta edição.
-            settings.platform_name = "MT5"
-            settings.platform_sync_enabled = False
-            settings.bullex_sync_authorized = False
-            settings.platform_auto_asset = False
-            settings.platform_auto_payout = False
-            settings.platform_auto_horizon = False
-            settings.platform_block_mismatch = False
-            # Nunca restaurar execução automática real silenciosamente após reiniciar.
+            # Nunca restaurar automação real silenciosamente após reiniciar.
             settings.mt5_auto_execute = False
             return settings
         except (OSError, ValueError, TypeError):
