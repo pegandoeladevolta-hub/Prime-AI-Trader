@@ -1,10 +1,11 @@
-name: Build PRIME AI TRADER for Windows
+name: Build PRIME TRADER for Windows
 
 on:
   workflow_dispatch:
   push:
     branches:
       - codex/windows-installer
+      - feature/prime-trader-mt5-vex-ui
     paths-ignore:
       - BUILD_STATUS.json
 
@@ -48,7 +49,7 @@ jobs:
         id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: PRIME-AI-TRADER-Windows-x64
+          name: PRIME-TRADER-Windows-x64
           path: |
             release/PrimeAITrader.exe
             release/PrimeAITrader-Setup-x64.exe
@@ -74,7 +75,7 @@ jobs:
             run_id = [long]$env:BUILD_RUN_ID
             commit_sha = $env:BUILD_COMMIT_SHA
             artifact_id = if ($env:BUILD_ARTIFACT_ID) { [long]$env:BUILD_ARTIFACT_ID } else { 0 }
-            artifact_name = "PRIME-AI-TRADER-Windows-x64"
+            artifact_name = "PRIME-TRADER-Windows-x64"
             artifact_url = $env:BUILD_ARTIFACT_URL
             artifact_digest = $env:BUILD_ARTIFACT_DIGEST
           } | ConvertTo-Json
