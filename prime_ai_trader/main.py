@@ -6,14 +6,14 @@ from tkinter import messagebox
 
 from .app.controller import TradingController
 from .logging_setup import configure_logging
-from .ui.prime_terminal import PrimeTraderApp
+from .ui.live_terminal import PrimeTraderLiveApp
 
 
 def main() -> int:
     logger = configure_logging()
     try:
         controller = TradingController()
-        app = PrimeTraderApp(controller)
+        app = PrimeTraderLiveApp(controller)
         app.mainloop()
         return 0
     except Exception as exc:
