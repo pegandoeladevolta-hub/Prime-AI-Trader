@@ -101,9 +101,8 @@ class MT5FastTradingController(MT5TradingController):
     """Controller MT5 que confirma o perfil rápido no próprio fluxo de dados.
 
     A versão anterior dependia do renderizador da interface para contar leituras
-    consecutivas. O histórico real mostrou sequências de 8-10 pré-sinais com score
-    alto que nunca viravam CONFIRMADO. A estabilidade agora pertence ao controller,
-    portanto funciona mesmo se a interface estiver ocupada ou redesenhando o gráfico.
+    consecutivas. O histórico real mostrou sequências de pré-sinais com score alto
+    que nunca viravam CONFIRMADO. A estabilidade agora pertence ao controller.
     """
 
     def __init__(self) -> None:
@@ -122,6 +121,24 @@ class MT5FastTradingController(MT5TradingController):
         if candle is None:
             return None
         return (snapshot.symbol, snapshot.timeframe, candle.open_time)
+
+    def _prepare_closed_candle_analysis(self, candle) -> None:
+        """Remove temporariamente uma vela mais nova para analisar o fechamento.
+
+        O stream pode colocar a nova vela aberta na fila antes do worker profundo
+        terminar de processar a vela que acabou de fechar. Se isso acontecer, o
+        motor-base enxergaria novamente a vela aberta como última e perderia o
+        gatilho candle_closed=True. O próximo tick recoloca a vela nova normalmente.
+        """
+        if not getattr(candle, "closed", False) or self.snapshot is None:
+            return
+        history = list(self.snapshot.history_candles or self.snapshot.candles)
+        if not history or history[-1].open_time <= candle.open_time:
+            return
+        trimmed = [item for item in history if item.open_time <= candle.open_time]
+        if not trimmed:
+            return
+        self.snapshot = replace(self.snapshot, history_candles=trimmed)
 
     def fast_intrabar_status(self, snapshot=None) -> tuple[bool, str]:
         snapshot = snapshot or self.snapshot
@@ -223,13 +240,14 @@ class MT5FastTradingController(MT5TradingController):
         return self._promote_snapshot(snapshot, candle_key)
 
     def merge_live_candle(self, candle):
+        self._prepare_closed_candle_analysis(candle)
         snapshot = super().merge_live_candle(candle)
         if snapshot is None:
             return None
         return self._observe_intrabar(snapshot)
 
     def promote_intrabar_confirmation(self, snapshot=None):
-        """Compatibilidade: promoção manual só ocorre quando o gate já está válido."""
+        """Compatibilidade para chamadas antigas do terminal."""
         snapshot = snapshot or self.snapshot
         if snapshot is None:
             return None
