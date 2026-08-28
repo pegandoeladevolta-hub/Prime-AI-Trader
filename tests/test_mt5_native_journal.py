@@ -13,6 +13,7 @@ from prime_ai_trader.database.mt5_journal import MT5TradeJournal
 
 
 class FakeMT5Module:
+    DEAL_ENTRY_IN = 0
     DEAL_ENTRY_OUT = 1
     DEAL_ENTRY_OUT_BY = 3
     DEAL_REASON_SL = 4
@@ -84,18 +85,29 @@ class MT5NativeJournalTests(unittest.TestCase):
             self.assertEqual(journal.active()[0]["position_ticket"], 777)
 
             bridge.open_rows = []
-            bridge.deals = [{
-                "ticket": 900, "position_id": 777, "symbol": "EURUSD", "entry": 1,
-                "time": now + 20, "price": 1.1030, "profit": 30.0,
-                "commission": -1.0, "swap": 0.0, "fee": 0.0,
-                "reason": FakeMT5Module.DEAL_REASON_TP,
-                "magic": bridge.MAGIC, "comment": "Prime Trader",
-            }]
+            bridge.deals = [
+                {
+                    "ticket": 899, "position_id": 777, "symbol": "EURUSD", "entry": 0,
+                    "time": now, "price": 1.1000, "profit": 0.0,
+                    "commission": -0.4, "swap": 0.0, "fee": -0.1,
+                    "reason": FakeMT5Module.DEAL_REASON_CLIENT,
+                    "magic": bridge.MAGIC, "comment": "Prime Trader",
+                },
+                {
+                    "ticket": 900, "position_id": 777, "symbol": "EURUSD", "entry": 1,
+                    "time": now + 20, "price": 1.1030, "profit": 30.0,
+                    "commission": -0.4, "swap": 0.0, "fee": -0.1,
+                    "reason": FakeMT5Module.DEAL_REASON_TP,
+                    "magic": bridge.MAGIC, "comment": "Prime Trader",
+                },
+            ]
             journal.sync_with_mt5(bridge, **context)
             row = journal.recent(1)[0]
             self.assertEqual(row["status"], "ENCERRADA")
             self.assertEqual(row["exit_reason"], "TAKE PROFIT")
             self.assertEqual(row["result"], "WIN")
+            self.assertAlmostEqual(row["commission"], -0.8)
+            self.assertAlmostEqual(row["fee"], -0.2)
             self.assertAlmostEqual(row["net_profit"], 29.0)
 
     def test_settings_file_does_not_persist_payout_or_stake(self) -> None:
