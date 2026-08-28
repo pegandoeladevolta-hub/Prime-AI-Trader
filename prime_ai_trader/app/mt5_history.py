@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-MT5_HISTORY_EPOCH = "prime-trader-mt5-live-2026-08-27-v1"
+MT5_HISTORY_EPOCH = "prime-trader-mt5-sltp-2026-08-27-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,12 +14,12 @@ class HistoryResetResult:
 
 
 def initialize_mt5_history_epoch(repository) -> HistoryResetResult:
-    """Apaga uma única vez o histórico legado dos bots anteriores.
+    """Apaga uma única vez históricos incompatíveis com a etapa MT5-SLTP.
 
     O banco continua sendo o mesmo para preservar configurações e estrutura, mas
-    signals/decision_history começam do zero nesta nova etapa MT5. Um marcador
-    persistente impede que os novos sinais sejam apagados nas próximas aberturas.
-    O histórico oficial da conta dentro do MetaTrader/corretora não é alterado.
+    signals/decision_history começam do zero nesta lógica de Entrada + Stop + Alvo.
+    Um marcador persistente impede que os novos sinais sejam apagados nas próximas
+    aberturas. O histórico oficial da conta no MetaTrader/corretora não é alterado.
     """
     with repository.connect() as connection:
         connection.execute(
@@ -39,7 +39,6 @@ def initialize_mt5_history_epoch(repository) -> HistoryResetResult:
         decision_count = int(
             connection.execute("SELECT COUNT(*) FROM decision_history").fetchone()[0]
         )
-        # Primeiro as decisões, pois elas referenciam signals por signal_id.
         connection.execute("DELETE FROM decision_history")
         connection.execute("DELETE FROM signals")
         try:
@@ -47,7 +46,6 @@ def initialize_mt5_history_epoch(repository) -> HistoryResetResult:
                 "DELETE FROM sqlite_sequence WHERE name IN ('signals','decision_history')"
             )
         except Exception:
-            # Bancos sem sqlite_sequence também são válidos.
             pass
         connection.execute(
             """INSERT INTO app_metadata(key, value) VALUES('mt5_history_epoch', ?)
