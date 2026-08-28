@@ -1,18 +1,31 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import time
 from tkinter import messagebox
 
+from ..app.mt5_position_guard import AutoPositionGuardStatus, PrimeAutoPositionGuard
 from .live_terminal_layout import PrimeTraderLiveApp as LayoutPrimeTraderLiveApp
 from .prime_terminal import EXEC_AUTO
 
 
 class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
-    """Terminal MT5 com decisão por contexto contínuo e auto sem estado oculto.
+    """Terminal MT5 com contexto contínuo e uma única operação automática ativa.
 
     O seletor EXECUÇÃO do topo é a fonte de verdade para habilitar o automático.
-    A autorização ARMAR ORDENS REAIS continua separada e explícita: sem ela nenhuma
-    ordem é enviada, mas desarmar não altera silenciosamente o seletor AUTOMÁTICO.
+    A autorização ARMAR ORDENS REAIS continua separada. Além disso, o automático
+    nunca empilha posições: depois de uma ordem aceita, aguarda a posição Prime
+    Trader desaparecer do MT5 antes de permitir uma nova oportunidade.
     """
+
+    def __init__(self, controller) -> None:
+        self._auto_position_guard = PrimeAutoPositionGuard(
+            sync_grace_seconds=5.0,
+            flat_confirmations=2,
+        )
+        self._auto_order_inflight = False
+        self._auto_requires_signal_after: datetime | None = None
+        super().__init__(controller)
 
     def _build_variables(self) -> None:
         super()._build_variables()
@@ -51,12 +64,157 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
         if self.execution_profile_var.get() == EXEC_AUTO:
             if self.mt5_armed.get():
                 self.status_var.set(
-                    "AUTOMÁTICO MT5 ATIVO • aguardando oportunidade confirmada por contexto + SL/TP"
+                    "AUTOMÁTICO MT5 ATIVO • uma operação por vez • aguardando oportunidade confirmada"
                 )
             else:
                 self.status_var.set(
                     "AUTOMÁTICO selecionado • marque ARMAR ORDENS REAIS para permitir execução"
                 )
+
+    def _auto_enabled_and_armed(self) -> bool:
+        return bool(
+            self.execution_profile_var.get() == EXEC_AUTO
+            and self.mt5_auto.get()
+            and self.mt5_armed.get()
+        )
+
+    def _prime_position_status(self) -> tuple[AutoPositionGuardStatus, list[dict]]:
+        """Reconcilia a trava local com as posições reais do MetaTrader 5."""
+        if not self.mt5_connected.get():
+            return (
+                AutoPositionGuardStatus(
+                    True,
+                    "MT5 desconectado; não é seguro abrir outra operação sem verificar posições",
+                ),
+                [],
+            )
+        try:
+            getter = getattr(self.mt5, "prime_positions", None)
+            if getter is None:
+                rows = self.mt5.positions()
+                magic = int(getattr(self.mt5, "MAGIC", 260826))
+                rows = [
+                    row for row in rows
+                    if int(row.get("magic", 0) or 0) == magic
+                    or str(row.get("comment") or "").lower().startswith("prime trader")
+                ]
+            else:
+                rows = list(getter())
+            return self._auto_position_guard.evaluate(rows, connected=True), rows
+        except Exception as exc:
+            self.controller.logger.warning(
+                "Não foi possível verificar posições Prime Trader antes da autoexecução: %s",
+                exc,
+            )
+            return (
+                AutoPositionGuardStatus(
+                    True,
+                    "não foi possível verificar as posições abertas no MT5; nova ordem bloqueada por segurança",
+                ),
+                [],
+            )
+
+    @staticmethod
+    def _position_wait_text(rows: list[dict], reason: str) -> str:
+        if not rows:
+            return f"AUTO MT5 BLOQUEADO • {reason}"
+        if len(rows) > 1:
+            return (
+                f"AUTO MT5 BLOQUEADO • {len(rows)} posições Prime Trader ainda abertas • "
+                "nenhuma nova ordem até todas serem encerradas"
+            )
+        row = rows[0]
+        symbol = str(row.get("symbol") or "ativo")
+        ticket = row.get("ticket") or "—"
+        sl = float(row.get("sl") or 0.0)
+        tp = float(row.get("tp") or 0.0)
+        protection = ""
+        if sl or tp:
+            protection = f" • SL {sl:g} • TP {tp:g}"
+        return (
+            f"OPERAÇÃO ATIVA • {symbol} #{ticket}{protection} • "
+            "automático aguardando encerramento no TP/SL"
+        )
+
+    def _release_for_fresh_opportunity(self) -> None:
+        """Depois do fechamento, descarta qualquer sinal antigo da operação anterior."""
+        self._auto_requires_signal_after = datetime.now(timezone.utc)
+        releaser = getattr(self.controller, "release_active_opportunity_for_reentry", None)
+        if callable(releaser):
+            releaser()
+        self.status_var.set(
+            "OPERAÇÃO ENCERRADA • aguardando uma NOVA confirmação de contexto antes da próxima ordem"
+        )
+
+    def _signal_is_fresh_after_flat(self, snapshot) -> bool:
+        cutoff = self._auto_requires_signal_after
+        if cutoff is None:
+            return True
+        created = getattr(snapshot.signal, "created_at", None)
+        if created is None:
+            return False
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        else:
+            created = created.astimezone(timezone.utc)
+        if created <= cutoff:
+            return False
+        # A primeira confirmação realmente nova libera esta proteção temporal.
+        self._auto_requires_signal_after = None
+        return True
+
+    def _maybe_execute_auto(self, snapshot) -> None:
+        """Uma ordem automática só pode existir quando a conta está flat para o bot."""
+        if snapshot is None or not self._auto_enabled_and_armed():
+            return super()._maybe_execute_auto(snapshot)
+        if self._auto_order_inflight:
+            self.status_var.set(
+                "AUTO MT5 • ordem anterior ainda está sendo enviada; nova ordem bloqueada"
+            )
+            return
+
+        if not self.mt5_connected.get():
+            self._connect_mt5()
+            if not self.mt5_connected.get():
+                self.status_var.set(
+                    "AUTO MT5 BLOQUEADO • conecte o MT5 para verificar a operação ativa"
+                )
+                return
+
+        guard_status, rows = self._prime_position_status()
+        if guard_status.blocked:
+            self.status_var.set(self._position_wait_text(rows, guard_status.reason))
+            return
+        if guard_status.released:
+            self._release_for_fresh_opportunity()
+
+        if not self._signal_is_fresh_after_flat(snapshot):
+            self.status_var.set(
+                "AUTO MT5 • posição anterior já encerrou • ignorando sinal antigo e aguardando nova confirmação"
+            )
+            return
+
+        return super()._maybe_execute_auto(snapshot)
+
+    def _execute_confirmed_signal(self, snapshot) -> bool:
+        """Marca a trava imediatamente quando o servidor aceita a ordem."""
+        if self._auto_order_inflight:
+            return False
+        self._auto_order_inflight = True
+        try:
+            success = super()._execute_confirmed_signal(snapshot)
+            if success:
+                self._auto_position_guard.mark_order_accepted(now=time.monotonic())
+                signal = snapshot.signal
+                self.status_var.set(
+                    f"AUTO MT5: {signal.direction.value} executada • OPERAÇÃO ATIVA • "
+                    f"SL {float(signal.technical_stop or 0):g} • "
+                    f"TP {float(signal.technical_target or 0):g} • "
+                    "nenhuma nova ordem até esta posição encerrar"
+                )
+            return success
+        finally:
+            self._auto_order_inflight = False
 
 
 __all__ = ["PrimeTraderLiveApp"]
