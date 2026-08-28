@@ -75,5 +75,10 @@ class MT5AdaptiveTradingController(MT5MarketTradingController):
             "message": self._analysis_reduced_warning,
         }
 
+    def model_context(self) -> dict[str, str | int]:
+        context = super().model_context()
+        context["mt5_environment"] = str(getattr(self.mt5, "environment", "CLEAR REAL"))
+        return context
+
 
 __all__ = ["MT5AdaptiveTradingController"]
