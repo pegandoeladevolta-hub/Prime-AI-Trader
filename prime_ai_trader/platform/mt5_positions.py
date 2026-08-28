@@ -29,7 +29,7 @@ class MT5Bridge(RobustMT5Bridge):
                     current = candles[-1]
 
                     # Quando nasce uma nova vela, entrega primeiro a vela anterior
-                    # já fechada. Isso é o gatilho de CONFIRMADO e da autoexecução.
+                    # já fechada. Isso é o gatilho de atualização da estrutura.
                     if last_current_open is not None and current.open_time != last_current_open:
                         previous = next(
                             (
@@ -67,6 +67,34 @@ class MT5Bridge(RobustMT5Bridge):
             except Exception:
                 # Mantém o stream vivo em falhas transitórias do terminal.
                 await asyncio.sleep(1.25)
+
+    @staticmethod
+    def _is_prime_position(row: dict[str, Any], magic: int) -> bool:
+        """Reconhece posições abertas pelo Prime Trader.
+
+        O ``magic`` é a identificação principal. O comentário funciona como
+        fallback para servidores que não preservam o magic no dicionário retornado.
+        """
+        try:
+            row_magic = int(row.get("magic", 0) or 0)
+        except (TypeError, ValueError):
+            row_magic = 0
+        comment = str(row.get("comment") or "").strip().lower()
+        return row_magic == int(magic) or comment.startswith("prime trader")
+
+    def prime_positions(self) -> list[dict[str, Any]]:
+        """Retorna apenas posições atualmente abertas pelo Prime Trader.
+
+        A trava do automático usa o estado real do MT5, então continua protegendo
+        contra ordens simultâneas inclusive após reiniciar o aplicativo.
+        """
+        return [
+            row for row in self.positions()
+            if self._is_prime_position(row, self.MAGIC)
+        ]
+
+    def has_prime_position(self) -> bool:
+        return bool(self.prime_positions())
 
     def modify_position_protection(
         self, ticket: int, *, sl: float, tp: float, armed: bool = False,
