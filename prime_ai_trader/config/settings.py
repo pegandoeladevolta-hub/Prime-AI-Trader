@@ -30,8 +30,7 @@ class AppSettings:
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
     timeframe: str = "5m"
-    # Legado 1.2.6: mantido apenas para compatibilidade de banco/configuração.
-    # O runtime MT5 não usa mais esse campo como expiração da operação.
+    # Compatibilidade interna com a base antiga. Não é exposto/persistido no runtime MT5.
     horizon_minutes: int = 5
     payout_percent: int = 80
     stake_amount: float = 80.0
@@ -49,8 +48,7 @@ class AppSettings:
     high_impact_block_minutes: int = 10
     strict_risk_blocks: bool = False
 
-    # Campos legados continuam existindo para abrir bases 1.2.6 sem quebrar o
-    # histórico, mas não são expostos na interface Prime Trader.
+    # Campos legados existem somente para compatibilidade de carregamento.
     platform_sync_enabled: bool = False
     platform_name: str = "VEX"
     bullex_sync_authorized: bool = False
@@ -151,6 +149,16 @@ class SecretStore:
 
 
 class SettingsStore:
+    # Estes nomes só existem em memória para compatibilidade com classes antigas.
+    # Eles não fazem parte da configuração salva do Prime Trader MT5.
+    HIDDEN_LEGACY_FIELDS = {
+        "horizon_minutes",
+        "payout_percent",
+        "stake_amount",
+        "platform_auto_payout",
+        "platform_auto_horizon",
+    }
+
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or app_data_dir() / "settings.json"
 
@@ -179,7 +187,11 @@ class SettingsStore:
             return AppSettings()
 
     def save(self, settings: AppSettings) -> None:
-        self.path.write_text(json.dumps(asdict(settings), ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {
+            key: value for key, value in asdict(settings).items()
+            if key not in self.HIDDEN_LEGACY_FIELDS
+        }
+        self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_api_config_template() -> dict[str, Any]:
