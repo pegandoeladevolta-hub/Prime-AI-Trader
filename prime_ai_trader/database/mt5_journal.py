@@ -189,30 +189,47 @@ class MT5TradeJournal:
             int(getattr(module, "DEAL_ENTRY_OUT", 1)),
             int(getattr(module, "DEAL_ENTRY_OUT_BY", 3)),
         }
-        candidates: list[dict] = []
+
+        # Primeiro reúne TODAS as pernas da posição (inclusive DEAL_ENTRY_IN), pois
+        # algumas corretoras debitam comissão/taxa já na abertura. O negócio de saída
+        # é usado apenas para preço, horário e motivo do encerramento.
+        position_deals: list[dict] = []
+        exit_candidates: list[dict] = []
         for deal in deals:
             if not self._prime_row(deal, magic):
                 continue
             if str(deal.get("symbol") or "") != str(row.get("symbol") or ""):
                 continue
-            deal_time = datetime.fromtimestamp(float(deal.get("time", 0) or 0), tz=timezone.utc)
-            if deal_time < opened_at:
+            try:
+                deal_time = datetime.fromtimestamp(float(deal.get("time", 0) or 0), tz=timezone.utc)
+            except (TypeError, ValueError, OSError):
                 continue
-            if int(deal.get("entry", -1) or -1) not in entry_out:
+            # Pequena tolerância cobre servidores que carimbam a execução alguns
+            # milissegundos antes do instante em que o diário local foi gravado.
+            if deal_time.timestamp() < opened_at.timestamp() - 3.0:
                 continue
             deal_position = int(deal.get("position_id", 0) or 0)
             if position_ticket and deal_position and deal_position != position_ticket:
                 continue
-            candidates.append(deal)
-        if not candidates:
+            position_deals.append(deal)
+            try:
+                entry_kind = int(deal.get("entry", -1))
+            except (TypeError, ValueError):
+                entry_kind = -1
+            if entry_kind in entry_out:
+                exit_candidates.append(deal)
+
+        if not exit_candidates:
             return False
-        candidates.sort(key=lambda item: (float(item.get("time", 0) or 0), int(item.get("ticket", 0) or 0)))
-        exit_deal = candidates[-1]
+        exit_candidates.sort(
+            key=lambda item: (float(item.get("time", 0) or 0), int(item.get("ticket", 0) or 0))
+        )
+        exit_deal = exit_candidates[-1]
         exit_price = float(exit_deal.get("price", 0.0) or 0.0)
-        profit = sum(float(item.get("profit", 0.0) or 0.0) for item in candidates)
-        commission = sum(float(item.get("commission", 0.0) or 0.0) for item in candidates)
-        swap = sum(float(item.get("swap", 0.0) or 0.0) for item in candidates)
-        fee = sum(float(item.get("fee", 0.0) or 0.0) for item in candidates)
+        profit = sum(float(item.get("profit", 0.0) or 0.0) for item in position_deals)
+        commission = sum(float(item.get("commission", 0.0) or 0.0) for item in position_deals)
+        swap = sum(float(item.get("swap", 0.0) or 0.0) for item in position_deals)
+        fee = sum(float(item.get("fee", 0.0) or 0.0) for item in position_deals)
         net = profit + commission + swap + fee
         result = "WIN" if net > 0 else "LOSS" if net < 0 else "DRAW"
         entry = float(row.get("entry_price") or 0.0)
