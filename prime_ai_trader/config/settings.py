@@ -30,6 +30,8 @@ class AppSettings:
     crypto_symbol: str = "BTC/USDT"
     forex_symbol: str = "EUR/USD"
     timeframe: str = "5m"
+    # Legado 1.2.6: mantido apenas para compatibilidade de banco/configuração.
+    # O runtime MT5 não usa mais esse campo como expiração da operação.
     horizon_minutes: int = 5
     payout_percent: int = 80
     stake_amount: float = 80.0
@@ -69,6 +71,10 @@ class AppSettings:
     mt5_deviation_points: int = 20
     mt5_auto_execute_signals: bool = False
     mt5_execution_profile: str = "SÓ SINAIS"
+    # Gestão de posição real. Não existe expiração: a ordem permanece até SL, TP,
+    # encerramento manual ou outra rotina explícita de gestão.
+    mt5_management_mode: str = "SCALP"
+    mt5_min_rr: float = 1.5
     # Janela realmente usada pelos indicadores, estrutura, Fibonacci, features e
     # motor de decisão ao vivo. O gráfico continua exibindo somente a parte recente.
     mt5_analysis_candles: int = 2000
@@ -159,6 +165,15 @@ class SettingsStore:
                 loaded.mt5_analysis_candles = 2000
             if loaded.mt5_training_candles not in {2000, 3000, 5000, 10000}:
                 loaded.mt5_training_candles = 5000
+            loaded.mt5_management_mode = str(loaded.mt5_management_mode or "SCALP").upper()
+            if loaded.mt5_management_mode not in {"SCALP", "INTRADAY"}:
+                loaded.mt5_management_mode = "SCALP"
+            try:
+                loaded.mt5_min_rr = float(loaded.mt5_min_rr)
+            except (TypeError, ValueError):
+                loaded.mt5_min_rr = 1.5
+            if loaded.mt5_min_rr not in {1.0, 1.5, 2.0, 2.5, 3.0}:
+                loaded.mt5_min_rr = 1.5
             return loaded
         except (OSError, ValueError, TypeError):
             return AppSettings()
