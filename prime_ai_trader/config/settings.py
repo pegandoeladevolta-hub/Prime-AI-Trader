@@ -73,6 +73,10 @@ class AppSettings:
     # encerramento manual ou outra rotina explícita de gestão.
     mt5_management_mode: str = "SCALP"
     mt5_min_rr: float = 1.5
+    # Limites financeiros realizados do próprio Prime Trader no dia local.
+    # Zero significa desativado. Ao atingir um deles nenhuma nova ordem é aberta.
+    mt5_daily_profit_target: float = 0.0
+    mt5_daily_stop_loss: float = 0.0
     # Janela realmente usada pelos indicadores, estrutura, Fibonacci, features e
     # motor de decisão ao vivo. O gráfico continua exibindo somente a parte recente.
     mt5_analysis_candles: int = 2000
@@ -182,6 +186,12 @@ class SettingsStore:
                 loaded.mt5_min_rr = 1.5
             if loaded.mt5_min_rr not in {1.0, 1.5, 2.0, 2.5, 3.0}:
                 loaded.mt5_min_rr = 1.5
+            for name in ("mt5_daily_profit_target", "mt5_daily_stop_loss"):
+                try:
+                    value = max(0.0, float(getattr(loaded, name)))
+                except (TypeError, ValueError):
+                    value = 0.0
+                setattr(loaded, name, value)
             return loaded
         except (OSError, ValueError, TypeError):
             return AppSettings()
