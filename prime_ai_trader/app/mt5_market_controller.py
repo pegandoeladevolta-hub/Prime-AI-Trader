@@ -33,5 +33,20 @@ class MT5MarketTradingController(MT5FastTradingController):
             signal.direction.value,
         )
 
+    def release_active_opportunity_for_reentry(self) -> None:
+        """Exige uma confirmação nova depois que a posição anterior foi encerrada.
+
+        Enquanto uma ordem automática está aberta, o controller continua analisando
+        o mercado. Quando TP/SL ou fechamento manual deixa a conta novamente sem
+        posição Prime Trader, a oportunidade antiga não pode ser executada atrasada.
+        Zeramos somente a trava de oportunidade para que as próximas leituras
+        reconstruam a tese e gerem um novo CONFIRMADO, se ainda houver setup.
+        """
+        self._active_opportunity = None
+        self._wait_observations = 0
+        if hasattr(self, "_market_stability"):
+            self._market_stability.reset()
+        self._last_market_gate_reason = "operação anterior encerrada; aguardando nova confirmação"
+
 
 __all__ = ["MT5MarketTradingController"]
