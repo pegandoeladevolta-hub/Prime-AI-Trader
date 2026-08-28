@@ -13,6 +13,14 @@ class MT5MarketTradingController(MT5FastTradingController):
     o contador e prendam o bot eternamente em SINAL EM FORMAÇÃO.
     """
 
+    def connect_mt5(self):
+        account = super().connect_mt5()
+        resolved = str(getattr(self.mt5, "terminal_path", "") or "").strip()
+        if resolved and self.settings.mt5_terminal_path != resolved:
+            self.settings.mt5_terminal_path = resolved
+            self.save_settings()
+        return account
+
     def model_context(self) -> dict[str, str | int]:
         context = super().model_context()
         # Força retreino quando migramos da confirmação por candle/pré-sinal para
@@ -34,14 +42,7 @@ class MT5MarketTradingController(MT5FastTradingController):
         )
 
     def release_active_opportunity_for_reentry(self) -> None:
-        """Exige uma confirmação nova depois que a posição anterior foi encerrada.
-
-        Enquanto uma ordem automática está aberta, o controller continua analisando
-        o mercado. Quando TP/SL ou fechamento manual deixa a conta novamente sem
-        posição Prime Trader, a oportunidade antiga não pode ser executada atrasada.
-        Zeramos somente a trava de oportunidade para que as próximas leituras
-        reconstruam a tese e gerem um novo CONFIRMADO, se ainda houver setup.
-        """
+        """Exige uma confirmação nova depois que a posição anterior foi encerrada."""
         self._active_opportunity = None
         self._wait_observations = 0
         if hasattr(self, "_market_stability"):
