@@ -6,6 +6,7 @@ import time
 from dataclasses import replace
 from datetime import datetime
 
+from ..app.mt5_history import initialize_mt5_history_epoch
 from ..core.models import Direction, SignalState
 from ..platform.mt5 import MT5ExecutionError, MT5UnavailableError
 from .prime_terminal import EXEC_AUTO
@@ -32,7 +33,15 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self._forming_first_seen = 0.0
         self._pending_closed_analysis = None
         self._closed_retry_job = None
+        # Nova etapa MT5: apaga uma única vez os sinais/decisões dos bots antigos.
+        # O histórico oficial da conta no MetaTrader não é tocado.
+        self._history_reset_result = initialize_mt5_history_epoch(controller.repository)
         super().__init__(controller)
+        if self._history_reset_result.reset:
+            self.status_var.set(
+                "Nova etapa MT5 iniciada • histórico antigo do Prime Trader foi zerado"
+            )
+            self._refresh_recent_signals()
         self._auto_job = self.after(350, self._auto_execution_tick)
 
     @staticmethod
@@ -123,6 +132,9 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         # O controller.snapshot permanece intacto para histórico/autoexecução.
         # Apenas a interface e a voz deixam de alternar COMPRA/VENDA a cada tick.
         super().render_snapshot(self._stable_display_snapshot(snapshot))
+        # A autoexecução agora é orientada ao evento: quando o fechamento gera um
+        # CONFIRMADO, tenta executar imediatamente. O timer fica como redundância.
+        self._maybe_execute_auto(snapshot)
 
     def _analysis_ready(self, snapshot, token: int, context: tuple[str, str, str]) -> None:
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
@@ -216,26 +228,45 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self.chart.update_last_candle(candle)
         self.updated_var.set(f"MT5 • PREÇO AO VIVO {datetime.now().strftime('%H:%M:%S')}")
 
+    def _auto_signature_for(self, snapshot):
+        candle_key = (
+            snapshot.candles[-1].open_time
+            if snapshot.candles else snapshot.generated_at
+        )
+        return (
+            snapshot.market,
+            snapshot.symbol,
+            snapshot.timeframe,
+            self.sensitivity_var.get(),
+            self.mode_var.get(),
+            candle_key,
+            snapshot.signal.direction.value,
+        )
+
+    def _maybe_execute_auto(self, snapshot) -> None:
+        if snapshot is None:
+            return
+        enabled = (
+            self.execution_profile_var.get() == EXEC_AUTO
+            and bool(self.mt5_auto.get())
+            and bool(self.mt5_armed.get())
+        )
+        if not enabled:
+            return
+        signal = snapshot.signal
+        if signal.state != SignalState.CONFIRMED or signal.direction == Direction.WAIT:
+            return
+        signature = self._auto_signature_for(snapshot)
+        if signature == self._last_auto_signature:
+            return
+        # Reserva a assinatura antes da chamada para impedir ordem duplicada se o
+        # MT5 demorar para responder e o timer disparar no mesmo instante.
+        self._last_auto_signature = signature
+        self._execute_confirmed_signal(snapshot)
+
     def _auto_execution_tick(self) -> None:
         try:
-            snapshot = self.controller.snapshot
-            enabled = (
-                self.execution_profile_var.get() == EXEC_AUTO
-                and bool(self.mt5_auto.get())
-                and bool(self.mt5_armed.get())
-            )
-            if enabled and snapshot is not None:
-                signal = snapshot.signal
-                if signal.state == SignalState.CONFIRMED and signal.direction != Direction.WAIT:
-                    candle_key = snapshot.candles[-1].open_time if snapshot.candles else snapshot.generated_at
-                    signature = (
-                        snapshot.market, snapshot.symbol, snapshot.timeframe,
-                        self.sensitivity_var.get(), self.mode_var.get(),
-                        candle_key, signal.direction.value,
-                    )
-                    if signature != self._last_auto_signature:
-                        self._last_auto_signature = signature
-                        self._execute_confirmed_signal(snapshot)
+            self._maybe_execute_auto(self.controller.snapshot)
         finally:
             if self.winfo_exists():
                 self._auto_job = self.after(350, self._auto_execution_tick)
