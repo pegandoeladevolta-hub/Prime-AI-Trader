@@ -5,6 +5,7 @@ import time
 from tkinter import messagebox
 
 from ..app.mt5_position_guard import AutoPositionGuardStatus, PrimeAutoPositionGuard
+from ..core.models import SignalState
 from .live_terminal_layout import PrimeTraderLiveApp as LayoutPrimeTraderLiveApp
 from .prime_terminal import EXEC_AUTO
 
@@ -150,6 +151,10 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
         cutoff = self._auto_requires_signal_after
         if cutoff is None:
             return True
+        # Um FORMING novo não deve liberar a proteção sozinho. Só uma confirmação
+        # realmente nova, criada depois de ficarmos flat, pode abrir a próxima ordem.
+        if snapshot.signal.state != SignalState.CONFIRMED:
+            return False
         created = getattr(snapshot.signal, "created_at", None)
         if created is None:
             return False
@@ -159,7 +164,6 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
             created = created.astimezone(timezone.utc)
         if created <= cutoff:
             return False
-        # A primeira confirmação realmente nova libera esta proteção temporal.
         self._auto_requires_signal_after = None
         return True
 
@@ -190,7 +194,7 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
 
         if not self._signal_is_fresh_after_flat(snapshot):
             self.status_var.set(
-                "AUTO MT5 • posição anterior já encerrou • ignorando sinal antigo e aguardando nova confirmação"
+                "AUTO MT5 • operação anterior encerrada • aguardando uma NOVA confirmação antes de reentrar"
             )
             return
 
