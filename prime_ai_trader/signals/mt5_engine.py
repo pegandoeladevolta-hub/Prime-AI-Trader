@@ -25,7 +25,7 @@ class MT5SignalEngine(SignalEngine):
             str(text)
             .replace("antes da expiração", "antes de alcançar o alvo técnico")
             .replace("para payout", "para o filtro probabilístico")
-            .replace("payout de", "parâmetro legado de")
+            .replace("payout de", "parâmetro de retorno de")
             .replace("Expiração", "Gestão")
             .replace("expiração", "gestão")
         )
@@ -44,15 +44,27 @@ class MT5SignalEngine(SignalEngine):
             # O runtime MT5 completa esse contexto aqui com gestão, R:R e modelo.
             context.update(runtime_context)
         timeframe = str(context.get("timeframe") or "1m")
-        # O horizonte passado ao motor-base serve apenas para seus filtros locais de
-        # reversão. Para MT5 ele deixa de representar vencimento/fechamento da ordem.
+        try:
+            minimum_rr = int(context.get("minimum_rr_x100", 150)) / 100.0
+        except (TypeError, ValueError):
+            minimum_rr = 1.5
+        minimum_rr = min(5.0, max(0.5, minimum_rr))
+        equivalent_return_percent = int(round(minimum_rr * 100))
+        # O horizonte passado ao motor-base serve apenas para filtros locais de
+        # reversão. Para MT5 ele não representa vencimento/fechamento da ordem.
         internal_minutes = max(1, TIMEFRAME_MINUTES.get(timeframe, 1))
         signal = super().generate(
             indicators, features, structure, fib, internal_minutes,
             sensitivity, candle_closed, blockers, mode, context,
-            payout_percent=payout_percent, source_lag_seconds=source_lag_seconds,
+            # O motor-base expressa o ponto de equilíbrio como payout. Em MT5,
+            # 1R de risco com alvo mínimo N*R é matematicamente equivalente a
+            # retorno N*100% para esse cálculo probabilístico.
+            payout_percent=equivalent_return_percent,
+            source_lag_seconds=source_lag_seconds,
         )
         signal.horizon_minutes = 0
+        signal.payout_percent = equivalent_return_percent
+        signal.break_even_rate = 1 / (1 + minimum_rr)
         signal.waiting_reasons = [
             self._translate_legacy_text(item) for item in signal.waiting_reasons
         ]
@@ -64,10 +76,6 @@ class MT5SignalEngine(SignalEngine):
 
         if str(context.get("trade_management") or "").upper() != "SLTP":
             return signal
-        try:
-            minimum_rr = int(context.get("minimum_rr_x100", 150)) / 100.0
-        except (TypeError, ValueError):
-            minimum_rr = 1.5
         management_mode = str(context.get("management_mode") or "SCALP").upper()
 
         # Se os filtros técnicos ainda mandam aguardar, não fabricamos uma entrada.
