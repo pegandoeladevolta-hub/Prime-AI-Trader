@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from .app.clean_start import initialize_clean_mt5_start
-from .app.mt5_fast_controller import MT5FastTradingController
+from .app.mt5_market_controller import MT5MarketTradingController
 from .logging_setup import configure_logging
 from .ui.live_terminal_fast import PrimeTraderLiveApp
 
@@ -35,7 +35,7 @@ def main() -> int:
             clean_start.data_dir,
         )
     try:
-        controller = MT5FastTradingController()
+        controller = MT5MarketTradingController()
         app = PrimeTraderLiveApp(controller)
         app.mainloop()
         return 0
