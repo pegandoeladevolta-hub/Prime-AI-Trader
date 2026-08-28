@@ -13,6 +13,8 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
 
     ANALYSIS_DEPTHS = (500, 1000, 1500, 2000, 3000)
     TRAINING_DEPTHS = (2000, 3000, 5000, 10000)
+    MANAGEMENT_MODES = ("SCALP", "INTRADAY")
+    RR_VALUES = (1.0, 1.5, 2.0, 2.5, 3.0)
 
     def __init__(self, controller) -> None:
         self._position_job = None
@@ -28,12 +30,26 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         training_depth = int(getattr(self.controller.settings, "mt5_training_candles", 5000))
         if training_depth not in self.TRAINING_DEPTHS:
             training_depth = 5000
+        management = str(getattr(self.controller.settings, "mt5_management_mode", "SCALP") or "SCALP").upper()
+        if management not in self.MANAGEMENT_MODES:
+            management = "SCALP"
+        try:
+            rr = float(getattr(self.controller.settings, "mt5_min_rr", 1.5))
+        except (TypeError, ValueError):
+            rr = 1.5
+        if rr not in self.RR_VALUES:
+            rr = 1.5
         self.analysis_candles_var = tk.StringVar(master=self, value=str(analysis_depth))
         self.training_candles_var = tk.StringVar(master=self, value=str(training_depth))
+        self.management_mode_var = tk.StringVar(master=self, value=management)
+        self.minimum_rr_var = tk.StringVar(master=self, value=f"{rr:g}")
         self.ai_status_var = tk.StringVar(master=self, value="IA • verificando configuração…")
         self.ai_context_var = tk.StringVar(
             master=self,
-            value=f"Análise ao vivo: {analysis_depth} candles • histórico da IA: aguardando",
+            value=(
+                f"Gestão {management} • SL/TP • R:R mínimo 1:{rr:g} • "
+                f"análise {analysis_depth} candles"
+            ),
         )
 
     def _build_center(self, parent) -> None:
@@ -68,7 +84,7 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         card.pack(**pack_args)
 
         tk.Label(
-            card, text="IA E PROFUNDIDADE DE MERCADO", bg="#0f1619", fg="#e8eef1",
+            card, text="IA • GESTÃO DE TRADE • PROFUNDIDADE", bg="#0f1619", fg="#e8eef1",
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w", padx=10, pady=(9, 2))
         tk.Label(
@@ -79,6 +95,38 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
             card, textvariable=self.ai_context_var, bg="#0f1619", fg="#76858c",
             font=("Segoe UI", 7), wraplength=245, justify="left",
         ).pack(anchor="w", padx=10, pady=(0, 7))
+
+        management_row = tk.Frame(card, bg="#0f1619")
+        management_row.pack(fill="x", padx=10, pady=(0, 5))
+        tk.Label(
+            management_row, text="GESTÃO", bg="#0f1619", fg="#66757c",
+            font=("Segoe UI Semibold", 7),
+        ).pack(side="left")
+        self.management_combo = ttk.Combobox(
+            management_row, textvariable=self.management_mode_var,
+            values=list(self.MANAGEMENT_MODES), state="readonly", width=10,
+            font=("Segoe UI", 8),
+        )
+        self.management_combo.pack(side="right")
+        self.management_combo.bind(
+            "<<ComboboxSelected>>", lambda _: self._management_changed(),
+        )
+
+        rr_row = tk.Frame(card, bg="#0f1619")
+        rr_row.pack(fill="x", padx=10, pady=(0, 5))
+        tk.Label(
+            rr_row, text="R:R MÍNIMO", bg="#0f1619", fg="#66757c",
+            font=("Segoe UI Semibold", 7),
+        ).pack(side="left")
+        self.rr_combo = ttk.Combobox(
+            rr_row, textvariable=self.minimum_rr_var,
+            values=[f"{value:g}" for value in self.RR_VALUES],
+            state="readonly", width=8, font=("Segoe UI", 8),
+        )
+        self.rr_combo.pack(side="right")
+        self.rr_combo.bind(
+            "<<ComboboxSelected>>", lambda _: self._management_changed(),
+        )
 
         analysis_row = tk.Frame(card, bg="#0f1619")
         analysis_row.pack(fill="x", padx=10, pady=(0, 5))
@@ -112,11 +160,33 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
             "<<ComboboxSelected>>", lambda _: self._training_depth_changed(),
         )
         tk.Button(
-            card, text="◈  TREINAR IA", command=self.train_ai,
+            card, text="◈  TREINAR IA PARA SL/TP", command=self.train_ai,
             bd=0, relief="flat", bg="#195e78", fg="white",
             activebackground="#21789a", activeforeground="white",
             font=("Segoe UI Semibold", 9), pady=9,
         ).pack(fill="x", padx=10, pady=(0, 10))
+
+    def _management_changed(self) -> None:
+        management = self.management_mode_var.get().strip().upper()
+        if management not in self.MANAGEMENT_MODES:
+            management = "SCALP"
+            self.management_mode_var.set(management)
+        try:
+            rr = float(self.minimum_rr_var.get().replace(",", "."))
+        except ValueError:
+            rr = 1.5
+        if rr not in self.RR_VALUES:
+            rr = 1.5
+            self.minimum_rr_var.set(f"{rr:g}")
+        self.controller.settings.mt5_management_mode = management
+        self.controller.settings.mt5_min_rr = rr
+        self.controller.save_settings()
+        self._refresh_ai_status()
+        self.status_var.set(
+            f"Gestão MT5: {management} • Stop/Alvo • R:R mínimo 1:{rr:g} • sem expiração"
+        )
+        if getattr(self, "_analysis_active", False):
+            self.refresh_analysis()
 
     def _analysis_depth_changed(self) -> None:
         try:
@@ -163,6 +233,21 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
                 training_depth = 5000
                 self.training_candles_var.set(str(training_depth))
             self.controller.settings.mt5_training_candles = training_depth
+        if hasattr(self, "management_mode_var"):
+            management = self.management_mode_var.get().strip().upper()
+            if management not in self.MANAGEMENT_MODES:
+                management = "SCALP"
+            self.controller.settings.mt5_management_mode = management
+        if hasattr(self, "minimum_rr_var"):
+            try:
+                rr = float(self.minimum_rr_var.get().replace(",", "."))
+            except ValueError:
+                rr = 1.5
+            if rr not in self.RR_VALUES:
+                rr = 1.5
+            self.controller.settings.mt5_min_rr = rr
+        # O campo legado continua zero no runtime MT5: não existe expiração.
+        self.controller.settings.horizon_minutes = 0
         super()._save_form()
 
     def _refresh_ai_status(self) -> None:
@@ -176,16 +261,19 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         analysis = int(state.get("analysis_candles") or 0)
         requested = int(state.get("requested_candles") or 0)
         loaded = int(state.get("loaded_candles") or 0)
+        management = str(state.get("management_mode") or self.management_mode_var.get())
+        rr = float(state.get("minimum_rr") or 1.5)
+        lookahead = int(state.get("label_lookahead_bars") or 0)
         if state.get("compatible"):
             report = state.get("report")
             model = getattr(report, "selected_model", "Modelo")
             samples = int(getattr(report, "samples", 0) or 0)
-            self.ai_status_var.set(f"IA TREINADA • {model} • {samples} amostras")
+            self.ai_status_var.set(f"IA SL/TP TREINADA • {model} • {samples} amostras")
         else:
-            self.ai_status_var.set("IA PRECISA TREINAR PARA ESTA CONFIGURAÇÃO")
+            self.ai_status_var.set("IA PRECISA TREINAR PARA ESTA GESTÃO / R:R")
         self.ai_context_var.set(
-            f"Análise ao vivo: {analysis} candles • treino: {requested} • "
-            f"histórico carregado: {loaded} • gráfico visível: 200"
+            f"{management} • sem expiração • R:R mín 1:{rr:g} • análise {analysis} • "
+            f"treino {requested} • carregado {loaded} • labels TP/SL até {lookahead} barras"
         )
 
     def _configuration_changed(self) -> None:
@@ -203,10 +291,13 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
                 return
         self._analysis_depth_changed_silent()
         self._training_depth_changed()
+        self._save_form()
         depth = int(self.training_candles_var.get())
         analysis = int(self.analysis_candles_var.get())
+        rr = float(self.minimum_rr_var.get().replace(",", "."))
         self.ai_status_var.set(
-            f"IA TREINANDO • análise {analysis} • carregando até {depth} candles do MT5…"
+            f"IA TREINANDO TP/SL • {self.management_mode_var.get()} • R:R 1:{rr:g} • "
+            f"análise {analysis} • carregando até {depth} candles MT5…"
         )
         super().train_ai()
 
@@ -225,8 +316,32 @@ class PrimeTraderApp(ExecutionPrimeTraderApp):
         super()._training_ready(report)
         self._refresh_ai_status()
 
+    def _start_countdown(self, snapshot) -> None:
+        # No MT5 a posição não vence por tempo. O servidor encerra pelo SL/TP ou o
+        # usuário fecha manualmente; portanto não exibimos contador de expiração.
+        if getattr(self, "_countdown_job", None):
+            try:
+                self.after_cancel(self._countdown_job)
+            except Exception:
+                pass
+            self._countdown_job = None
+        if hasattr(self, "countdown_label"):
+            self.countdown_label.configure(text="SL/TP")
+
     def render_snapshot(self, snapshot) -> None:
         super().render_snapshot(snapshot)
+        rr = float(self.minimum_rr_var.get().replace(",", "."))
+        management = self.management_mode_var.get()
+        if hasattr(self, "horizon_label"):
+            self.horizon_label.configure(
+                text=f"Gestão: {management} • sem expiração • R:R mínimo 1:{rr:g}"
+            )
+        if hasattr(self, "payout_label"):
+            actual_rr = snapshot.signal.technical_room_ratio
+            rr_text = f" • R:R atual {actual_rr:.2f}" if actual_rr is not None else ""
+            self.payout_label.configure(
+                text=f"MT5 • Stop Loss + Take Profit{rr_text} • mínimo 1:{rr:g}"
+            )
         self._refresh_ai_status()
         self._refresh_chart_positions()
 
