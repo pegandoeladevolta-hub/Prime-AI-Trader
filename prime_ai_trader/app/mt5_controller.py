@@ -49,7 +49,7 @@ class MT5TradingController(TradingController):
         self.forex = self.mt5
         self.news_provider = _NoExternalNews()
         self.calendar_provider = _NoExternalCalendar()
-        self.signal_engine = MT5SignalEngine(self.model_manager)
+        self.signal_engine = MT5SignalEngine(self.model_manager, self.model_context)
         self.settings.market_data_source = "MT5"
         self.settings.external_context_enabled = False
         self.settings.platform_name = "MT5"
