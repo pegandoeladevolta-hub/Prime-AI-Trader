@@ -13,6 +13,13 @@ class MT5MarketTradingController(MT5FastTradingController):
     o contador e prendam o bot eternamente em SINAL EM FORMAÇÃO.
     """
 
+    def model_context(self) -> dict[str, str | int]:
+        context = super().model_context()
+        # Força retreino quando migramos da confirmação por candle/pré-sinal para
+        # a decisão por contexto contínuo de mercado real.
+        context["decision_engine"] = "MT5_CONTEXT_V1"
+        return context
+
     @staticmethod
     def _opportunity_key(snapshot) -> tuple | None:
         signal = snapshot.signal
