@@ -6,7 +6,7 @@ from tkinter import messagebox
 
 from .app.mt5_controller import MT5TradingController
 from .logging_setup import configure_logging
-from .ui.live_terminal import PrimeTraderLiveApp
+from .ui.live_terminal_layout import PrimeTraderLiveApp
 
 
 def main() -> int:
