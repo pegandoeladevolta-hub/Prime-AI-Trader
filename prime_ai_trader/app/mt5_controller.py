@@ -20,6 +20,10 @@ _CRYPTO_HINTS = (
 
 ANALYSIS_DEPTHS = {500, 1000, 1500, 2000, 3000}
 LIVE_CHART_CANDLES = 200
+_TIMEFRAME_MINUTES = {
+    "1m": 1, "3m": 3, "5m": 5, "15m": 15,
+    "30m": 30, "1h": 60, "4h": 240,
+}
 
 
 class _NoExternalNews:
@@ -54,7 +58,6 @@ class MT5TradingController(TradingController):
         self.settings.external_context_enabled = False
         self.settings.platform_name = "MT5"
         self.settings.platform_sync_enabled = False
-        # Zero significa explicitamente: sem contrato de expiração no runtime MT5.
         self.settings.horizon_minutes = 0
         self.platform_snapshot = None
 
@@ -126,7 +129,6 @@ class MT5TradingController(TradingController):
         return self.mt5.list_symbols()
 
     def analysis_candles(self) -> int:
-        """Profundidade realmente usada pelo motor ao vivo, não só pelo gráfico."""
         try:
             depth = int(self.settings.mt5_analysis_candles)
         except (TypeError, ValueError, AttributeError):
@@ -159,7 +161,6 @@ class MT5TradingController(TradingController):
         return candles
 
     def _live_analysis_windows(self, history, timeframe: str):
-        """Usa contexto profundo para decisão e mantém só 200 candles visíveis."""
         depth = self.analysis_candles()
         if len(history) < depth:
             raise ValueError(
@@ -177,25 +178,27 @@ class MT5TradingController(TradingController):
         return chart_candles, decision_candles, False
 
     def analyze(self, limit: int = 500):
-        """Força o MT5 a fornecer a profundidade escolhida para cada releitura."""
         required = self.analysis_candles() + 1
         return super().analyze(limit=max(int(limit), required))
 
     def model_context(self) -> dict[str, str | int]:
-        """Modelo é identificado por ativo/timeframe/perfil/modo e gestão SL/TP."""
+        """Contexto do modelo SL/TP, incluindo purga temporal da janela de labels."""
         context = super().model_context()
-        context.pop("horizon_minutes", None)
+        lookahead = label_lookahead_bars(self.management_mode())
+        timeframe_minutes = _TIMEFRAME_MINUTES.get(self.settings.timeframe, 1)
+        # Este campo existe apenas porque o validador 1.2.6 usa horizon_minutes
+        # para calcular a purga entre treino/teste. Não representa expiração real.
+        context["horizon_minutes"] = lookahead * timeframe_minutes
         context["execution_profile"] = self.settings.mt5_execution_profile
         context["analysis_candles"] = self.analysis_candles()
         context["training_candles"] = int(self.settings.mt5_training_candles)
         context["trade_management"] = "SLTP"
         context["management_mode"] = self.management_mode()
         context["minimum_rr_x100"] = int(round(self.minimum_rr() * 100))
-        context["label_lookahead_bars"] = label_lookahead_bars(self.management_mode())
+        context["label_lookahead_bars"] = lookahead
         return context
 
     def _labels_for_horizon(self, threshold: float, *, candles=None, indicators=None):
-        """Substitui direção após X minutos por 'TP ou SL: qual foi atingido primeiro?'."""
         history = candles or self._history_candles()
         values = indicators if indicators is not None else self.snapshot.indicators
         return build_mt5_barrier_labels(
@@ -233,8 +236,6 @@ class MT5TradingController(TradingController):
                     hit_stop, hit_target = high >= float(stop), low <= float(target)
                 if not hit_stop and not hit_target:
                     continue
-                # Se as duas barreiras aparecem na mesma vela sem dados de ticks,
-                # usa o resultado conservador para não inflar o backtest/histórico.
                 result = "LOSS" if hit_stop else "WIN"
                 exit_price = float(stop) if hit_stop else float(target)
                 self.repository.set_result(
@@ -259,7 +260,6 @@ class MT5TradingController(TradingController):
         }
 
     def train(self) -> TrainingReport:
-        """Treina a IA com labels TP/SL e histórico vindo exclusivamente do MT5."""
         limit = int(self.settings.mt5_training_candles)
         if limit not in {2000, 3000, 5000, 10000}:
             limit = 5000
@@ -275,7 +275,6 @@ class MT5TradingController(TradingController):
         return super().train()
 
     def backtest(self):
-        """Converte 1R de risco e o R:R escolhido para a matemática do relatório legado."""
         original_payout = self.settings.payout_percent
         try:
             self.settings.payout_percent = int(round(self.minimum_rr() * 100))
