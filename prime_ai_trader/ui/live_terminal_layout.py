@@ -31,8 +31,6 @@ class PrimeTraderLiveApp(BasePrimeTraderLiveApp):
         panel.grid_rowconfigure(1, weight=0)
         panel.grid_columnconfigure(0, weight=1)
 
-        # Conteúdo principal: nunca é espremido. Quando faltar altura, aparece
-        # rolagem somente nesta área da lateral.
         scroll_host = tk.Frame(panel, bg="#0b0f12")
         scroll_host.grid(row=0, column=0, sticky="nsew")
         scroll_host.grid_rowconfigure(0, weight=1)
@@ -376,6 +374,19 @@ class PrimeTraderLiveApp(BasePrimeTraderLiveApp):
                 bind_tree(child)
 
         bind_tree(panel)
+
+    # Wrappers diretos: mantêm o contrato dos testes de UI sem alterar a lógica.
+    def train_ai(self) -> None:
+        return super().train_ai()
+
+    def _execute_signal_now(self) -> None:
+        return super()._execute_signal_now()
+
+    def _close_position(self) -> None:
+        return super()._close_position()
+
+    def _refresh_positions(self) -> None:
+        return super()._refresh_positions()
 
 
 __all__ = ["PrimeTraderLiveApp"]
