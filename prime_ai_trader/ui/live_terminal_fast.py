@@ -7,7 +7,7 @@ from .prime_terminal import EXEC_AUTO
 
 
 class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
-    """Terminal MT5 com confirmação rápida no controller e auto sem estado oculto.
+    """Terminal MT5 com decisão por contexto contínuo e auto sem estado oculto.
 
     O seletor EXECUÇÃO do topo é a fonte de verdade para habilitar o automático.
     A autorização ARMAR ORDENS REAIS continua separada e explícita: sem ela nenhuma
@@ -51,7 +51,7 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
         if self.execution_profile_var.get() == EXEC_AUTO:
             if self.mt5_armed.get():
                 self.status_var.set(
-                    "AUTOMÁTICO MT5 ATIVO • aguardando SINAL CONFIRMADO com SL/TP válido"
+                    "AUTOMÁTICO MT5 ATIVO • aguardando oportunidade confirmada por contexto + SL/TP"
                 )
             else:
                 self.status_var.set(
