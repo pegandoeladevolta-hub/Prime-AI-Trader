@@ -14,11 +14,11 @@ from .prime_terminal_ai import PrimeTraderApp
 
 
 class PrimeTraderLiveApp(PrimeTraderApp):
-    """Atualização ao vivo e execução automática usando o mesmo terminal MT5.
+    """Atualização contínua e execução automática usando o mesmo terminal MT5.
 
-    O contexto profundo continua sendo analisado pelo motor, mas uma pré-leitura
-    intravela só é anunciada depois de permanecer na mesma direção por leituras
-    consecutivas. Fechamentos de candle têm prioridade e ordens são geridas por
+    O timeframe organiza os dados, mas não funciona como relógio de decisão. O
+    controller analisa contexto, estrutura, momentum e risco/retorno continuamente;
+    candles fechados apenas atualizam a base histórica. As ordens são geridas por
     Stop Loss / Take Profit, sem contrato de expiração.
     """
 
@@ -59,7 +59,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
 
     @staticmethod
     def _fast_analysis_interval(timeframe: str, sensitivity: str) -> float:
-        """Cadência da pré-leitura; confirmação continua prioritária no fechamento."""
+        """Cadência da leitura contínua; timeframe não é janela de expiração."""
         base = {
             "1m": 1.8,
             "3m": 2.2,
@@ -77,7 +77,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         return max(1.5, min(14.0, base * factor))
 
     def _effective_analysis_interval(self, timeframe: str, sensitivity: str) -> float:
-        """Evita sobrepor cálculos profundos sem atrasar o fechamento do candle."""
+        """Evita sobrepor cálculos profundos enquanto mantém contexto atualizado."""
         base = self._fast_analysis_interval(timeframe, sensitivity)
         try:
             depth = int(self.controller.analysis_candles())
@@ -98,7 +98,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self._forming_first_seen = 0.0
 
     def _forming_is_stable(self, signal) -> bool:
-        """Exige persistência antes de exibir/locutar COMPRA ou VENDA intravela."""
+        """Filtra apenas a locução visual; a decisão real pertence ao controller."""
         if signal.state != SignalState.FORMING or signal.direction == Direction.WAIT:
             self._reset_forming_stability()
             return True
@@ -132,10 +132,10 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             state=SignalState.WAITING,
             entry=None,
             waiting_reasons=[
-                "Pré-leitura intravela ainda oscilando; aguardando direção estabilizar"
+                "Tese de mercado ainda oscilando; aguardando contexto estabilizar"
             ],
             validation_note=(
-                f"Estabilizando pré-sinal: {self._forming_streak}/"
+                f"Estabilizando contexto: {self._forming_streak}/"
                 f"{self.FORMING_STREAK_REQUIRED} leituras na mesma direção"
             ),
         )
@@ -144,7 +144,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
     def render_snapshot(self, snapshot) -> None:
         # O controller.snapshot permanece intacto para histórico/autoexecução.
         super().render_snapshot(self._stable_display_snapshot(snapshot))
-        # Ao receber CONFIRMADO, tenta executar no evento; o timer é redundância.
+        # Ao receber CONFIRMADO por contexto, tenta executar imediatamente.
         self._maybe_execute_auto(snapshot)
 
     def _refresh_recent_signals(self) -> None:
@@ -176,9 +176,6 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         if token != self._analysis_token or context != current or not self._analysis_active:
             return
         self.render_snapshot(snapshot)
-        interval = self._effective_analysis_interval(
-            snapshot.timeframe, self.sensitivity_var.get(),
-        )
         try:
             depth = int(self.controller.analysis_candles())
             management = self.controller.management_mode()
@@ -186,14 +183,14 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         except Exception:
             depth, management, rr = 0, "SL/TP", 1.5
         self.status_var.set(
-            f"MT5 ativo • {snapshot.symbol} • {snapshot.timeframe} • "
+            f"MT5 CONTEXTO CONTÍNUO • {snapshot.symbol} • {snapshot.timeframe} • "
             f"{self.sensitivity_var.get()} • {self.mode_var.get()} • "
             f"{management} • R:R mín 1:{rr:g} • {depth or '—'} candles"
         )
         self._start_crypto_stream(token, context)
 
     def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
-        """Stream MT5: ticks atualizam o gráfico e fechamento recebe prioridade."""
+        """Stream MT5: preço ao vivo e fechamentos atualizam o mesmo contexto."""
         symbol = self.controller.symbol()
         timeframe = self.controller.settings.timeframe
         stop_event = self._stop_event
@@ -229,7 +226,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self._stream_thread.start()
 
     def _queue_closed_analysis(self, candle, token: int, context: tuple[str, str, str]) -> None:
-        """Nunca descarta o fechamento só porque outra análise ainda está rodando."""
+        """Nunca descarta um candle fechado: ele atualiza a estrutura histórica."""
         if self._stop_event.is_set() or token != self._analysis_token:
             return
         self._pending_closed_analysis = candle
@@ -262,9 +259,13 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self.updated_var.set(f"MT5 • PREÇO AO VIVO {datetime.now().strftime('%H:%M:%S')}")
 
     def _auto_signature_for(self, snapshot):
-        candle_key = (
-            snapshot.candles[-1].open_time
-            if snapshot.candles else snapshot.generated_at
+        # O automático identifica a oportunidade confirmada, e não a vela em que
+        # ela aconteceu. Isso evita reintroduzir a lógica de "uma decisão por vela".
+        signal = snapshot.signal
+        created_key = (
+            signal.created_at.isoformat()
+            if getattr(signal, "created_at", None) is not None
+            else snapshot.generated_at.isoformat()
         )
         return (
             snapshot.market,
@@ -274,8 +275,11 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             self.mode_var.get(),
             self.controller.management_mode(),
             int(round(self.controller.minimum_rr() * 100)),
-            candle_key,
-            snapshot.signal.direction.value,
+            signal.direction.value,
+            round(float(signal.entry or 0.0), 8),
+            round(float(signal.technical_stop or 0.0), 8),
+            round(float(signal.technical_target or 0.0), 8),
+            created_key,
         )
 
     def _maybe_execute_auto(self, snapshot) -> None:
@@ -308,12 +312,10 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             return
         attempts += 1
         self._auto_failures[signature] = (attempts, now + self.AUTO_RETRY_SECONDS)
-        # Libera a assinatura para uma nova tentativa controlada, nunca em loop de
-        # 350 ms. Após três falhas o sinal fica bloqueado até a próxima assinatura.
         self._last_auto_signature = None
         if attempts >= self.AUTO_MAX_ATTEMPTS:
             self.status_var.set(
-                "AUTO MT5: 3 tentativas recusadas para este sinal • aguarde o próximo"
+                "AUTO MT5: 3 tentativas recusadas para esta oportunidade • aguarde a próxima"
             )
 
     def _auto_execution_tick(self) -> None:
