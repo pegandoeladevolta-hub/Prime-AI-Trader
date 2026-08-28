@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from .mt5 import MT5ExecutionError, MT5OrderResult
@@ -7,7 +8,65 @@ from .mt5_robust import MT5Bridge as RobustMT5Bridge
 
 
 class MT5Bridge(RobustMT5Bridge):
-    """Ponte robusta com edição de proteção de posições abertas."""
+    """Ponte robusta com fechamento correto de candles e edição de posições."""
+
+    async def stream_candles(self, symbol: str, timeframe: str, callback, stop_event) -> None:
+        """Entrega tanto o candle em formação quanto o fechamento real ao motor.
+
+        A implementação antiga publicava apenas ``candles[-1]``. Na virada do
+        minuto o MT5 já passava a retornar a vela nova em ``[-1]`` e a vela que
+        acabou de fechar ficava em ``[-2]``; por isso o SignalEngine quase nunca
+        recebia ``closed=True`` e permanecia em SINAL EM FORMAÇÃO.
+        """
+        last_current_open = None
+        last_current_signature = None
+        last_closed_emitted = None
+
+        while not stop_event.is_set():
+            try:
+                candles = self.fetch_candles(symbol, timeframe, limit=3)
+                if candles:
+                    current = candles[-1]
+
+                    # Quando nasce uma nova vela, entrega primeiro a vela anterior
+                    # já fechada. Isso é o gatilho de CONFIRMADO e da autoexecução.
+                    if last_current_open is not None and current.open_time != last_current_open:
+                        previous = next(
+                            (
+                                candle for candle in reversed(candles[:-1])
+                                if candle.open_time == last_current_open
+                            ),
+                            None,
+                        )
+                        if (
+                            previous is not None
+                            and previous.closed
+                            and previous.open_time != last_closed_emitted
+                        ):
+                            callback(previous)
+                            last_closed_emitted = previous.open_time
+
+                    signature = (
+                        current.open_time,
+                        current.open,
+                        current.high,
+                        current.low,
+                        current.close,
+                        current.volume,
+                        current.closed,
+                    )
+                    if signature != last_current_signature:
+                        callback(current)
+                        last_current_signature = signature
+                        if current.closed:
+                            last_closed_emitted = current.open_time
+
+                    last_current_open = current.open_time
+
+                await asyncio.sleep(0.50)
+            except Exception:
+                # Mantém o stream vivo em falhas transitórias do terminal.
+                await asyncio.sleep(1.25)
 
     def modify_position_protection(
         self, ticket: int, *, sl: float, tp: float, armed: bool = False,
