@@ -13,6 +13,34 @@ FAST_SCORE_MARGIN = 6
 FAST_MIN_ELAPSED_SECONDS = 4.0
 FAST_MAX_ELAPSED_SECONDS = 45.0
 FAST_ELAPSED_FRACTION = 0.08
+FAST_STREAK_REQUIRED = 3
+FAST_STABLE_SECONDS = 2.0
+
+
+class FastSignalStability:
+    """Estado puro da estabilidade intravela, independente da interface Tkinter."""
+
+    def __init__(self) -> None:
+        self.candidate = None
+        self.streak = 0
+        self.first_seen = 0.0
+
+    def reset(self) -> None:
+        self.candidate = None
+        self.streak = 0
+        self.first_seen = 0.0
+
+    def observe(self, key: tuple, *, now: float | None = None) -> tuple[int, float, bool]:
+        current = time.monotonic() if now is None else float(now)
+        if key != self.candidate:
+            self.candidate = key
+            self.streak = 1
+            self.first_seen = current
+            return self.streak, 0.0, False
+        self.streak += 1
+        stable_for = max(0.0, current - self.first_seen)
+        stable = self.streak >= FAST_STREAK_REQUIRED and stable_for >= FAST_STABLE_SECONDS
+        return self.streak, stable_for, stable
 
 
 def fast_intrabar_gate(
@@ -26,14 +54,7 @@ def fast_intrabar_gate(
     candle_closed: bool,
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Decide se um pré-sinal MT5 pode ser confirmado antes do fechamento.
-
-    A confirmação rápida existe somente para RÁPIDO + PRICE ACTION. O sinal já
-    precisa ter passado todos os filtros do motor-base (estado FORMING sem
-    blockers/waiting), possuir Stop/Alvo e ter margem extra de score. Também
-    exigimos que a vela esteja aberta há tempo suficiente para evitar entrada no
-    primeiro tick do candle.
-    """
+    """Valida se um pré-sinal MT5 já possui qualidade para confirmação intravela."""
     if str(sensitivity or "").upper() != "RÁPIDO":
         return False, "perfil não é RÁPIDO"
     if str(mode or "").upper() != "PRICE ACTION":
@@ -73,36 +94,42 @@ def fast_intrabar_gate(
     if elapsed < minimum_elapsed:
         return False, f"vela aberta há {elapsed:.1f}s; mínimo rápido {minimum_elapsed:.1f}s"
 
-    return True, "pré-sinal estável elegível para confirmação rápida MT5"
+    return True, "pré-sinal elegível para confirmação rápida MT5"
 
 
 class MT5FastTradingController(MT5TradingController):
-    """Controller MT5 com promoção controlada de pré-sinal no perfil RÁPIDO.
+    """Controller MT5 que confirma o perfil rápido no próprio fluxo de dados.
 
-    A análise técnica e a construção do plano SL/TP continuam no motor existente.
-    Esta camada apenas elimina a dependência absoluta do fechamento quando o
-    usuário escolhe explicitamente RÁPIDO + PRICE ACTION.
+    A versão anterior dependia do renderizador da interface para contar leituras
+    consecutivas. O histórico real mostrou sequências de 8-10 pré-sinais com score
+    alto que nunca viravam CONFIRMADO. A estabilidade agora pertence ao controller,
+    portanto funciona mesmo se a interface estiver ocupada ou redesenhando o gráfico.
     """
 
     def __init__(self) -> None:
         self._fast_promoted_candles: set[tuple] = set()
+        self._fast_stability = FastSignalStability()
+        self._last_fast_gate_reason = ""
         super().__init__()
 
-    def _fast_candle_key(self, snapshot) -> tuple | None:
+    @staticmethod
+    def _snapshot_candle(snapshot):
         history = snapshot.history_candles or snapshot.candles
-        if not history:
+        return history[-1] if history else None
+
+    def _fast_candle_key(self, snapshot) -> tuple | None:
+        candle = self._snapshot_candle(snapshot)
+        if candle is None:
             return None
-        candle = history[-1]
         return (snapshot.symbol, snapshot.timeframe, candle.open_time)
 
     def fast_intrabar_status(self, snapshot=None) -> tuple[bool, str]:
         snapshot = snapshot or self.snapshot
         if snapshot is None:
             return False, "sem snapshot"
-        history = snapshot.history_candles or snapshot.candles
-        if not history:
+        candle = self._snapshot_candle(snapshot)
+        if candle is None:
             return False, "sem candles"
-        candle = history[-1]
         key = self._fast_candle_key(snapshot)
         if key in self._fast_promoted_candles:
             return False, "já houve confirmação rápida nesta vela"
@@ -116,21 +143,12 @@ class MT5FastTradingController(MT5TradingController):
             candle_closed=bool(candle.closed),
         )
 
-    def promote_intrabar_confirmation(self, snapshot=None):
-        snapshot = snapshot or self.snapshot
-        eligible, reason = self.fast_intrabar_status(snapshot)
-        if not eligible or snapshot is None:
-            return None
-
-        key = self._fast_candle_key(snapshot)
-        if key is None:
-            return None
+    def _promote_snapshot(self, snapshot, key: tuple):
         signal = snapshot.signal
         now = datetime.now(timezone.utc)
         note = (
-            "Confirmação rápida MT5: direção permaneceu estável em leituras "
-            "consecutivas, score acima do piso rápido e plano de Stop/Alvo válido. "
-            "Não houve espera por expiração nem por fechamento obrigatório."
+            "Confirmação rápida MT5: direção estável em leituras consecutivas, "
+            "score acima do piso rápido e plano de Entrada/SL/TP com R:R válido."
         )
         promoted_signal = replace(
             signal,
@@ -139,11 +157,7 @@ class MT5FastTradingController(MT5TradingController):
             created_at=now,
             validation_note=f"{note} {signal.validation_note}".strip(),
         )
-        promoted_snapshot = replace(
-            snapshot,
-            signal=promoted_signal,
-            generated_at=now,
-        )
+        promoted_snapshot = replace(snapshot, signal=promoted_signal, generated_at=now)
         self.snapshot = promoted_snapshot
         cache_key = (snapshot.market, snapshot.symbol, snapshot.timeframe)
         self._snapshot_cache[cache_key] = (time.monotonic(), promoted_snapshot)
@@ -159,6 +173,7 @@ class MT5FastTradingController(MT5TradingController):
         )
         self._record_decision(promoted_snapshot, signal_id=signal_id)
         self._fast_promoted_candles.add(key)
+        self._fast_stability.reset()
         if len(self._fast_promoted_candles) > 256:
             self._fast_promoted_candles = set(list(self._fast_promoted_candles)[-128:])
         self.logger.info(
@@ -170,5 +185,66 @@ class MT5FastTradingController(MT5TradingController):
         )
         return promoted_snapshot
 
+    def _observe_intrabar(self, snapshot):
+        signal = snapshot.signal
+        candle = self._snapshot_candle(snapshot)
+        if candle is None:
+            self._fast_stability.reset()
+            return snapshot
 
-__all__ = ["MT5FastTradingController", "fast_intrabar_gate"]
+        candle_key = self._fast_candle_key(snapshot)
+        if candle_key in self._fast_promoted_candles:
+            return snapshot
+        if signal.state != SignalState.FORMING or signal.direction == Direction.WAIT:
+            self._fast_stability.reset()
+            return snapshot
+
+        candidate = (*candle_key, signal.direction.value)
+        streak, stable_for, stable = self._fast_stability.observe(candidate)
+        if not stable:
+            self._last_fast_gate_reason = (
+                f"estabilizando {signal.direction.value.lower()}: "
+                f"{streak}/{FAST_STREAK_REQUIRED} leituras, {stable_for:.1f}s"
+            )
+            return snapshot
+
+        eligible, reason = fast_intrabar_gate(
+            signal,
+            sensitivity=self.settings.sensitivity,
+            mode=self.settings.mode,
+            timeframe=snapshot.timeframe,
+            minimum_rr=self.minimum_rr(),
+            candle_open_time=candle.open_time,
+            candle_closed=bool(candle.closed),
+        )
+        self._last_fast_gate_reason = reason
+        if not eligible:
+            return snapshot
+        return self._promote_snapshot(snapshot, candle_key)
+
+    def merge_live_candle(self, candle):
+        snapshot = super().merge_live_candle(candle)
+        if snapshot is None:
+            return None
+        return self._observe_intrabar(snapshot)
+
+    def promote_intrabar_confirmation(self, snapshot=None):
+        """Compatibilidade: promoção manual só ocorre quando o gate já está válido."""
+        snapshot = snapshot or self.snapshot
+        if snapshot is None:
+            return None
+        key = self._fast_candle_key(snapshot)
+        if key is None or key in self._fast_promoted_candles:
+            return None
+        eligible, reason = self.fast_intrabar_status(snapshot)
+        self._last_fast_gate_reason = reason
+        if not eligible:
+            return None
+        return self._promote_snapshot(snapshot, key)
+
+
+__all__ = [
+    "MT5FastTradingController",
+    "FastSignalStability",
+    "fast_intrabar_gate",
+]
