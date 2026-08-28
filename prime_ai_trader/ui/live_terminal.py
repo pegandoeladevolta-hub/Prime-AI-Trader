@@ -136,6 +136,30 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         # CONFIRMADO, tenta executar imediatamente. O timer fica como redundância.
         self._maybe_execute_auto(snapshot)
 
+    def _refresh_recent_signals(self) -> None:
+        """O card Últimos sinais mostra somente a nova etapa MetaTrader 5."""
+        if self._history_refresh_running:
+            return
+        self._history_refresh_running = True
+
+        def worker() -> None:
+            try:
+                rows = self.controller.repository.recent(40)
+                mt5_rows = [
+                    row for row in rows
+                    if str(row.get("platform") or "").upper() == "MT5"
+                ][:3]
+                self._post_ui(self._recent_signals_ready, mt5_rows)
+            except Exception as exc:
+                self.controller.logger.debug(
+                    "Histórico visual MT5 indisponível: %s", exc,
+                )
+                self._post_ui(self._recent_signals_ready, [])
+
+        threading.Thread(
+            target=worker, daemon=True, name="prime-mt5-signal-history-ui",
+        ).start()
+
     def _analysis_ready(self, snapshot, token: int, context: tuple[str, str, str]) -> None:
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
         if token != self._analysis_token or context != current or not self._analysis_active:
