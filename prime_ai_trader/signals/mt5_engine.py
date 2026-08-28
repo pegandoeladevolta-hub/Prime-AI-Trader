@@ -23,12 +23,20 @@ class MT5SignalEngine(SignalEngine):
     def _translate_legacy_text(text: str) -> str:
         return (
             str(text)
-            .replace("antes da expiração", "antes de alcançar o alvo técnico")
+            .replace("antes da expiração", "no curto prazo")
             .replace("para payout", "para o filtro probabilístico")
             .replace("payout de", "parâmetro de retorno de")
             .replace("Expiração", "Gestão")
             .replace("expiração", "gestão")
         )
+
+    @staticmethod
+    def _only_legacy_timing_risk(signal) -> bool:
+        """Detecta quando o único veto veio do horizonte herdado de binárias."""
+        reasons = list(signal.all_waiting_reasons or signal.waiting_reasons or [])
+        if not reasons:
+            return False
+        return all("Risco de reversão no curto prazo" in str(reason) for reason in reasons)
 
     def generate(self, indicators, features, structure, fib, horizon_minutes,
                  sensitivity, candle_closed, blockers=None, mode="CONFIRMAÇÃO",
@@ -50,8 +58,8 @@ class MT5SignalEngine(SignalEngine):
             minimum_rr = 1.5
         minimum_rr = min(5.0, max(0.5, minimum_rr))
         equivalent_return_percent = int(round(minimum_rr * 100))
-        # O horizonte passado ao motor-base serve apenas para filtros locais de
-        # reversão. Para MT5 ele não representa vencimento/fechamento da ordem.
+        # O horizonte passado ao motor-base serve apenas para cálculos legados de
+        # risco local. Ele nunca representa vencimento/fechamento da ordem MT5.
         internal_minutes = max(1, TIMEFRAME_MINUTES.get(timeframe, 1))
         signal = super().generate(
             indicators, features, structure, fib, internal_minutes,
@@ -78,7 +86,30 @@ class MT5SignalEngine(SignalEngine):
             return signal
         management_mode = str(context.get("management_mode") or "SCALP").upper()
 
-        # Se os filtros técnicos ainda mandam aguardar, não fabricamos uma entrada.
+        # No mercado real, uma leitura de reversão calculada pelo antigo horizonte
+        # temporal não pode ser o único motivo para cancelar uma tese. Ela vira um
+        # alerta; estrutura, momentum e principalmente SL/TP continuam decidindo.
+        if signal.direction == Direction.WAIT and not signal.blockers and self._only_legacy_timing_risk(signal):
+            candidate = (
+                Direction.BUY
+                if int(getattr(signal, "buy_score", 0) or 0) >= int(getattr(signal, "sell_score", 0) or 0)
+                else Direction.SELL
+            )
+            timing_warning = signal.waiting_reasons[0] if signal.waiting_reasons else (
+                "Possível reversão no curto prazo; risco considerado na gestão por Stop Loss"
+            )
+            signal.direction = candidate
+            signal.state = SignalState.FORMING
+            signal.waiting_reasons = []
+            signal.all_waiting_reasons = []
+            if timing_warning not in signal.warnings:
+                signal.warnings.append(timing_warning)
+            signal.validation_note = (
+                "O risco temporal legado foi convertido em alerta; a tese MT5 será "
+                "validada por contexto, estrutura e plano SL/TP. " + signal.validation_note
+            ).strip()
+
+        # Se os filtros técnicos reais ainda mandam aguardar, não fabricamos entrada.
         if signal.direction == Direction.WAIT:
             return signal
 
