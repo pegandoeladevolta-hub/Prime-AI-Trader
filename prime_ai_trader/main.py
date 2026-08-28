@@ -4,15 +4,15 @@ import sys
 import tkinter as tk
 from tkinter import messagebox
 
-from .app.mt5_controller import MT5TradingController
+from .app.mt5_fast_controller import MT5FastTradingController
 from .logging_setup import configure_logging
-from .ui.live_terminal_layout import PrimeTraderLiveApp
+from .ui.live_terminal_fast import PrimeTraderLiveApp
 
 
 def main() -> int:
     logger = configure_logging()
     try:
-        controller = MT5TradingController()
+        controller = MT5FastTradingController()
         app = PrimeTraderLiveApp(controller)
         app.mainloop()
         return 0
