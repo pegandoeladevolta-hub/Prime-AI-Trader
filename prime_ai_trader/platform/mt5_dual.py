@@ -10,11 +10,18 @@ from .mt5_positions import MT5Bridge as BaseMT5Bridge
 
 
 class MT5Bridge(BaseMT5Bridge):
-    """Ponte MT5 com seleção explícita de ambiente REAL ou SIMULADOR."""
+    """Ponte MT5 com seleção explícita de ambiente REAL ou SIMULADOR.
+
+    O login pode ser fornecido pelo Prime Trader ao pacote oficial MetaTrader5.
+    A senha nunca é incluída em mensagens, logs ou diagnóstico de erro.
+    """
 
     def __init__(self, terminal_path=None, *, environment: str = REAL) -> None:
         super().__init__(terminal_path)
         self.environment = environment if environment in {REAL, SIMULATOR} else REAL
+        self._login: int | None = None
+        self._password = ""
+        self._server = ""
 
     def set_environment(self, environment: str, terminal_path: str | Path | None = None) -> None:
         if environment not in {REAL, SIMULATOR}:
@@ -23,6 +30,20 @@ class MT5Bridge(BaseMT5Bridge):
             self.disconnect()
         self.environment = environment
         self.terminal_path = str(terminal_path) if terminal_path else None
+
+    def set_credentials(self, *, login: int | None, password: str = "", server: str = "") -> None:
+        """Define credenciais somente em memória para a próxima conexão."""
+        if self.connected:
+            self.disconnect()
+        try:
+            self._login = int(login) if login else None
+        except (TypeError, ValueError):
+            self._login = None
+        self._password = str(password or "")
+        self._server = str(server or "").strip()
+
+    def credentials_configured(self) -> bool:
+        return bool(self._login and self._password and self._server)
 
     @staticmethod
     def _simulator_path(path: Path) -> bool:
@@ -55,6 +76,16 @@ class MT5Bridge(BaseMT5Bridge):
 
         return sorted(paths, key=score)
 
+    def _connection_kwargs(self, candidate: Path | None) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {}
+        if candidate is not None:
+            kwargs["path"] = str(candidate)
+        if self.credentials_configured():
+            kwargs["login"] = int(self._login or 0)
+            kwargs["password"] = self._password
+            kwargs["server"] = self._server
+        return kwargs
+
     def connect(self):
         mt5 = self._module()
         candidates = self.discover_for_environment(self.terminal_path)
@@ -68,10 +99,8 @@ class MT5Bridge(BaseMT5Bridge):
                 mt5.shutdown()
             except Exception:
                 pass
-            kwargs: dict[str, Any] = {}
-            if candidate is not None:
-                kwargs["path"] = str(candidate)
 
+            kwargs = self._connection_kwargs(candidate)
             initialized = bool(mt5.initialize(**kwargs))
             error = mt5.last_error()
             if not initialized and candidate is not None:
@@ -104,6 +133,18 @@ class MT5Bridge(BaseMT5Bridge):
                     pass
                 continue
 
+            actual_login = int(getattr(info, "login", 0) or 0)
+            if self._login and actual_login != int(self._login):
+                mismatch = True
+                attempts.append(
+                    f"{label}: conta {actual_login} autenticada, mas o perfil selecionado espera a conta {self._login}"
+                )
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
+                continue
+
             server = str(getattr(info, "server", "") or "")
             name = str(getattr(info, "name", "") or "")
             detected = classify_account_environment(server, name)
@@ -129,21 +170,23 @@ class MT5Bridge(BaseMT5Bridge):
             wanted = "conta de SIMULAÇÃO/DEMO" if self.environment == SIMULATOR else "conta REAL"
             raise MT5UnavailableError(
                 f"O MT5 abriu, mas a sessão ativa não corresponde ao perfil {self.environment}.\n\n"
-                f"Entre no terminal com uma {wanted} da Clear e tente novamente.\n\nDiagnóstico:\n{details}"
+                f"O Prime Trader tentou entrar automaticamente na {wanted} cadastrada. "
+                "Confira LOGIN, SERVIDOR e SENHA em CONTAS / LOGIN MT5.\n\n"
+                f"Diagnóstico:\n{details}"
             )
         if auth_failed or any("sem conta autenticada" in item for item in attempts):
             hint = (
-                "Ative/contrate o MetaTrader 5 (Simulador) na Clear e use o login do SIMULADOR."
+                "Confira se o MetaTrader 5 (Simulador) está ativo na Clear e se LOGIN/SENHA/SERVIDOR DEMO estão corretos."
                 if self.environment == SIMULATOR
-                else "Use o login da conta REAL habilitada para MetaTrader 5 na Clear."
+                else "Confira se o MetaTrader 5 real está ativo na Clear e se LOGIN/SENHA/SERVIDOR REAL estão corretos."
             )
             raise MT5UnavailableError(
-                f"O terminal do perfil {self.environment} foi localizado, mas a sessão não está autorizada.\n\n"
-                f"{hint}\nO Prime Trader não armazena sua senha.\n\nDiagnóstico:\n{details}"
+                f"Não foi possível autenticar automaticamente o perfil {self.environment}.\n\n"
+                f"{hint}\n\nDiagnóstico:\n{details}"
             )
         raise MT5UnavailableError(
             f"Não foi possível conectar ao perfil {self.environment}.\n\n"
-            "Selecione manualmente o terminal64.exe correspondente e tente novamente.\n\n"
+            "Selecione manualmente o terminal64.exe correspondente e confira as credenciais cadastradas.\n\n"
             f"Diagnóstico:\n{details}"
         )
 
