@@ -25,8 +25,17 @@ class MT5AdaptiveTradingController(MT5MarketTradingController):
         self._effective_analysis_candles = 0
         self._analysis_reduced_warning = ""
 
-    def configure_mt5_profile(self, environment: str, terminal_path: str = "") -> None:
+    def configure_mt5_profile(
+        self,
+        environment: str,
+        terminal_path: str = "",
+        *,
+        login: int | None = None,
+        password: str = "",
+        server: str = "",
+    ) -> None:
         self.mt5.set_environment(environment, terminal_path or None)
+        self.mt5.set_credentials(login=login, password=password, server=server)
         self.settings.mt5_terminal_path = str(terminal_path or "")
 
     def connect_mt5(self):
