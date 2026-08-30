@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from prime_ai_trader.app.mt5_credentials import MT5CredentialStore
 from prime_ai_trader.app.mt5_profiles import REAL, SIMULATOR
-from prime_ai_trader.platform.mt5_dual import MT5Bridge
+from prime_ai_trader.platform.mt5_dual import MT5Bridge, MT5ProfileMismatchError
 
 
 class MemorySecretStore:
@@ -116,6 +116,21 @@ class AutoLoginBridgeTests(unittest.TestCase):
         self.assertEqual(account.login, 987654)
         self.assertTrue(bridge.connected)
         self.assertEqual(fake.calls[0]["server"], "ClearInvestimentos-DEMO")
+
+    def test_profile_mismatch_exposes_safe_account_choice_context(self) -> None:
+        bridge = MT5Bridge(environment=REAL)
+        fake = FakeMT5Module(login=987654, server="ClearInvestimentos-DEMO")
+        bridge._mt5 = fake
+        terminal = Path(r"C:\Clear\terminal64.exe")
+        with patch.object(bridge, "discover_for_environment", return_value=[terminal]):
+            with self.assertRaises(MT5ProfileMismatchError) as captured:
+                bridge.connect()
+        error = captured.exception
+        self.assertEqual(error.expected_environment, REAL)
+        self.assertEqual(error.detected_environment, SIMULATOR)
+        self.assertEqual(error.detected_login, 987654)
+        self.assertFalse(error.credentials_configured)
+        self.assertNotIn("password", str(error).lower())
 
 
 if __name__ == "__main__":

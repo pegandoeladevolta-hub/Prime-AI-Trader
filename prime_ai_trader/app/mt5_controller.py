@@ -186,7 +186,7 @@ class MT5TradingController(TradingController):
         context = super().model_context()
         lookahead = label_lookahead_bars(self.management_mode())
         timeframe_minutes = _TIMEFRAME_MINUTES.get(self.settings.timeframe, 1)
-        # Este campo existe apenas porque o validador 1.2.6 usa horizon_minutes
+        # Este campo existe apenas porque o validador legado usa horizon_minutes
         # para calcular a purga entre treino/teste. Não representa expiração real.
         context["horizon_minutes"] = lookahead * timeframe_minutes
         context["execution_profile"] = self.settings.mt5_execution_profile

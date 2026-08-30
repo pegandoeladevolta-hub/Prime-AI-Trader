@@ -11,6 +11,8 @@ class DailyLimitStatus:
     operations: int
     profit_target: float
     stop_loss: float
+    consecutive_losses: int = 0
+    consecutive_loss_limit: int = 0
     reason: str = ""
 
 
@@ -25,6 +27,7 @@ def _local_date(value: str) -> object | None:
 
 
 def evaluate_daily_limits(journal, *, profit_target: float, stop_loss: float,
+                          max_consecutive_losses: int = 0,
                           now: datetime | None = None) -> DailyLimitStatus:
     """Avalia somente P/L realizado das operações do Prime Trader no dia local.
 
@@ -39,6 +42,7 @@ def evaluate_daily_limits(journal, *, profit_target: float, stop_loss: float,
     day = current.date()
     target = max(0.0, float(profit_target or 0.0))
     stop = max(0.0, float(stop_loss or 0.0))
+    streak_limit = min(20, max(0, int(max_consecutive_losses or 0)))
 
     rows = journal.recent(100000)
     today = [
@@ -48,18 +52,37 @@ def evaluate_daily_limits(journal, *, profit_target: float, stop_loss: float,
         and _local_date(str(row.get("closed_at"))) == day
     ]
     net = sum(float(row.get("net_profit") or 0.0) for row in today)
+    # recent() devolve as operações mais novas primeiro. Uma operação positiva
+    # ou empatada encerra a sequência de perdas; operações abertas nem entram.
+    consecutive_losses = 0
+    for row in today:
+        if float(row.get("net_profit") or 0.0) < 0:
+            consecutive_losses += 1
+            continue
+        break
 
     if target > 0 and net >= target:
         return DailyLimitStatus(
             True, net, len(today), target, stop,
+            consecutive_losses, streak_limit,
             f"META DIÁRIA ATINGIDA • resultado do dia {net:+.2f} • meta {target:.2f}",
         )
     if stop > 0 and net <= -stop:
         return DailyLimitStatus(
             True, net, len(today), target, stop,
+            consecutive_losses, streak_limit,
             f"STOP DIÁRIO ATINGIDO • resultado do dia {net:+.2f} • limite -{stop:.2f}",
         )
-    return DailyLimitStatus(False, net, len(today), target, stop, "")
+    if streak_limit > 0 and consecutive_losses >= streak_limit:
+        return DailyLimitStatus(
+            True, net, len(today), target, stop,
+            consecutive_losses, streak_limit,
+            f"PAUSA POR LOSSES • {consecutive_losses} perdas consecutivas no dia",
+        )
+    return DailyLimitStatus(
+        False, net, len(today), target, stop,
+        consecutive_losses, streak_limit, "",
+    )
 
 
 __all__ = ["DailyLimitStatus", "evaluate_daily_limits"]

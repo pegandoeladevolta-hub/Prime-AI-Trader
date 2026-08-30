@@ -1,3 +1,3 @@
-"""PRIME AI TRADER - assistente quantitativo desktop."""
+"""PRIME TRADER - terminal analítico e operacional para MetaTrader 5."""
 
-__version__ = "1.2.6"
+__version__ = "1.3.1"

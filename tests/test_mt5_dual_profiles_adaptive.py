@@ -16,11 +16,15 @@ class MT5ProfileStoreTests(unittest.TestCase):
             store = MT5ProfileStore(Path(tmp) / "profiles.json")
             store.set_terminal_path(r"C:\ClearReal\terminal64.exe", REAL)
             store.set_daily_limits(300, 120, REAL)
+            store.set_consecutive_loss_limit(2, REAL)
             store.set_terminal_path(r"C:\ClearSimulador\terminal64.exe", SIMULATOR)
             store.set_daily_limits(800, 350, SIMULATOR)
+            store.set_consecutive_loss_limit(4, SIMULATOR)
             self.assertNotEqual(store.terminal_path(REAL), store.terminal_path(SIMULATOR))
             self.assertEqual(store.daily_limits(REAL), (300.0, 120.0))
             self.assertEqual(store.daily_limits(SIMULATOR), (800.0, 350.0))
+            self.assertEqual(store.consecutive_loss_limit(REAL), 2)
+            self.assertEqual(store.consecutive_loss_limit(SIMULATOR), 4)
             self.assertNotEqual(store.journal_path(REAL), store.journal_path(SIMULATOR))
 
     def test_server_classification(self) -> None:

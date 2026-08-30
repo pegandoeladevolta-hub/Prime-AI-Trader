@@ -35,6 +35,9 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
         self.daily_stop_loss_var = tk.StringVar(
             master=self, value=f"{float(settings.mt5_daily_stop_loss or 0):g}"
         )
+        self.consecutive_loss_limit_var = tk.StringVar(
+            master=self, value=str(int(settings.mt5_max_consecutive_losses or 0))
+        )
         self.daily_result_var = tk.StringVar(master=self, value="Resultado de hoje: —")
         path = str(settings.mt5_terminal_path or "").strip()
         self.mt5_terminal_display_var = tk.StringVar(
@@ -100,14 +103,25 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
         ).pack(fill="x", ipady=5, pady=(2, 0))
 
         tk.Label(
+            card, text="PARAR APÓS LOSSES SEGUIDOS", bg="#0f1619", fg="#7b898f",
+            font=("Segoe UI Semibold", 7),
+        ).pack(anchor="w", padx=11, pady=(7, 0))
+        tk.Entry(
+            card, textvariable=self.consecutive_loss_limit_var,
+            bg="#11171a", fg="#eef2f4", insertbackground="white",
+            relief="flat", bd=0, highlightthickness=1,
+            highlightbackground="#202a2f", font=("Segoe UI", 9),
+        ).pack(fill="x", padx=11, ipady=5, pady=(2, 0))
+
+        tk.Label(
             card,
-            text="0 = desativado • usa P/L líquido realizado das operações do Prime Trader no dia",
+            text="0 = desativado • o padrão é parar após 2 losses seguidos • usa apenas resultados realizados do dia",
             bg="#0f1619", fg="#66757c", font=("Segoe UI", 7),
             wraplength=252, justify="left",
         ).pack(anchor="w", padx=11, pady=(5, 7))
         tk.Button(
             card,
-            text="SALVAR META / STOP DO DIA",
+            text="SALVAR LIMITES DO DIA",
             command=self._daily_limits_changed,
             bd=0, relief="flat", bg="#195e78", fg="white",
             activebackground="#21789a", activeforeground="white",
@@ -169,6 +183,7 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
             self.mt5_journal,
             profit_target=float(settings.mt5_daily_profit_target or 0.0),
             stop_loss=float(settings.mt5_daily_stop_loss or 0.0),
+            max_consecutive_losses=int(settings.mt5_max_consecutive_losses or 0),
         )
 
     def _refresh_daily_limit_view(self):
@@ -182,9 +197,14 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
             f"{currency} {status.stop_loss:,.2f}"
             if status.stop_loss > 0 else "DESATIVADO"
         )
+        streak_limit = (
+            str(status.consecutive_loss_limit)
+            if status.consecutive_loss_limit > 0 else "DESATIVADO"
+        )
         self.daily_result_var.set(
             f"HOJE: {currency} {status.net_profit:+,.2f} • {status.operations} encerrada(s)\n"
-            f"META: {target} • STOP: {stop}"
+            f"META: {target} • STOP: {stop}\n"
+            f"LOSSES SEGUIDOS: {status.consecutive_losses}/{streak_limit}"
         )
         if hasattr(self, "daily_result_label"):
             self.daily_result_label.configure(fg="#e14b3f" if status.blocked else "#14d8a7")
@@ -194,7 +214,7 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
         self._last_daily_limit_state = state
         if status.blocked and state != previous:
             self.status_var.set(
-                f"SESSÃO AUTOMÁTICA PARADA • {status.reason} • altere manualmente META/STOP para liberar"
+                f"NOVAS ORDENS BLOQUEADAS • {status.reason} • ajuste os limites para liberar"
             )
         elif previous and previous[0] and not status.blocked:
             self.status_var.set(
@@ -211,7 +231,7 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
             return True
         message = (
             f"{status.reason}\n\nNenhuma nova ordem será enviada pelo Prime Trader hoje. "
-            "Para continuar, altere manualmente a META DIÁRIA ou o STOP DIÁRIO."
+            "Para continuar, altere manualmente os limites do dia."
         )
         self.status_var.set(f"SESSÃO PARADA • {status.reason}")
         if show_dialog:
@@ -222,21 +242,24 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
         try:
             target = float(self.daily_profit_target_var.get().replace(",", ".") or 0)
             stop = float(self.daily_stop_loss_var.get().replace(",", ".") or 0)
-            if target < 0 or stop < 0:
+            streak_limit = int(self.consecutive_loss_limit_var.get().strip() or 0)
+            if target < 0 or stop < 0 or not 0 <= streak_limit <= 20:
                 raise ValueError
         except ValueError:
             messagebox.showerror(
                 "Limites do dia",
-                "Informe valores maiores ou iguais a zero. Use 0 para desativar um limite.",
+                "Informe valores maiores ou iguais a zero. Losses seguidos deve ficar entre 0 e 20. Use 0 para desativar.",
                 parent=self,
             )
             return
         settings = self.controller.settings
         settings.mt5_daily_profit_target = target
         settings.mt5_daily_stop_loss = stop
+        settings.mt5_max_consecutive_losses = streak_limit
         self.controller.save_settings()
         self.daily_profit_target_var.set(f"{target:g}")
         self.daily_stop_loss_var.set(f"{stop:g}")
+        self.consecutive_loss_limit_var.set(str(streak_limit))
         status = self._refresh_daily_limit_view()
         if status.blocked:
             self.status_var.set(
@@ -244,7 +267,7 @@ class PrimeTraderLiveApp(GuardedPrimeTraderLiveApp):
             )
         else:
             self.status_var.set(
-                "META / STOP DIÁRIO SALVOS • automático liberado dentro dos novos limites"
+                "LIMITES DO DIA SALVOS • automático liberado dentro das novas travas"
             )
 
     def _select_mt5_terminal(self) -> None:

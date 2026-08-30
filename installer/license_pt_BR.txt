@@ -1,21 +1,21 @@
-PRIME AI TRADER — TERMOS DE USO E AVISO DE RISCO
+PRIME TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 1.2.6
+Versão 1.3.1
 
-1. O PRIME AI TRADER é um assistente de análise. O modo automático é exclusivamente uma simulação local: ele não executa ordens reais e não substitui orientação financeira profissional.
+1. O PRIME TRADER é um terminal analítico que pode se conectar ao MetaTrader 5. Ele não substitui orientação financeira profissional e nenhuma função garante lucro, taxa de acerto ou alcance de meta diária.
 
-2. Mercados de criptomoedas e Forex envolvem risco elevado. O usuário é integralmente responsável por validar os dados, decidir se deseja operar e definir sua gestão de risco.
+2. A conta Demo pode executar automaticamente depois de armada pelo usuário. Nesta versão, toda ordem na conta Real exige confirmação manual. Antes de confirmar, o usuário deve revisar ativo, direção, lote, Entrada, Stop Loss, Take Profit, conta e saldo.
 
-3. Sinais, scores, backtests e estatísticas não garantem resultado futuro. Perdas, inclusive perda integral do capital, podem ocorrer.
+3. A meta diária, o stop monetário e a trava de perdas consecutivas impedem novas ordens depois de atingidos. Eles não encerram antecipadamente posição aberta, não obrigam novas operações e não eliminam o risco de ultrapassagem por slippage, gap, custos ou falha de conexão.
 
-4. Dados de mercado e notícias dependem de provedores externos. A disponibilidade, latência e precisão desses dados não são controladas pelo aplicativo.
+4. O usuário é responsável pela conta, pelas ordens confirmadas e pela gestão de risco. Operações financeiras podem causar perda parcial ou integral do capital.
 
-5. As chaves de API informadas pelo usuário são armazenadas localmente com a proteção disponibilizada pelo Windows. Não informe chaves com permissão de saque ou execução de ordens, pois esta versão não precisa delas.
+5. Sinais, scores, notícias, modelos e backtests podem estar errados ou atrasados. Desempenho passado não garante resultado futuro.
 
-6. O software é fornecido no estado em que se encontra, acompanhado de logs e resultados auditáveis. Nenhuma taxa de acerto fixa é prometida.
+6. Login, servidor e senha do MT5 podem ser salvos localmente. No Windows, os segredos são protegidos por DPAPI para o usuário do computador. O usuário deve manter o Windows protegido e nunca compartilhar o arquivo de segredos.
 
-7. A sincronização opcional com plataformas é somente visual e local. Ela não solicita senha, não lê cookies/tokens/saldo/carteira, não clica em compra ou venda e não executa operações. Valor, stop e meta da sessão automática controlam apenas os resultados simulados.
+7. O PRIME TRADER usa a instalação oficial do MetaTrader 5 e a sessão da corretora. Disponibilidade, autenticação, cotações, execução, slippage e histórico dependem do terminal, do servidor e da corretora.
 
-8. A BullEx permanece desabilitada por padrão. A CVM publicou alerta informando que Digital Smart LLC/BULLEX não possui autorização para intermediar valores mobiliários ou captar recursos de investidores no Brasil (Ato Declaratório CVM 23.539). O aplicativo não promove depósitos nem contorna restrições legais.
+8. O software é fornecido no estado em que se encontra, com mecanismos de auditoria e testes, mas sem garantia de funcionamento ininterrupto ou adequação a um objetivo financeiro específico.
 
 Ao prosseguir com a instalação, o usuário declara que leu e aceitou estes termos.

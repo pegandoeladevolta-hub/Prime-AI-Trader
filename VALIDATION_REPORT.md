@@ -1,76 +1,42 @@
-# Relatório de validação — PRIME AI TRADER 1.2.6
+# Relatório de validação — PRIME TRADER 1.3.1
 
-Data: 26/08/2026
+Data: 30/08/2026
 
-## Auditoria concluída
-
-| Área | Verificação |
-|---|---|
-| Interface | Layout aprovado e cartão de voz compacto preservados; seletor VEX/BULLEX e registro manual foram adicionados sem remover ações. |
-| Smoke test Windows | A interface completa é instanciada em Windows; plataformas, áudio, indicadores, controles e timeframes são conferidos. |
-| VEX Invest | Navegador dedicado, perfil separado, endpoint loopback e leitura somente de ativo, payout, preço, expiração e tempo visíveis. |
-| BullEx | Opt-in, perfil separado, hosts permitidos, alerta CVM obrigatório e mesma leitura visual sem execução. |
-| Privacidade | Sem leitura de senha, cookies, armazenamento local, saldo, campos digitados ou execução de ordens. |
-| Alinhamento | Divergência de ativo, mercado, preço público, ativos OTC e vencimento nos segundos finais recebe motivo explícito antes de qualquer sinal. |
-| Preço VEX | Somente o preço realmente visível atualiza a vela corrente; histórico público, volume real e fechamento confirmado são preservados. |
-| Cronômetro | Usa relógio real visível na VEX ou criação original do sinal; atualizar gráfico/notícias não reinicia o vencimento. |
-| IA | Contexto completo por mercado/ativo/timeframe/expiração/estratégia/sensibilidade/modo/schema e seleção fora da amostra; saída bruta não é expectativa financeira calibrada. |
-| Schema profissional | Features causais estruturais, microtendência, order flow, direção principal, correção e retomada; schema 9 exige novo treinamento por contexto. |
-| Validação temporal | Walk-forward sem random split e com purga conforme o horizonte do rótulo. |
-| Sinais | BOS, CHOCH, pullback realmente confirmado, divergências, rompimento/reteste, liquidez, proteção de reversão e padrões de uma, duas e três velas. |
-| Pullback incompleto | Não vira confluência positiva; não confirma em M1/M3 e permanece bloqueado no modo Confirmação em todos os timeframes. |
-| Pullback invertido | Tendência principal e direção temporária da correção são separadas; EMA 9 não inverte um pullback, e compra/venda possuem testes espelhados. |
-| Retomada | Corpo, posição de fechamento, recuperação ATR, momentum e rejeição contrária qualificam a volta na direção principal. |
-| Reversão real | CHOCH confirmado ou perda relevante da EMA 50 invalida a hipótese de pullback sem bloquear uma mudança estrutural legítima. |
-| Reversão iminente | Fechamentos, MACD/RSI, rejeição, perda da EMA 9, divergência e agressão real são votos independentes e simétricos para compra/venda. |
-| Padrões de candles | Doji, spinning top, pin bars, marubozu, engolfos, perfuração/nuvem, harami, inside/outside, tweezers, estrelas e sequências de três velas; somente candle fechado confirma. |
-| Regime | Alta, baixa, transição, lateralização, compressão e exaustão usam tratamento distinto; correção profunda e preço sem espaço são explicitamente recusados. |
-| Timeframes | Políticas próprias para 1m, 3m, 5m, 15m, 30m, 1h e 4h em todos os perfis e modos; atualização incremental calibrada. |
-| Janela ao vivo | Exatamente 200 candles analíticos; a vela aberta fica apenas no gráfico e exige um 201º registro para preservar 200 fechados. Até 2.000 candles permanecem separados para treino/backtest. |
-| Stop/alvo | Invalidação e alvo técnicos simétricos por ATR, pivôs, timeframe, expiração e S/R; referências visuais sem execução de ordens. |
-| Suporte/resistência | Até dois níveis úteis de cada lado no gráfico, selecionados por distância, força e recência; análise interna preservada. |
-| Mudança de tendência | Contraestrutura exige CHOCH ou regime recente estável com eficiência ≥ 0,60 e três votos de momentum. |
-| Perfis | Conservador 86/5/ADX20, equilibrado 73/4/ADX15, rápido 57/2/ADX10; os nove cruzamentos com Price Action/Confirmação/Quantitativo possuem políticas progressivas explícitas. |
-| Cobertura | Matriz determinística mantém cobertura progressiva sem exigir que sinais com pullback incompleto sejam aprovados para atingir uma meta artificial. |
-| Referência 0.9.0 | O SHA-256 do instalador anexado coincide com o build oficial do commit `a16d551d`; cobertura e filtros foram comparados diretamente com esse código-fonte. |
-| Fechamento incremental | A primeira cotação de uma nova vela fecha a anterior no histórico Forex; a vela aberta permanece somente no gráfico durante a decisão inicial. |
-| Timing | Janela máxima de 8 a 12 segundos; confirmação nova pela vela fechada pode apontar para o próximo ciclo ainda não reiniciado visualmente. Sinal antigo, preço contrário, stop atingido e entrada realmente tardia continuam inválidos. |
-| Áudio | Pré-sinal somente com autorização explícita; sinais confirmados têm prioridade, avisos informativos ficam silenciosos e bloqueios reais têm cooldown de 300 segundos. |
-| Backtest | Walk-forward com filtros de extensão, eficiência, compressão, reversão, microtendência, momentum, fluxo validado, payout, equilíbrio, expectativa e Wilson. |
-| Estatísticas | WIN/LOSS/DRAW, payout, entrada, P&L, profit factor financeiro, equilíbrio, expectativa, Wilson e origem manual/inferida. |
-| Cripto | Binance pública com espelhos oficiais e fallback Coinbase/Kraken; taker buy ausente nunca é confundido com 100% de força vendedora. |
-| Forex | Sem volume centralizado fictício; sessões IANA/DST, ATR por par, cotação/atraso/spread quando disponíveis e referência diária separada. |
-| Notícias | GDELT, Google Notícias, Cointelegraph, CoinDesk, FXStreet e ForexLive; filtro por relevância do ativo, resumo auditável de sentimento/risco/fontes/idade e atualização a cada 60 segundos. |
-| Simulação automática | Valor, stop e meta editáveis; posições simuladas separadas por plataforma `SIMULAÇÃO`; nenhuma nova posição após o limite, sem ocultar sinais manuais. |
-| Calendário | Eventos econômicos públicos com cache de uma hora e Finnhub opcional. |
-| Gráfico | Entrada/stop/alvo, S1/S2/R1/R2, menos pivôs, redesenho parcial da última vela, crosshair e precisão cambial. |
-| Últimos sinais | Leitura real do banco em thread dedicada; sem operações inventadas e sem bloquear o Tkinter. |
-| SQLite / Windows | Conexões fechadas após cada operação, arquivos liberados e diretório temporário de testes corretamente isolado. |
-| Histórico completo | Alterações de configuração, análises, aguardar, sinais, pullback, indicadores, features, velas e resultados recebem registros locais auditáveis. |
-| Excel | Sete abas reais, filtros, indicadores, velas e resumo financeiro; resultados manuais e inferidos são separados e fórmulas externas são neutralizadas. |
-| Privacidade do histórico | Nenhuma senha, chave de API, cookie, token ou saldo é persistido na auditoria ou exportado. |
-| Build seguro | Pillow, testes, compileall, import completo do Tkinter e verificação do código de saída antes do Inno Setup. |
-| Limpeza | Cache/modelos antigos removíveis pelo app, instalador e arquivo externo, sem excluir chaves/configurações/banco. |
-
-## Testes executados
+## Resultado local
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado local: **344 testes aprovados, 0 falhas; 1 smoke test reservado para Windows**.
+- Resultado: **406 testes aprovados, zero falhas; 1 smoke test visual reservado para Windows**.
+- Total descoberto: **407 testes**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
-- A suíte completa é repetida pelo GitHub Actions em Windows antes de empacotar o instalador.
+- O GitHub Actions repetirá a suíte completa em Windows antes de executar PyInstaller e Inno Setup.
 
-Os testes cobrem indicadores, BOS/CHOCH, pullbacks invertidos, correção versus tendência, retomadas, histórico completo, Excel, origem manual/inferida, proteção contra fórmulas, privacidade, virada simétrica, fluxo taker ausente, invalidação, vencimento, áudio, M1, janela de 200 candles analíticos, relevância noticiosa por ativo, limites da simulação, níveis técnicos, biblioteca causal, purga, modelos separados, backtest, payout, SQLite, VEX/BullEx, loopback, providers, interface e instalador.
+## Matriz validada
 
-Na matriz determinística atual de vinte cenários com modelo alinhado, Price Action produz 4/3/3 leituras, Confirmação 3/3/3 e Quantitativo 3/3/2, respectivamente nos perfis rápido/equilibrado/conservador. Antes da auditoria, sete das dez leituras rápidas de Confirmação continham pullback explicitamente não confirmado. A remoção dessas falsas confirmações preserva a ordem Rápido ≥ Equilibrado ≥ Conservador e a cobertura positiva. Essa matriz mede regressão e segurança, não taxa de acerto futura, desempenho financeiro ou promessa de lucro.
+| Área | Evidência verificada |
+|---|---|
+| Conta selecionada | Botões Real/Demo, seletor e perfil persistente apontam para o mesmo ambiente. |
+| Separação | Terminal, credenciais, diário e limites são independentes entre Clear Real e Clear Simulador. |
+| Erro da captura | Uma sessão MT5 no ambiente oposto gera erro tipado e oferece trocar para a conta detectada, revisar credenciais ou cancelar. |
+| Autenticação | Login e servidor são aplicados ao perfil correto; senha não aparece no diagnóstico. |
+| Proteção de senha | Credenciais são protegidas por DPAPI no Windows e vinculadas ao usuário local. |
+| Conta Demo | Modo automático continua disponível após armar a execução. |
+| Conta Real | Automático é convertido em execução sob comando; uma segunda trava impede passagem direta pelo motor. |
+| SL/TP adaptativos | ATR, pivôs, estrutura, zonas opostas e R:R mínimo geram plano simétrico de compra/venda. |
+| Plano inviável | A entrada é recusada quando suporte/resistência não deixa espaço para o retorno mínimo. |
+| Meta e stop | P/L realizado do dia bloqueia novas ordens ao atingir os limites configurados. |
+| Losses consecutivos | Duas perdas encerradas seguidas bloqueiam nova entrada; win/draw encerra a sequência; zero desativa a trava. |
+| Separação de risco | Meta, stop e quantidade de losses ficam independentes em Real e Demo. |
+| Diário | Posições e deals do PRIME TRADER são reconciliados com o MT5 e mantidos por conta. |
+| Versão Windows | Pacote Python, executável e instalador usam a versão 1.3.1 de forma consistente. |
 
 ## Interpretação correta
 
-Indecisão isolada dentro de tendência alinhada ainda pode virar aviso nos perfis compatíveis, desde que não exista pullback incompleto ou múltiplas evidências causais de reversão. Lateralização, conflito estrutural, candle aberto, fonte atrasada, retração profunda, invalidação de preço e vencimento tardio continuam impedindo confirmação. Menos sinais não significa precisão garantida: a evidência válida continua sendo backtest fora da amostra e histórico manual por ativo, timeframe, expiração, payout, sensibilidade e modo.
+A meta diária funciona somente como circuito de parada. O programa não pode prometer alcançá-la e não cria uma entrada quando a estrutura ou o R:R são inadequados. Depois de uma trava diária, os sinais continuam aparecendo para auditoria, mas nenhuma nova ordem é enviada pelo PRIME TRADER.
 
-## Empacotamento
+O resultado válido da conta vem dos deals realizados no MT5. Resultado flutuante não é contado como lucro/prejuízo encerrado e não fecha antecipadamente uma posição que já possui SL/TP.
 
-`build_windows.ps1` repete os testes, cria `PrimeAITrader.exe`, compila `PrimeAITrader-Setup-x64.exe` e publica o artefato somente após sucesso.
+## Empacotamento pendente
 
-Identificador do candidato validado: `1.2.6`.
+`build_windows.ps1` repetirá os testes, validará Tkinter, criará `PrimeAITrader.exe` e compilará `PrimeTrader-Setup-x64.exe`. Este relatório não declara o instalador aprovado até o runner Windows concluir com sucesso.
 
-O candidato Windows deve repetir obrigatoriamente os 345 testes (344 locais + smoke visual Windows), validar o Tkinter completo e somente então gerar os dois executáveis com Inno Setup.
+Identificador do candidato: `1.3.1`.

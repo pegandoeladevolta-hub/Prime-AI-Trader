@@ -1,5 +1,22 @@
 # Release notes
 
+## 1.3.1 — 30/08/2026
+
+### Contas Clear Real e Demo
+
+- Adiciona botões diretos **CONTA REAL** e **CONTA DEMO**, com caminho do terminal, credenciais, histórico e limites financeiros independentes por ambiente.
+- Corrige o erro em que o PRIME TRADER esperava a conta Real enquanto o MT5 estava autenticado no Simulador: agora o diálogo permite trocar para a sessão detectada, revisar o cadastro ou cancelar.
+- Login, servidor e senha das duas contas podem ser cadastrados uma vez; no Windows, as senhas permanecem protegidas por DPAPI e nunca entram em logs ou mensagens de erro.
+- O login automático continua usando o terminal oficial do MT5. O PRIME TRADER não altera arquivos internos nem substitui a autenticação da corretora.
+
+### Execução e gestão de risco
+
+- A conta **Demo** permite execução automática depois que o usuário arma a sessão. A conta **Real** exige confirmação manual para cada ordem, inclusive se uma configuração antiga tentar restaurar o modo automático.
+- Entrada, SL e TP automáticos vêm do plano técnico adaptativo existente: ATR, pivôs, suporte/resistência, gestão Scalp/Intraday e R:R mínimo. Uma meta diária nunca força trade, aumento de lote ou alvo artificial.
+- Meta diária e stop monetário bloqueiam novas ordens pelo resultado realizado. Nova trava, configurada por padrão em 2, interrompe entradas depois de duas perdas consecutivas no dia; `0` desativa essa regra.
+- Os limites são separados entre Real e Demo. A análise e os sinais continuam visíveis quando a execução está bloqueada.
+- Validação local: 406 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.2.6 — 26/08/2026
 
 ### Contexto do ativo e 200 candles analíticos

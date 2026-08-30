@@ -236,7 +236,7 @@ class PrimeTraderLiveApp(BasePrimeTraderLiveApp):
 
         tk.Checkbutton(
             section,
-            text="ARMAR ORDENS REAIS",
+            text="ARMAR ENVIO DE ORDENS",
             variable=self.mt5_armed,
             command=self._arm_changed,
             bg="#0b0f12",

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from prime_ai_trader.config.settings import app_data_dir
 from prime_ai_trader.database.repository import Repository
+from prime_ai_trader import __version__
 
 
 class WindowsReliabilityTests(unittest.TestCase):
@@ -58,6 +59,16 @@ class WindowsReliabilityTests(unittest.TestCase):
         self.assertIn("from tkinter import filedialog, messagebox, ttk", script)
         self.assertIn('"tkinter.filedialog"', spec)
         self.assertNotIn("setup_entry.py", (root / "installer" / "PrimeAITrader.iss").read_text(encoding="utf-8"))
+
+    def test_product_version_is_consistent_across_windows_artifacts(self) -> None:
+        root = Path(__file__).parents[1]
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+        installer = (root / "installer" / "PrimeAITrader.iss").read_text(encoding="utf-8")
+        version_info = (root / "version_info.txt").read_text(encoding="utf-8")
+        self.assertIn(f'version = "{__version__}"', pyproject)
+        self.assertIn(f'#define MyAppVersion "{__version__}"', installer)
+        self.assertIn(f"StringStruct('FileVersion', '{__version__}')", version_info)
+        self.assertIn(f"StringStruct('ProductVersion', '{__version__}')", version_info)
 
 
 if __name__ == "__main__":

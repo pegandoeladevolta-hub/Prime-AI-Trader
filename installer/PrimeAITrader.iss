@@ -1,5 +1,5 @@
 #define MyAppName "PRIME TRADER"
-#define MyAppVersion "1.2.6"
+#define MyAppVersion "1.3.1"
 #define MyAppPublisher "PRIME"
 #define MyAppExeName "PrimeAITrader.exe"
 
@@ -9,7 +9,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-; Mantém a pasta histórica para atualização in-place da base 1.2.6.
+; Mantém a pasta histórica para atualização in-place das versões anteriores.
 DefaultDirName={autopf}\PrimeAITrader
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes

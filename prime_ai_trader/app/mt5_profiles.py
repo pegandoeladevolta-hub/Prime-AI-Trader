@@ -19,8 +19,10 @@ class MT5ProfilesConfig:
     simulator_terminal_path: str = ""
     real_daily_profit_target: float = 0.0
     real_daily_stop_loss: float = 0.0
+    real_max_consecutive_losses: int = 2
     simulator_daily_profit_target: float = 0.0
     simulator_daily_stop_loss: float = 0.0
+    simulator_max_consecutive_losses: int = 2
     migrated_legacy_limits: bool = False
 
 
@@ -50,6 +52,11 @@ class MT5ProfileStore:
                 setattr(config, name, max(0.0, float(getattr(config, name))))
             except (TypeError, ValueError):
                 setattr(config, name, 0.0)
+        for name in ("real_max_consecutive_losses", "simulator_max_consecutive_losses"):
+            try:
+                setattr(config, name, min(20, max(0, int(getattr(config, name)))))
+            except (TypeError, ValueError):
+                setattr(config, name, 2)
         return config
 
     def save(self) -> None:
@@ -108,6 +115,24 @@ class MT5ProfileStore:
             self.config.real_daily_stop_loss = stop
         self.save()
 
+    def consecutive_loss_limit(self, environment: str | None = None) -> int:
+        env = environment or self.environment
+        value = (
+            self.config.simulator_max_consecutive_losses
+            if env == SIMULATOR else self.config.real_max_consecutive_losses
+        )
+        return min(20, max(0, int(value)))
+
+    def set_consecutive_loss_limit(self, limit: int,
+                                   environment: str | None = None) -> None:
+        env = environment or self.environment
+        value = min(20, max(0, int(limit)))
+        if env == SIMULATOR:
+            self.config.simulator_max_consecutive_losses = value
+        else:
+            self.config.real_max_consecutive_losses = value
+        self.save()
+
     def migrate_legacy_limits_once(self, settings) -> None:
         if self.config.migrated_legacy_limits:
             return
@@ -116,6 +141,12 @@ class MT5ProfileStore:
         if target or stop:
             self.config.real_daily_profit_target = target
             self.config.real_daily_stop_loss = stop
+        try:
+            self.config.real_max_consecutive_losses = min(
+                20, max(0, int(getattr(settings, "mt5_max_consecutive_losses", 2)))
+            )
+        except (TypeError, ValueError):
+            self.config.real_max_consecutive_losses = 2
         legacy_path = str(getattr(settings, "mt5_terminal_path", "") or "").strip()
         if legacy_path and not self.config.real_terminal_path:
             self.config.real_terminal_path = legacy_path

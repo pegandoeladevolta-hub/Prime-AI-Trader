@@ -4,7 +4,8 @@ import tkinter as tk
 from tkinter import messagebox
 
 from ..app.mt5_credentials import MT5CredentialStore
-from ..app.mt5_profiles import REAL, SIMULATOR
+from ..app.mt5_profiles import ENVIRONMENTS, REAL, SIMULATOR
+from ..platform.mt5_dual import MT5ProfileMismatchError
 from .live_terminal_clear_profiles import PrimeTraderLiveApp as ClearProfilesPrimeTraderLiveApp
 
 
@@ -16,6 +17,7 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
         # passar pelo nosso _connect_mt5 durante a montagem da interface.
         self.mt5_credential_store = MT5CredentialStore()
         self._credentials_window = None
+        self._connect_active_session_once = False
         super().__init__(controller)
         self._install_credentials_controls()
         self._apply_active_credentials()
@@ -83,6 +85,39 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
         self._apply_active_credentials()
         return super()._connect_mt5()
 
+    def _handle_mt5_connection_error(self, error: Exception) -> bool:
+        if not isinstance(error, MT5ProfileMismatchError):
+            return False
+        detected = error.detected_environment
+        expected = error.expected_environment
+        if detected not in ENVIRONMENTS or detected == expected:
+            messagebox.showerror(
+                "Prime Trader • Conta MT5",
+                f"{error}\n\nAbra CONTAS / LOGIN AUTOMÁTICO e revise o cadastro de {expected}.",
+                parent=self,
+            )
+            self.after(80, self._open_credentials_dialog)
+            return True
+
+        account = f" • conta {error.detected_login}" if error.detected_login else ""
+        choice = messagebox.askyesnocancel(
+            "Prime Trader • Escolher conta",
+            f"O MT5 está conectado em {detected}{account}, mas o Prime Trader está em {expected}.\n\n"
+            f"SIM: usar {detected} agora.\n"
+            f"NÃO: manter {expected} e abrir o cadastro de login.\n"
+            "CANCELAR: não conectar.",
+            parent=self,
+        )
+        if choice is True:
+            self._connect_active_session_once = True
+            self.mt5_environment_var.set(detected)
+            self._environment_changed()
+        elif choice is False:
+            self.after(80, self._open_credentials_dialog)
+        else:
+            self.status_var.set("CONEXÃO CANCELADA • escolha CONTA REAL ou CONTA DEMO")
+        return True
+
     def _auto_login_active_profile(self) -> None:
         if not self.winfo_exists() or self.mt5_connected.get():
             return
@@ -103,6 +138,7 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
         # Se a classe-base recusou a troca por existir posição aberta, não tenta
         # desconectar nem autenticar outra conta.
         if after == before or after != selected:
+            self._connect_active_session_once = False
             self._refresh_autologin_status()
             return
 
@@ -110,8 +146,13 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
         self._refresh_autologin_status()
         credentials = self.mt5_credential_store.get(after)
         if credentials.configured:
+            self._connect_active_session_once = False
             self.status_var.set(f"Perfil {after} selecionado • login automático em andamento")
             self.after(120, self._auto_login_active_profile)
+        elif self._connect_active_session_once:
+            self._connect_active_session_once = False
+            self.status_var.set(f"Perfil {after} selecionado • usando a sessão já aberta no MT5")
+            self.after(120, self._connect_mt5)
         else:
             self.status_var.set(
                 f"Perfil {after} selecionado • cadastre LOGIN/SENHA em CONTAS / LOGIN AUTOMÁTICO"

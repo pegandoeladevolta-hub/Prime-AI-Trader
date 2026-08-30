@@ -144,6 +144,48 @@ class DailyLimitTests(unittest.TestCase):
         self.assertTrue(blocked.blocked)
         self.assertFalse(released.blocked)
 
+    def test_two_consecutive_losses_pause_new_entries(self) -> None:
+        now = datetime.now(timezone.utc)
+        journal = FakeJournal([
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -35.0},
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -20.0},
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": 90.0},
+        ])
+        status = evaluate_daily_limits(
+            journal, profit_target=200.0, stop_loss=200.0,
+            max_consecutive_losses=2, now=now,
+        )
+        self.assertTrue(status.blocked)
+        self.assertEqual(status.consecutive_losses, 2)
+        self.assertIn("PAUSA POR LOSSES", status.reason)
+
+    def test_win_breaks_consecutive_loss_streak(self) -> None:
+        now = datetime.now(timezone.utc)
+        journal = FakeJournal([
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -35.0},
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": 10.0},
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -20.0},
+        ])
+        status = evaluate_daily_limits(
+            journal, profit_target=200.0, stop_loss=200.0,
+            max_consecutive_losses=2, now=now,
+        )
+        self.assertFalse(status.blocked)
+        self.assertEqual(status.consecutive_losses, 1)
+
+    def test_zero_disables_consecutive_loss_pause(self) -> None:
+        now = datetime.now(timezone.utc)
+        journal = FakeJournal([
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -10.0},
+            {"status": "ENCERRADA", "closed_at": now.isoformat(), "net_profit": -10.0},
+        ])
+        status = evaluate_daily_limits(
+            journal, profit_target=0.0, stop_loss=0.0,
+            max_consecutive_losses=0, now=now,
+        )
+        self.assertFalse(status.blocked)
+        self.assertEqual(status.consecutive_losses, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

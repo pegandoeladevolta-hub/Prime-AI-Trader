@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import time
 from tkinter import messagebox
 
+from ..app.mt5_profiles import REAL
 from ..app.mt5_position_guard import AutoPositionGuardStatus, PrimeAutoPositionGuard
 from ..core.models import SignalState
 from .live_terminal_layout import PrimeTraderLiveApp as LayoutPrimeTraderLiveApp
@@ -14,7 +15,7 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
     """Terminal MT5 com contexto contínuo e uma única operação automática ativa.
 
     O seletor EXECUÇÃO do topo é a fonte de verdade para habilitar o automático.
-    A autorização ARMAR ORDENS REAIS continua separada. Além disso, o automático
+    A autorização ARMAR ENVIO DE ORDENS continua separada. Além disso, o automático
     nunca empilha posições: depois de uma ordem aceita, aguarda a posição Prime
     Trader desaparecer do MT5 antes de permitir uma nova oportunidade.
     """
@@ -52,7 +53,7 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
         """Armar/desarmar não troca o modo escolhido no topo."""
         if self.mt5_armed.get():
             accepted = messagebox.askyesno(
-                "Armar execução real",
+                "Armar envio de ordens",
                 "As próximas ordens confirmadas pelo Prime Trader poderão ser "
                 "enviadas ao MT5. Continuar?",
                 parent=self,
@@ -69,10 +70,13 @@ class PrimeTraderLiveApp(LayoutPrimeTraderLiveApp):
                 )
             else:
                 self.status_var.set(
-                    "AUTOMÁTICO selecionado • marque ARMAR ORDENS REAIS para permitir execução"
+                    "AUTOMÁTICO selecionado • marque ARMAR ENVIO DE ORDENS para permitir execução"
                 )
 
     def _auto_enabled_and_armed(self) -> bool:
+        profile_store = getattr(self, "profile_store", None)
+        if profile_store is not None and profile_store.environment == REAL:
+            return False
         return bool(
             self.execution_profile_var.get() == EXEC_AUTO
             and self.mt5_auto.get()

@@ -77,6 +77,9 @@ class AppSettings:
     # Zero significa desativado. Ao atingir um deles nenhuma nova ordem é aberta.
     mt5_daily_profit_target: float = 0.0
     mt5_daily_stop_loss: float = 0.0
+    # Circuit breaker operacional. Zero desativa; o padrão interrompe novas
+    # entradas depois de duas operações encerradas com prejuízo em sequência.
+    mt5_max_consecutive_losses: int = 2
     # Janela realmente usada pelos indicadores, estrutura, Fibonacci, features e
     # motor de decisão ao vivo. O gráfico continua exibindo somente a parte recente.
     mt5_analysis_candles: int = 2000
@@ -192,6 +195,12 @@ class SettingsStore:
                 except (TypeError, ValueError):
                     value = 0.0
                 setattr(loaded, name, value)
+            try:
+                loaded.mt5_max_consecutive_losses = min(
+                    20, max(0, int(loaded.mt5_max_consecutive_losses))
+                )
+            except (TypeError, ValueError):
+                loaded.mt5_max_consecutive_losses = 2
             return loaded
         except (OSError, ValueError, TypeError):
             return AppSettings()

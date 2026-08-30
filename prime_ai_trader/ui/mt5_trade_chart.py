@@ -10,7 +10,7 @@ from .theme import COLORS
 
 
 class MT5TradeChart(CandleChart):
-    """Gráfico da v1.2.6 com posições reais do MT5 sobrepostas.
+    """Gráfico do Prime Trader com posições reais do MT5 sobrepostas.
 
     Sinais analíticos continuam sendo desenhados pelo CandleChart original. Esta
     camada desenha somente ordens/posições reais e permite arrastar SL/TP.

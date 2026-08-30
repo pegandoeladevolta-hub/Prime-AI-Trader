@@ -9,6 +9,7 @@ from ..app.mt5_profiles import ENVIRONMENTS, REAL, SIMULATOR, MT5ProfileStore, c
 from ..core.models import Direction
 from ..database.mt5_journal import MT5TradeJournal
 from .live_terminal_mt5_journal import PrimeTraderLiveApp as JournalPrimeTraderLiveApp
+from .prime_terminal import EXEC_AUTO, EXEC_COMMAND
 
 
 class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
@@ -30,6 +31,7 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         self._build_clear_profile_card()
         self._build_trade_value_card()
         self._load_profile_into_view()
+        self._enforce_real_manual_confirmation()
         self._refresh_daily_limit_view()
         try:
             self.mt5_volume.trace_add("write", lambda *_: self._refresh_trade_value())
@@ -72,6 +74,21 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         combo.bind("<<ComboboxSelected>>", lambda _: self._environment_changed())
         self.mt5_environment_combo = combo
 
+        account_buttons = tk.Frame(card, bg="#0f1619")
+        account_buttons.pack(fill="x", padx=11, pady=(0, 7))
+        self.mt5_real_account_button = tk.Button(
+            account_buttons, text="CONTA REAL",
+            command=lambda: self._select_environment(REAL),
+            bd=0, relief="flat", fg="white", font=("Segoe UI Semibold", 8), pady=7,
+        )
+        self.mt5_real_account_button.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self.mt5_demo_account_button = tk.Button(
+            account_buttons, text="CONTA DEMO",
+            command=lambda: self._select_environment(SIMULATOR),
+            bd=0, relief="flat", fg="white", font=("Segoe UI Semibold", 8), pady=7,
+        )
+        self.mt5_demo_account_button.pack(side="left", fill="x", expand=True, padx=(3, 0))
+
         buttons = tk.Frame(card, bg="#0f1619")
         buttons.pack(fill="x", padx=11, pady=(0, 7))
         tk.Button(
@@ -89,10 +106,33 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
 
         tk.Label(
             card,
-            text="REAL e SIMULADOR usam terminal, histórico e limites diários separados. O bot nunca troca de ambiente sozinho.",
+            text="Escolha a conta antes de conectar. REAL e DEMO mantêm login, histórico e limites separados.",
             bg="#0f1619", fg="#66757c", font=("Segoe UI", 7),
             wraplength=252, justify="left",
         ).pack(anchor="w", padx=11, pady=(0, 10))
+
+    def _refresh_environment_buttons(self) -> None:
+        if not hasattr(self, "mt5_real_account_button"):
+            return
+        active = self.profile_store.environment
+        for button, environment in (
+            (self.mt5_real_account_button, REAL),
+            (self.mt5_demo_account_button, SIMULATOR),
+        ):
+            selected = environment == active
+            button.configure(
+                bg="#176f63" if selected else "#24313a",
+                activebackground="#218b7c" if selected else "#30424d",
+            )
+
+    def _select_environment(self, environment: str) -> None:
+        if environment not in ENVIRONMENTS:
+            return
+        if environment == self.profile_store.environment:
+            self._refresh_environment_buttons()
+            return
+        self.mt5_environment_var.set(environment)
+        self._environment_changed()
 
     def _build_trade_value_card(self) -> None:
         parent = getattr(self, "_mt5_sidebar_body", None)
@@ -155,6 +195,7 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
             configure(selected, path)
         self.mt5_account_text.set(f"{selected} • desconectado")
         self._load_profile_into_view()
+        self._enforce_real_manual_confirmation()
         self.status_var.set(f"Perfil alterado para {selected} • conecte o MT5 correspondente")
 
     def _load_profile_into_view(self) -> None:
@@ -164,38 +205,77 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         target, stop = self.profile_store.daily_limits(env)
         self.daily_profit_target_var.set(f"{target:g}")
         self.daily_stop_loss_var.set(f"{stop:g}")
+        self.consecutive_loss_limit_var.set(
+            str(self.profile_store.consecutive_loss_limit(env))
+        )
         path = self.profile_store.terminal_path(env)
         self.mt5_terminal_display_var.set(path or f"AUTO • procurando terminal do perfil {env}")
+        self._refresh_environment_buttons()
         self._refresh_trade_value()
 
     def _daily_status(self):
         target, stop = self.profile_store.daily_limits()
         return evaluate_daily_limits(
             self.mt5_journal, profit_target=target, stop_loss=stop,
+            max_consecutive_losses=self.profile_store.consecutive_loss_limit(),
         )
 
     def _daily_limits_changed(self) -> None:
         try:
             target = float(self.daily_profit_target_var.get().replace(",", ".") or 0)
             stop = float(self.daily_stop_loss_var.get().replace(",", ".") or 0)
-            if target < 0 or stop < 0:
+            streak_limit = int(self.consecutive_loss_limit_var.get().strip() or 0)
+            if target < 0 or stop < 0 or not 0 <= streak_limit <= 20:
                 raise ValueError
         except ValueError:
             messagebox.showerror(
                 "Limites do dia",
-                "Informe valores maiores ou iguais a zero. Use 0 para desativar um limite.",
+                "Informe valores maiores ou iguais a zero. Losses seguidos deve ficar entre 0 e 20. Use 0 para desativar.",
                 parent=self,
             )
             return
         self.profile_store.set_daily_limits(target, stop)
+        self.profile_store.set_consecutive_loss_limit(streak_limit)
         # Mantém os campos antigos sincronizados apenas para compatibilidade visual.
         self.controller.settings.mt5_daily_profit_target = target
         self.controller.settings.mt5_daily_stop_loss = stop
+        self.controller.settings.mt5_max_consecutive_losses = streak_limit
         self.controller.save_settings()
         self._refresh_daily_limit_view()
         self.status_var.set(
-            f"META / STOP salvos para {self.profile_store.environment} • limites do outro ambiente não foram alterados"
+            f"LIMITES salvos para {self.profile_store.environment} • o outro ambiente não foi alterado"
         )
+
+    def _enforce_real_manual_confirmation(self) -> None:
+        if self.profile_store.environment != REAL:
+            return
+        if self.execution_profile_var.get() == EXEC_AUTO:
+            self.execution_profile_var.set(EXEC_COMMAND)
+            self.mt5_auto.set(False)
+            self.mt5_armed.set(False)
+            self._save_form()
+            self._update_execution_controls()
+            self.status_var.set(
+                "CONTA REAL • confirmação manual obrigatória antes de cada ordem"
+            )
+
+    def _execution_profile_changed(self) -> None:
+        if (
+            self.profile_store.environment == REAL
+            and self.execution_profile_var.get() == EXEC_AUTO
+        ):
+            self.execution_profile_var.set(EXEC_COMMAND)
+            self.mt5_auto.set(False)
+            self.mt5_armed.set(False)
+            self._save_form()
+            self._update_execution_controls()
+            messagebox.showinfo(
+                "Prime Trader • Conta Real",
+                "Na conta REAL, cada ordem exige sua confirmação. O modo automático fica disponível somente na conta DEMO.",
+                parent=self,
+            )
+            return
+        return super()._execution_profile_changed()
 
     def _select_mt5_terminal(self) -> None:
         env = self.profile_store.environment

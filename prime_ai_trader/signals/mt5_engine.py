@@ -10,7 +10,7 @@ from .engine import SignalEngine
 class MT5SignalEngine(SignalEngine):
     """Motor final de decisão para mercado com posição, Stop Loss e Take Profit.
 
-    O SignalEngine 1.2.6 continua produzindo a leitura técnica/IA. Esta camada
+    O motor-base continua produzindo a leitura técnica/IA. Esta camada
     substitui a decisão final herdada de expiração fixa por uma tese de trade que
     só é válida quando existe invalidação estrutural e espaço para o R:R escolhido.
     """

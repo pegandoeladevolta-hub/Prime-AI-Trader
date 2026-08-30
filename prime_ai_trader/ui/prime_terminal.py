@@ -65,8 +65,8 @@ class PrimeTraderApp(PrimeAITraderApp):
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=1)
 
-        # Widgets legados são construídos fora da tela apenas porque o renderizador
-        # 1.2.6 ainda os atualiza. VEX/BullEx não aparecem nem participam do fluxo.
+        # Widgets legados são construídos fora da tela porque o motor ainda os
+        # atualiza. VEX/BullEx não aparecem nem participam do fluxo MT5.
         compatibility = tk.Frame(self, bg="#080b0d")
         PrimeAITraderApp._build_left(self, compatibility)
         PrimeAITraderApp._build_right(self, compatibility)
@@ -220,7 +220,7 @@ class PrimeTraderApp(PrimeAITraderApp):
         self._order_field(panel, "TP MANUAL (0 = sem)", self.mt5_tp)
 
         tk.Checkbutton(
-            panel, text="ARMAR ORDENS REAIS", variable=self.mt5_armed,
+            panel, text="ARMAR ENVIO DE ORDENS", variable=self.mt5_armed,
             command=self._arm_changed, bg="#0b0f12", fg="#cbd4d8",
             selectcolor="#11171a", activebackground="#0b0f12",
             activeforeground="white", font=("Segoe UI Semibold", 8),
@@ -292,7 +292,7 @@ class PrimeTraderApp(PrimeAITraderApp):
             fg="#78858b", font=("Segoe UI", 8),
         ).pack(side="left")
         tk.Label(
-            footer, text="FONTE: METATRADER 5 • MOTOR 1.2.6", bg="#090d0f",
+            footer, text="FONTE: METATRADER 5 • MOTOR 1.3.1", bg="#090d0f",
             fg="#566269", font=("Segoe UI", 8),
         ).pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=100)
@@ -348,6 +348,9 @@ class PrimeTraderApp(PrimeAITraderApp):
         except (MT5UnavailableError, MT5ExecutionError) as exc:
             self.mt5_connected.set(False)
             self.mt5_account_text.set("MT5 desconectado")
+            handler = getattr(self, "_handle_mt5_connection_error", None)
+            if callable(handler) and handler(exc):
+                return
             messagebox.showerror("Prime Trader • MT5", str(exc), parent=self)
 
     def _refresh_assets_button(self) -> None:
@@ -448,7 +451,7 @@ class PrimeTraderApp(PrimeAITraderApp):
     def _arm_changed(self) -> None:
         if self.mt5_armed.get():
             accepted = messagebox.askyesno(
-                "Armar execução real",
+                "Armar envio de ordens",
                 "As próximas ordens solicitadas pelo Prime Trader poderão ser enviadas ao MT5. Continuar?",
                 parent=self,
             )

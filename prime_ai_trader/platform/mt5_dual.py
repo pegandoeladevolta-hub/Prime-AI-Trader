@@ -9,6 +9,19 @@ from .mt5 import MT5ExecutionError, MT5UnavailableError
 from .mt5_positions import MT5Bridge as BaseMT5Bridge
 
 
+class MT5ProfileMismatchError(MT5UnavailableError):
+    """Sessão aberta pertence a outro ambiente/conta, sem expor credenciais."""
+
+    def __init__(self, message: str, *, expected_environment: str,
+                 detected_environment: str, detected_login: int | None,
+                 credentials_configured: bool) -> None:
+        super().__init__(message)
+        self.expected_environment = expected_environment
+        self.detected_environment = detected_environment
+        self.detected_login = detected_login
+        self.credentials_configured = credentials_configured
+
+
 class MT5Bridge(BaseMT5Bridge):
     """Ponte MT5 com seleção explícita de ambiente REAL ou SIMULADOR.
 
@@ -93,6 +106,8 @@ class MT5Bridge(BaseMT5Bridge):
         attempts: list[str] = []
         auth_failed = False
         mismatch = False
+        detected_environment = ""
+        detected_login: int | None = None
 
         for candidate in paths:
             try:
@@ -134,8 +149,13 @@ class MT5Bridge(BaseMT5Bridge):
                 continue
 
             actual_login = int(getattr(info, "login", 0) or 0)
+            server = str(getattr(info, "server", "") or "")
+            name = str(getattr(info, "name", "") or "")
+            detected = classify_account_environment(server, name)
             if self._login and actual_login != int(self._login):
                 mismatch = True
+                detected_environment = detected
+                detected_login = actual_login or None
                 attempts.append(
                     f"{label}: conta {actual_login} autenticada, mas o perfil selecionado espera a conta {self._login}"
                 )
@@ -145,11 +165,10 @@ class MT5Bridge(BaseMT5Bridge):
                     pass
                 continue
 
-            server = str(getattr(info, "server", "") or "")
-            name = str(getattr(info, "name", "") or "")
-            detected = classify_account_environment(server, name)
             if detected != self.environment:
                 mismatch = True
+                detected_environment = detected
+                detected_login = actual_login or None
                 attempts.append(
                     f"{label}: sessão autenticada como {detected}, mas o Prime Trader está em {self.environment}"
                 )
@@ -168,11 +187,22 @@ class MT5Bridge(BaseMT5Bridge):
         details = "\n".join(attempts[-4:]) if attempts else str(mt5.last_error())
         if mismatch:
             wanted = "conta de SIMULAÇÃO/DEMO" if self.environment == SIMULATOR else "conta REAL"
-            raise MT5UnavailableError(
+            configured = self.credentials_configured()
+            instruction = (
+                f"Revise LOGIN, SERVIDOR e SENHA da {wanted} em CONTAS / LOGIN MT5."
+                if configured else
+                f"A {wanted} ainda não possui LOGIN, SERVIDOR e SENHA completos no Prime Trader."
+            )
+            raise MT5ProfileMismatchError(
                 f"O MT5 abriu, mas a sessão ativa não corresponde ao perfil {self.environment}.\n\n"
-                f"O Prime Trader tentou entrar automaticamente na {wanted} cadastrada. "
-                "Confira LOGIN, SERVIDOR e SENHA em CONTAS / LOGIN MT5.\n\n"
-                f"Diagnóstico:\n{details}"
+                f"{instruction}\n\n"
+                f"Você pode escolher explicitamente {detected_environment or 'a conta ativa'} "
+                "ou corrigir o cadastro do perfil selecionado.\n\n"
+                f"Diagnóstico:\n{details}",
+                expected_environment=self.environment,
+                detected_environment=detected_environment,
+                detected_login=detected_login,
+                credentials_configured=configured,
             )
         if auth_failed or any("sem conta autenticada" in item for item in attempts):
             hint = (
@@ -204,4 +234,4 @@ class MT5Bridge(BaseMT5Bridge):
         return None if value is None else float(value)
 
 
-__all__ = ["MT5Bridge"]
+__all__ = ["MT5Bridge", "MT5ProfileMismatchError"]
