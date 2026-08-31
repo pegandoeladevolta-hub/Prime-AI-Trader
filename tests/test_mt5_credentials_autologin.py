@@ -161,40 +161,94 @@ class FakeMT5Module:
         )
 
 
+class ReauthenticationRejectedMT5(FakeMT5Module):
+    """Imita a Clear: sessão ativa funciona, novo login retorna erro -6."""
+
+    def __init__(self, *, login: int, server: str):
+        super().__init__(login=login, server=server)
+        self.error = (1, "Success")
+
+    def initialize(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        if "login" in kwargs:
+            self.error = (-6, "Terminal: Authorization failed")
+            return False
+        self.error = (1, "Success")
+        return True
+
+    def last_error(self):
+        return self.error
+
+
+class AccountSwitchingMT5(FakeMT5Module):
+    def initialize(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        if "login" in kwargs:
+            self.login = int(kwargs["login"])
+            self.server = str(kwargs["server"])
+        return True
+
+
 class AutoLoginBridgeTests(unittest.TestCase):
-    def test_real_credentials_are_forwarded_to_official_mt5_initialize(self) -> None:
+    def test_matching_active_session_is_used_without_resending_password(self) -> None:
         bridge = MT5Bridge(environment=REAL)
         bridge.set_credentials(
             login=1019787247,
             password="segredo",
             server="ClearInvestimentos-CLEAR",
         )
-        fake = FakeMT5Module(login=1019787247, server="ClearInvestimentos-CLEAR")
+        fake = ReauthenticationRejectedMT5(
+            login=1019787247, server="ClearInvestimentos-CLEAR"
+        )
         bridge._mt5 = fake
         terminal = Path(r"C:\Clear\terminal64.exe")
         with patch.object(bridge, "discover_for_environment", return_value=[terminal]):
             account = bridge.connect()
         self.assertEqual(account.login, 1019787247)
-        self.assertEqual(fake.calls[0]["login"], 1019787247)
-        self.assertEqual(fake.calls[0]["password"], "segredo")
-        self.assertEqual(fake.calls[0]["server"], "ClearInvestimentos-CLEAR")
         self.assertEqual(fake.calls[0]["path"], str(terminal))
+        self.assertNotIn("login", fake.calls[0])
+        self.assertNotIn("password", fake.calls[0])
+        self.assertEqual(len(fake.calls), 1)
 
-    def test_demo_credentials_are_forwarded_and_classified_as_simulator(self) -> None:
+    def test_demo_active_session_survives_reauthentication_error_minus_6(self) -> None:
         bridge = MT5Bridge(environment=SIMULATOR)
         bridge.set_credentials(
             login=987654,
             password="demo-secret",
             server="ClearInvestimentos-DEMO",
         )
-        fake = FakeMT5Module(login=987654, server="ClearInvestimentos-DEMO")
+        fake = ReauthenticationRejectedMT5(
+            login=987654, server="ClearInvestimentos-DEMO"
+        )
         bridge._mt5 = fake
         terminal = Path(r"C:\Clear Simulador\terminal64.exe")
         with patch.object(bridge, "discover_for_environment", return_value=[terminal]):
             account = bridge.connect()
         self.assertEqual(account.login, 987654)
         self.assertTrue(bridge.connected)
-        self.assertEqual(fake.calls[0]["server"], "ClearInvestimentos-DEMO")
+        self.assertNotIn("server", fake.calls[0])
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_credentials_are_used_only_to_switch_from_another_active_account(self) -> None:
+        bridge = MT5Bridge(environment=SIMULATOR)
+        bridge.set_credentials(
+            login=987654,
+            password="demo-secret",
+            server="ClearInvestimentos-DEMO",
+        )
+        fake = AccountSwitchingMT5(
+            login=1019787247, server="ClearInvestimentos-CLEAR"
+        )
+        bridge._mt5 = fake
+        terminal = Path(r"C:\Clear\terminal64.exe")
+        with patch.object(bridge, "discover_for_environment", return_value=[terminal]):
+            account = bridge.connect()
+        self.assertEqual(account.login, 987654)
+        self.assertEqual(len(fake.calls), 2)
+        self.assertNotIn("login", fake.calls[0])
+        self.assertEqual(fake.calls[1]["login"], 987654)
+        self.assertEqual(fake.calls[1]["password"], "demo-secret")
+        self.assertEqual(fake.calls[1]["server"], "ClearInvestimentos-DEMO")
 
     def test_profile_mismatch_exposes_safe_account_choice_context(self) -> None:
         bridge = MT5Bridge(environment=REAL)

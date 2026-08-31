@@ -109,44 +109,18 @@ class MT5Bridge(BaseMT5Bridge):
         detected_environment = ""
         detected_login: int | None = None
 
-        for candidate in paths:
+        def error_code(error: object) -> int:
             try:
-                mt5.shutdown()
+                return int(error[0])  # type: ignore[index]
             except Exception:
-                pass
+                return 0
 
-            kwargs = self._connection_kwargs(candidate)
-            initialized = bool(mt5.initialize(**kwargs))
-            error = mt5.last_error()
-            if not initialized and candidate is not None:
-                try:
-                    code = int(error[0])
-                except Exception:
-                    code = 0
-                auth_failed = auth_failed or code == -6
-                self._launch_terminal(candidate)
-                time.sleep(1.4)
-                initialized = bool(mt5.initialize(**kwargs))
-                error = mt5.last_error()
-
-            label = str(candidate) if candidate is not None else "autodetecção MetaTrader5"
-            if not initialized:
-                try:
-                    code = int(error[0])
-                except Exception:
-                    code = 0
-                auth_failed = auth_failed or code == -6
-                attempts.append(f"{label}: {error}")
-                continue
-
-            info = mt5.account_info()
+        def accept_active_account(info: object, candidate: Path | None,
+                                  label: str, phase: str):
+            nonlocal mismatch, detected_environment, detected_login
             if info is None:
-                attempts.append(f"{label}: terminal aberto, mas sem conta autenticada")
-                try:
-                    mt5.shutdown()
-                except Exception:
-                    pass
-                continue
+                attempts.append(f"{label} ({phase}): terminal aberto, mas sem conta autenticada")
+                return None
 
             actual_login = int(getattr(info, "login", 0) or 0)
             server = str(getattr(info, "server", "") or "")
@@ -157,34 +131,92 @@ class MT5Bridge(BaseMT5Bridge):
                 detected_environment = detected
                 detected_login = actual_login or None
                 attempts.append(
-                    f"{label}: conta {actual_login} autenticada, mas o perfil selecionado espera a conta {self._login}"
+                    f"{label} ({phase}): conta {actual_login} autenticada, "
+                    f"mas o perfil selecionado espera a conta {self._login}"
                 )
-                try:
-                    mt5.shutdown()
-                except Exception:
-                    pass
-                continue
+                return None
 
             if detected != self.environment:
                 mismatch = True
                 detected_environment = detected
                 detected_login = actual_login or None
                 attempts.append(
-                    f"{label}: sessão autenticada como {detected}, mas o Prime Trader está em {self.environment}"
+                    f"{label} ({phase}): sessão autenticada como {detected}, "
+                    f"mas o Prime Trader está em {self.environment}"
                 )
-                try:
-                    mt5.shutdown()
-                except Exception:
-                    pass
-                continue
+                return None
 
             self.connected = True
             if candidate is not None:
                 self.terminal_path = str(candidate)
             return self._account_snapshot(info)
 
+        for candidate in paths:
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+
+            # Primeiro anexa ao terminal já aberto sem reenviar a senha. A API
+            # oficial pode recusar uma segunda autenticação (-6) mesmo quando a
+            # conta correta já está conectada e recebendo cotações no MT5.
+            attach_kwargs: dict[str, Any] = {}
+            if candidate is not None:
+                attach_kwargs["path"] = str(candidate)
+            initialized = bool(mt5.initialize(**attach_kwargs))
+            error = mt5.last_error()
+            if not initialized and candidate is not None:
+                auth_failed = auth_failed or error_code(error) == -6
+                self._launch_terminal(candidate)
+                time.sleep(1.4)
+                initialized = bool(mt5.initialize(**attach_kwargs))
+                error = mt5.last_error()
+
+            label = str(candidate) if candidate is not None else "autodetecção MetaTrader5"
+            if initialized:
+                account = accept_active_account(
+                    mt5.account_info(), candidate, label, "sessão ativa"
+                )
+                if account is not None:
+                    return account
+            else:
+                auth_failed = auth_failed or error_code(error) == -6
+                attempts.append(f"{label} (sessão ativa): {error}")
+
+            # Só tenta login/senha quando não foi possível aproveitar exatamente
+            # a conta esperada. Assim ainda é possível trocar de perfil sem
+            # relaxar a validação de conta REAL versus DEMO.
+            if not self.credentials_configured():
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
+                continue
+
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            login_kwargs = self._connection_kwargs(candidate)
+            initialized = bool(mt5.initialize(**login_kwargs))
+            error = mt5.last_error()
+            if not initialized:
+                auth_failed = auth_failed or error_code(error) == -6
+                attempts.append(f"{label} (login automático): {error}")
+                continue
+
+            account = accept_active_account(
+                mt5.account_info(), candidate, label, "login automático"
+            )
+            if account is not None:
+                return account
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+
         self.connected = False
-        details = "\n".join(attempts[-4:]) if attempts else str(mt5.last_error())
+        details = "\n".join(attempts[-6:]) if attempts else str(mt5.last_error())
         if mismatch:
             wanted = "conta de SIMULAÇÃO/DEMO" if self.environment == SIMULATOR else "conta REAL"
             configured = self.credentials_configured()

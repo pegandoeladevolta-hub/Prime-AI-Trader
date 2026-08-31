@@ -1,5 +1,16 @@
 # Release notes
 
+## 1.3.3 — 31/08/2026
+
+### Conexão com a sessão ativa do MT5
+
+- Corrige o erro `Terminal: Authorization failed` exibido quando a conta Demo correta já estava conectada no terminal da Clear.
+- O PRIME TRADER agora se anexa primeiro ao MT5 aberto e valida login, servidor e ambiente Demo/Real sem reenviar a senha.
+- A autenticação por login e senha só é tentada quando não existe sessão válida ou quando é necessário trocar para outra conta cadastrada.
+- A proteção contra conta errada continua ativa: uma sessão com login ou ambiente diferente não é aceita silenciosamente.
+- Testes reproduzem a conta Demo ativa com rejeição `-6` à segunda autenticação e confirmam que a conexão permanece válida.
+- Validação local: 416 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.3.2 — 31/08/2026
 
 ### Persistência e conexão da conta Demo

@@ -1,4 +1,4 @@
-# PRIME TRADER 1.3.2
+# PRIME TRADER 1.3.3
 
 Terminal desktop com interface inspirada no layout solicitado e conexão ao MetaTrader 5. O PRIME TRADER usa o MT5 instalado no computador como fonte de mercado, conta, posições, histórico e execução. Ele não modifica os arquivos internos nem a interface original do MetaTrader 5.
 
@@ -9,6 +9,7 @@ Terminal desktop com interface inspirada no layout solicitado e conexão ao Meta
 - Exibe botões diretos **CONTA REAL** e **CONTA DEMO** antes de conectar.
 - Salva login, servidor e senha de cada perfil localmente. No Windows, os segredos ficam protegidos por DPAPI para o mesmo usuário do computador.
 - Permite cadastrar apenas a conta Demo sem exigir os campos da conta Real; o botão **SALVAR E USAR DEMO** grava, relê e seleciona o perfil correto antes da conexão.
+- Quando a conta correta já está aberta no MT5, conecta pela sessão ativa sem reenviar a senha; o login automático só é usado para uma troca real de conta.
 - Quando o MT5 aberto não corresponde ao perfil escolhido, permite usar a conta detectada, revisar o cadastro ou cancelar — sem mostrar a senha.
 - Lê candles e conta diretamente do MT5, pesquisa os símbolos disponíveis na corretora e mostra posições e resultados realizados no gráfico e no diário.
 - Quando um ativo recém-aberto entrega menos de 200 candles, solicita um intervalo maior ao servidor e repete a carga automaticamente; não gera análise com histórico insuficiente.

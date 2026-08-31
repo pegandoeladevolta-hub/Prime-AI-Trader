@@ -1,12 +1,12 @@
-# Relatório de validação — PRIME TRADER 1.3.2
+# Relatório de validação — PRIME TRADER 1.3.3
 
 Data: 31/08/2026
 
 ## Resultado local
 
 - Comando: `python -m unittest discover -s tests -v`
-- Resultado: **415 testes aprovados, zero falhas; 1 smoke test visual reservado para Windows**.
-- Total descoberto: **416 testes**.
+- Resultado: **416 testes aprovados, zero falhas; 1 smoke test visual reservado para Windows**.
+- Total descoberto: **417 testes**.
 - `python -m compileall -q prime_ai_trader tests`: aprovado.
 - O GitHub Actions repetirá a suíte completa em Windows antes de executar PyInstaller e Inno Setup.
 
@@ -19,6 +19,9 @@ Data: 31/08/2026
 | Separação | Terminal, credenciais, diário e limites são independentes entre Clear Real e Clear Simulador. |
 | Erro da captura | Uma sessão MT5 no ambiente oposto gera erro tipado e oferece trocar para a conta detectada, revisar credenciais ou cancelar. |
 | Autenticação | Login e servidor são aplicados ao perfil correto; senha não aparece no diagnóstico. |
+| Sessão ativa | Conta já aberta com login, servidor e ambiente esperados é reutilizada sem uma segunda autenticação. |
+| Erro `-6` | Reautenticação rejeitada pela Clear não bloqueia a sessão Demo correta que já está conectada. |
+| Troca de conta | Credenciais só são enviadas quando a sessão ativa não corresponde ao perfil selecionado. |
 | Proteção de senha | Credenciais são protegidas por DPAPI no Windows e vinculadas ao usuário local. |
 | Persistência | Cadastro Demo é gravado, relido por uma nova instância do cofre e comparado sem expor a senha; falha de releitura impede falso sucesso. |
 | Gravação atômica | As duas seções são validadas antes da gravação, e o arquivo protegido é substituído de forma atômica. |
@@ -31,7 +34,7 @@ Data: 31/08/2026
 | Losses consecutivos | Duas perdas encerradas seguidas bloqueiam nova entrada; win/draw encerra a sequência; zero desativa a trava. |
 | Separação de risco | Meta, stop e quantidade de losses ficam independentes em Real e Demo. |
 | Diário | Posições e deals do PRIME TRADER são reconciliados com o MT5 e mantidos por conta. |
-| Versão Windows | Pacote Python, executável e instalador usam a versão 1.3.2 de forma consistente. |
+| Versão Windows | Pacote Python, executável e instalador usam a versão 1.3.3 de forma consistente. |
 
 ## Interpretação correta
 
@@ -43,4 +46,4 @@ O resultado válido da conta vem dos deals realizados no MT5. Resultado flutuant
 
 `build_windows.ps1` repetirá os testes, validará Tkinter, criará `PrimeAITrader.exe` e compilará `PrimeTrader-Setup-x64.exe`. Este relatório não declara o instalador aprovado até o runner Windows concluir com sucesso.
 
-Identificador do candidato: `1.3.2`.
+Identificador do candidato: `1.3.3`.
