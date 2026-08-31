@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 22719)
-Total output lines: 1601
-
 from __future__ import annotations
 
 import asyncio
@@ -635,7 +632,214 @@ class PrimeAITraderApp(tk.Tk):
             " • exige aceite do alerta CVM"
             if name == "BULLEX" and not self.controller.settings.bullex_sync_authorized else ""
         )
-        self.platform_status_var.set(f"{name} não conectada …2719 tokens truncated…os logs")
+        self.platform_status_var.set(f"{name} não conectada • pagamento manual{suffix}")
+
+    def _market_changed(self) -> None:
+        values = CRYPTO_DEFAULTS if self.market_var.get() == Market.CRYPTO.value else FOREX_DEFAULTS
+        self.symbol_combo.configure(values=values)
+        self.symbol_var.set(values[0])
+        self._save_form()
+        if self.market_var.get() == Market.FOREX.value and not self.controller.secrets.get("twelve_data_key"):
+            self.status_var.set("Forex público sem chave ativo • Twelve Data é opcional")
+        if self._analysis_active:
+            self._schedule_analysis_restart()
+
+    def _selection_changed(self) -> None:
+        if hasattr(self, "timeframe_buttons"):
+            self._refresh_timeframe_buttons()
+        self._save_form()
+        if self._analysis_active:
+            self._schedule_analysis_restart()
+
+    def connect_vex(self) -> None:
+        platform_name = self.platform_var.get()
+        if self._platform_bridge and self._platform_bridge.running:
+            self._platform_bridge.stop()
+            self._platform_snapshot = None
+            self.controller.platform_snapshot = None
+            self.controller.settings.platform_sync_enabled = False
+            self.controller.save_settings()
+            connect_text = "◉   CONECTAR VEX INVEST" if platform_name == "VEX" else "◉   CONECTAR BULLEX"
+            self.vex_button.configure(text=connect_text)
+            self.platform_status_var.set(f"{platform_name} desconectada • pagamento manual")
+            self.status_var.set(f"Sincronização com a {platform_name} desativada")
+            return
+        if platform_name == "BULLEX" and not self.controller.settings.bullex_sync_authorized:
+            accepted = messagebox.askyesno(
+                "Alerta regulatório CVM — BullEx",
+                "A CVM informou que Digital Smart LLC/BULLEX não possui autorização para "
+                "intermediar valores mobiliários ou captar recursos no Brasil.\n\n"
+                "Esta conexão é somente leitura visual: não deposita, não acessa senha, "
+                "não clica e não executa operações. Deseja habilitá-la conscientemente?",
+                parent=self,
+            )
+            if not accepted:
+                self.platform_status_var.set("BULLEX continua desativada • consulte o alerta da CVM")
+                webbrowser.open(BULLEX_CVM_ALERT_URL)
+                return
+            self.controller.settings.bullex_sync_authorized = True
+            self.controller.save_settings()
+        bridge_type = VexBrowserBridge if platform_name == "VEX" else BullexBrowserBridge
+        self._platform_bridge = bridge_type(
+            app_data_dir() / f"{platform_name.lower()}-browser",
+            lambda snapshot: self._post_ui(self._vex_snapshot_ready, snapshot),
+            lambda status: self._post_ui(self._vex_status_ready, status),
+        )
+        try:
+            self._platform_bridge.start()
+        except Exception as exc:
+            self.platform_status_var.set(f"{platform_name} não conectada")
+            messagebox.showerror(f"Conectar {platform_name}", str(exc), parent=self)
+            return
+        self.controller.settings.platform_sync_enabled = True
+        self.controller.save_settings()
+        self.vex_button.configure(text=f"◉   DESCONECTAR {platform_name}")
+        self.platform_status_var.set(f"Abrindo {platform_name} • entre na sua conta no navegador")
+        self.status_var.set(f"Entre na {platform_name} pelo navegador dedicado; o robô não solicita sua senha")
+
+    def _vex_status_ready(self, status: str) -> None:
+        self.platform_status_var.set(status)
+
+    def _vex_snapshot_ready(self, snapshot: VexPlatformSnapshot) -> None:
+        if not self._platform_bridge or not self._platform_bridge.running:
+            return
+        self._platform_snapshot = snapshot
+        self.controller.platform_snapshot = snapshot
+        settings = self.controller.settings
+        changed = False
+        if settings.platform_auto_payout and snapshot.payout_percent is not None:
+            payout = str(snapshot.payout_percent)
+            if self.payout_var.get() != payout:
+                choices = list(self.payout_combo.cget("values"))
+                if payout not in choices:
+                    choices.append(payout)
+                    self.payout_combo.configure(values=sorted(choices, key=int))
+                self.payout_var.set(payout)
+                settings.payout_percent = snapshot.payout_percent
+                changed = True
+        if settings.platform_auto_asset and snapshot.asset and snapshot.market:
+            if self.market_var.get() != snapshot.market:
+                self.market_var.set(snapshot.market)
+                defaults = CRYPTO_DEFAULTS if snapshot.market == Market.CRYPTO.value else FOREX_DEFAULTS
+                self.symbol_combo.configure(values=defaults)
+                changed = True
+            if self.symbol_var.get() != snapshot.asset:
+                choices = list(self.symbol_combo.cget("values"))
+                if snapshot.asset not in choices:
+                    self.symbol_combo.configure(values=[snapshot.asset, *choices])
+                self.symbol_var.set(snapshot.asset)
+                changed = True
+        if settings.platform_auto_horizon and snapshot.horizon_minutes is not None:
+            horizon = str(snapshot.horizon_minutes)
+            if self.horizon_var.get() != horizon:
+                self.horizon_var.set(horizon)
+                changed = True
+        details = [snapshot.asset or "identificando ativo"]
+        if snapshot.payout_percent is not None:
+            details.append(f"payout {snapshot.payout_percent}%")
+        if snapshot.remaining_seconds is not None:
+            seconds = snapshot.remaining_seconds
+            details.append(f"{seconds // 60:02d}:{seconds % 60:02d}")
+        if snapshot.otc:
+            details.append("OTC não compatível")
+        platform_name = snapshot.platform_name
+        self.platform_status_var.set(f"{platform_name} ● " + " • ".join(details))
+        if changed:
+            self._save_form()
+            if self._analysis_active:
+                if self._platform_change_job is not None:
+                    self.after_cancel(self._platform_change_job)
+                self._platform_change_job = self.after(300, self._restart_for_vex_change)
+        current = self.controller.snapshot
+        if current and current.market == self.market_var.get() and current.symbol == self.symbol_var.get():
+            reasons = compare_platform_market(snapshot, current.market, current.symbol,
+                                              float(current.indicators["close"].iloc[-1]))
+            if reasons and settings.platform_block_mismatch:
+                self.controller._apply_platform_alignment(current.signal, current.market, current.symbol,
+                                                          float(current.indicators["close"].iloc[-1]))
+                self._render_signal(current)
+            else:
+                self._start_countdown(current)
+                if self._analysis_active and snapshot.price is not None and self.chart.candles:
+                    candle = merge_vex_quote(self.chart.candles[-1], snapshot, current.timeframe)
+                    if candle is not None:
+                        self._queue_live_chart(candle, self._analysis_token)
+                        self.updated_var.set(
+                            f"{platform_name} • PREÇO VISÍVEL AO VIVO {snapshot.observed_at.astimezone().strftime('%H:%M:%S')}"
+                        )
+                        now = time.monotonic()
+                        interval = live_refresh_interval(current.timeframe, settings.sensitivity)
+                        if now - self._last_live_analysis >= interval and not self._task_running:
+                            self._last_live_analysis = now
+                            context = (current.market, current.symbol, current.timeframe)
+                            self._process_live(candle, self._analysis_token, context)
+
+    def _restart_for_vex_change(self) -> None:
+        self._platform_change_job = None
+        if self._analysis_active:
+            self._schedule_analysis_restart()
+
+    def _schedule_analysis_restart(self) -> None:
+        self._stop_feeds()
+        self._analysis_token += 1
+        if self._selection_job is not None:
+            self.after_cancel(self._selection_job)
+        self.status_var.set("Trocando ativo e atualizando gráfico…")
+        self._selection_job = self.after(250, self._restart_when_idle)
+
+    def _restart_when_idle(self) -> None:
+        self._selection_job = None
+        if self._task_running:
+            self._selection_job = self.after(150, self._restart_when_idle)
+            return
+        self.start_analysis()
+
+    def open_api_settings(self) -> None:
+        ApiSettingsDialog(self, self.controller.secrets, self._save_api_keys)
+
+    def _save_api_keys(self, values: dict[str, str]) -> None:
+        self.controller.save_secrets(values)
+        self.status_var.set("Chaves protegidas e provedores atualizados")
+        self._load_health()
+        if self.market_var.get() == Market.FOREX.value and self._analysis_active:
+            self._schedule_analysis_restart()
+
+    def refresh_symbols(self) -> None:
+        self._save_form()
+        def ready(symbols) -> None:
+            self.symbol_combo.configure(values=symbols)
+            self.status_var.set(f"{len(symbols)} ativos líquidos disponíveis")
+        self._run_task("Atualizando lista de ativos…", self.controller.refresh_symbols, ready)
+
+    def _toggle_overlay(self, name: str) -> None:
+        value = not self.controller.settings.overlays.get(name, True)
+        self.controller.settings.overlays[name] = value
+        self.controller.save_settings()
+        self.chart.set_overlay(name, value)
+        self.status_var.set(f"{name.upper()}: {'ligado' if value else 'desligado'}")
+
+    def _toggle_indicators(self) -> None:
+        if self.indicator_holder.winfo_ismapped():
+            self.indicator_holder.grid_remove()
+            self.status_var.set("Cards de indicadores ocultos")
+        else:
+            self.indicator_holder.grid()
+            self.status_var.set("Cards de indicadores visíveis")
+
+    def _post_ui(self, callback, *args) -> None:
+        self._ui_events.put((callback, args))
+
+    def _drain_ui_events(self) -> None:
+        self._ui_events_job = None
+        try:
+            while True:
+                callback, args = self._ui_events.get_nowait()
+                try:
+                    callback(*args)
+                except Exception as exc:
+                    self.controller.logger.exception("Falha ao atualizar a interface: %s", exc)
+                    if self.winfo_exists():
+                        self.status_var.set("Falha ao atualizar a tela — consulte os logs")
         except queue.Empty:
             pass
         if self.winfo_exists():
