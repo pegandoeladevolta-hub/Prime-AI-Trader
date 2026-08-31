@@ -4,6 +4,9 @@ from ..platform.mt5_dual import MT5Bridge
 from .mt5_market_controller import MT5MarketTradingController
 
 
+MT5_HISTORY_LOADING_PREFIX = "HISTÓRICO MT5 EM CARREGAMENTO"
+
+
 class MT5AdaptiveTradingController(MT5MarketTradingController):
     """Controller MT5 que opera com o histórico disponível enquanto ele é carregado."""
 
@@ -60,9 +63,8 @@ class MT5AdaptiveTradingController(MT5MarketTradingController):
         available = len(history)
         if available < self.MIN_LIVE_CANDLES:
             raise ValueError(
-                f"O MT5 entregou apenas {available} candles. Para uma leitura minimamente confiável, "
-                f"o Prime Trader aguarda pelo menos {self.MIN_LIVE_CANDLES}. Abra o gráfico do ativo "
-                "no MT5 e carregue mais histórico."
+                f"{MT5_HISTORY_LOADING_PREFIX} [{available}/{self.MIN_LIVE_CANDLES}] • "
+                "o Prime Trader solicitou mais barras ao servidor da corretora e tentará novamente."
             )
 
         effective = min(requested, available)
@@ -93,4 +95,4 @@ class MT5AdaptiveTradingController(MT5MarketTradingController):
         return context
 
 
-__all__ = ["MT5AdaptiveTradingController"]
+__all__ = ["MT5AdaptiveTradingController", "MT5_HISTORY_LOADING_PREFIX"]

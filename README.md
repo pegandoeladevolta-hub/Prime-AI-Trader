@@ -1,4 +1,4 @@
-# PRIME TRADER 1.3.1
+# PRIME TRADER 1.3.2
 
 Terminal desktop com interface inspirada no layout solicitado e conexão ao MetaTrader 5. O PRIME TRADER usa o MT5 instalado no computador como fonte de mercado, conta, posições, histórico e execução. Ele não modifica os arquivos internos nem a interface original do MetaTrader 5.
 
@@ -8,8 +8,10 @@ Terminal desktop com interface inspirada no layout solicitado e conexão ao Meta
 - Mantém seleção, caminho do terminal, login, histórico e limites diários separados para as duas contas.
 - Exibe botões diretos **CONTA REAL** e **CONTA DEMO** antes de conectar.
 - Salva login, servidor e senha de cada perfil localmente. No Windows, os segredos ficam protegidos por DPAPI para o mesmo usuário do computador.
+- Permite cadastrar apenas a conta Demo sem exigir os campos da conta Real; o botão **SALVAR E USAR DEMO** grava, relê e seleciona o perfil correto antes da conexão.
 - Quando o MT5 aberto não corresponde ao perfil escolhido, permite usar a conta detectada, revisar o cadastro ou cancelar — sem mostrar a senha.
 - Lê candles e conta diretamente do MT5, pesquisa os símbolos disponíveis na corretora e mostra posições e resultados realizados no gráfico e no diário.
+- Quando um ativo recém-aberto entrega menos de 200 candles, solicita um intervalo maior ao servidor e repete a carga automaticamente; não gera análise com histórico insuficiente.
 - Analisa de 500 a 3.000 candles do MT5 por decisão (padrão: 2.000), mantendo os 200 mais recentes no gráfico, além de estrutura, tendência, momentum, volatilidade, padrões, suporte/resistência e contexto de timeframe superior.
 - Calcula Entrada, Stop Loss e Take Profit adaptativos por ATR, pivôs, zonas estruturais e relação risco/retorno mínima.
 - Rejeita a entrada quando uma barreira técnica não deixa espaço para o R:R configurado; o alvo não é alongado artificialmente para tentar alcançar a meta diária.
@@ -40,7 +42,7 @@ A meta diária é um circuito de parada. Ela não obriga a IA a operar, aumentar
 
 1. Instale e abra o terminal oficial MetaTrader 5 fornecido pela Clear.
 2. No PRIME TRADER, escolha **CONTA REAL** ou **CONTA DEMO**.
-3. Abra **CONTAS / LOGIN AUTOMÁTICO** e cadastre o login numérico, o servidor e a senha específica do MT5 para cada perfil.
+3. Abra **CONTAS / LOGIN AUTOMÁTICO**, preencha login, servidor e senha específica do MT5 e clique em **SALVAR E USAR DEMO** ou **SALVAR E USAR REAL**.
 4. Se necessário, use **SELECIONAR TERMINAL MT5** e escolha `terminal64.exe` da instalação da Clear.
 5. Clique em **CONECTAR PERFIL**. Confira o número da conta, o ambiente e o saldo antes de habilitar qualquer execução.
 

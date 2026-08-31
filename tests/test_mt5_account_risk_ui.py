@@ -21,6 +21,18 @@ class MT5AccountRiskUiTests(unittest.TestCase):
         self.assertIn("_connect_active_session_once", source)
         self.assertIn("_open_credentials_dialog", source)
 
+    def test_credentials_dialog_can_save_and_select_demo_directly(self) -> None:
+        source = inspect.getsource(CredentialsApp._open_credentials_dialog)
+        self.assertIn("SALVAR E USAR DEMO", source)
+        self.assertIn("save_profiles", source)
+        self.assertIn("target_environment", source)
+
+    def test_history_loading_retries_without_generic_error_dialog(self) -> None:
+        source = inspect.getsource(FastApp._task_error)
+        self.assertIn("MT5_HISTORY_LOADING_PREFIX", source)
+        self.assertIn("_history_load_retry_job", source)
+        self.assertIn("CARREGANDO HISTÓRICO MT5", source)
+
     def test_real_account_cannot_pass_automatic_execution_gate(self) -> None:
         source = inspect.getsource(FastApp._auto_enabled_and_armed)
         self.assertIn("profile_store.environment == REAL", source)

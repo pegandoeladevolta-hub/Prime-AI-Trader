@@ -1,5 +1,22 @@
 # Release notes
 
+## 1.3.2 — 31/08/2026
+
+### Persistência e conexão da conta Demo
+
+- Corrige o formulário que interpretava o servidor padrão da conta Real como cadastro parcial e interrompia o salvamento antes de gravar a Demo.
+- Real e Demo são validadas completamente antes de uma única gravação; um erro em uma seção não deixa a outra parcialmente atualizada.
+- Novos botões **SALVAR E USAR DEMO** e **SALVAR E USAR REAL** gravam, verificam a releitura protegida e selecionam o ambiente correto antes de conectar.
+- O arquivo de segredos passa a ser substituído atomicamente. Se o Windows não conseguir reler o cadastro protegido por DPAPI, o aplicativo mostra falha em vez de declarar que salvou.
+- A senha continua mascarada, não entra em logs, status ou diagnóstico e não é necessária nos testes automatizados.
+
+### Carregamento de candles do MT5
+
+- Quando a consulta inicial entrega menos de 200 barras, o PRIME TRADER solicita ao servidor da corretora um intervalo histórico maior para o mesmo ativo/timeframe.
+- Enquanto o MT5 carrega o histórico, o programa repete a leitura automaticamente e mostra o progresso no rodapé sem abrir a mesma caixa de erro a cada tentativa.
+- O mínimo de 200 candles continua obrigatório. Se o ativo realmente ainda não possuir essa quantidade, nenhuma análise ou ordem é fabricada.
+- Validação local: 415 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.3.1 — 30/08/2026
 
 ### Contas Clear Real e Demo

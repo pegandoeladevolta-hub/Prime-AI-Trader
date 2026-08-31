@@ -3,7 +3,11 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox
 
-from ..app.mt5_credentials import MT5CredentialStore
+from ..app.mt5_credentials import (
+    MT5CredentialPersistenceError,
+    MT5CredentialStore,
+    parse_mt5_credentials,
+)
 from ..app.mt5_profiles import ENVIRONMENTS, REAL, SIMULATOR
 from ..platform.mt5_dual import MT5ProfileMismatchError
 from .live_terminal_clear_profiles import PrimeTraderLiveApp as ClearProfilesPrimeTraderLiveApp
@@ -216,8 +220,8 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
         window = tk.Toplevel(self)
         self._credentials_window = window
         window.title("Prime Trader • Contas MT5 da Clear")
-        window.geometry("520x690")
-        window.minsize(500, 640)
+        window.geometry("560x760")
+        window.minsize(540, 710)
         window.configure(bg="#0b0f12")
         window.transient(self)
 
@@ -254,53 +258,94 @@ class PrimeTraderLiveApp(ClearProfilesPrimeTraderLiveApp):
             wraplength=480, justify="left",
         ).pack(anchor="w", padx=14, pady=(0, 10))
 
-        def parse_and_save(environment: str, values) -> None:
+        def parse_section(environment: str, values):
             login_var, server_var, password_var = values
-            login_text = login_var.get().strip()
-            server = server_var.get().strip()
-            password = password_var.get()
-            if not login_text and not password and not server:
-                self.mt5_credential_store.clear(environment)
-                return
-            try:
-                login = int(login_text)
-            except ValueError as exc:
-                raise ValueError(f"{environment}: o LOGIN deve conter somente números.") from exc
-            self.mt5_credential_store.save(
-                environment, login=login, password=password, server=server,
+            return parse_mt5_credentials(
+                environment,
+                login_text=login_var.get(),
+                password=password_var.get(),
+                server=server_var.get(),
             )
 
-        def save_all() -> None:
+        def save_all(target_environment: str | None = None) -> None:
             try:
-                parse_and_save(REAL, real_vars)
-                parse_and_save(SIMULATOR, simulator_vars)
-            except ValueError as exc:
-                messagebox.showerror("Contas MT5", str(exc), parent=window)
+                profiles = {
+                    REAL: parse_section(REAL, real_vars),
+                    SIMULATOR: parse_section(SIMULATOR, simulator_vars),
+                }
+                if target_environment is not None and profiles[target_environment] is None:
+                    raise ValueError(
+                        f"Preencha LOGIN e SENHA de {target_environment} antes de conectar."
+                    )
+                self.mt5_credential_store.save_profiles(profiles)
+            except (ValueError, OSError, MT5CredentialPersistenceError) as exc:
+                messagebox.showerror(
+                    "Contas MT5 • Não foi possível salvar",
+                    f"{exc}\n\nNenhuma senha foi exibida. Revise os campos e tente novamente.",
+                    parent=window,
+                )
                 return
-            self._apply_active_credentials()
-            self._refresh_autologin_status()
-            self.status_var.set("CONTAS MT5 SALVAS • credenciais protegidas • login automático ativo")
+
+            saved_accounts = [
+                f"{environment} • conta {credentials.login}"
+                for environment, credentials in profiles.items()
+                if credentials is not None
+            ]
             window.destroy()
             self._credentials_window = None
-            credentials = self.mt5_credential_store.get(self.profile_store.environment)
-            if credentials.configured:
-                try:
-                    self.mt5.disconnect()
-                except Exception:
-                    pass
-                self.mt5_connected.set(False)
-                self.after(120, self._auto_login_active_profile)
+            self.status_var.set(
+                "CONTAS MT5 SALVAS E VERIFICADAS • " + (" • ".join(saved_accounts) or "nenhuma conta cadastrada")
+            )
+
+            if target_environment is None:
+                self._apply_active_credentials()
+                self._refresh_autologin_status()
+                messagebox.showinfo(
+                    "Contas MT5",
+                    "Cadastro salvo e relido com sucesso. Use CONTA DEMO ou CONTA REAL para conectar.",
+                    parent=self,
+                )
+                return
+
+            if target_environment != self.profile_store.environment:
+                self.mt5_environment_var.set(target_environment)
+                self._environment_changed()
+                return
+
+            self._apply_active_credentials()
+            self._refresh_autologin_status()
+            try:
+                self.mt5.disconnect()
+            except Exception:
+                pass
+            self.mt5_connected.set(False)
+            self.after(120, self._auto_login_active_profile)
 
         buttons = tk.Frame(window, bg="#0b0f12")
         buttons.pack(fill="x", padx=14, pady=(0, 14))
         tk.Button(
-            buttons, text="SALVAR AS DUAS CONTAS", command=save_all,
+            buttons, text="SALVAR E USAR DEMO", command=lambda: save_all(SIMULATOR),
             bd=0, relief="flat", bg="#176f63", fg="white",
             activebackground="#218b7c", activeforeground="white",
             font=("Segoe UI Semibold", 9), pady=10,
+        ).pack(fill="x", pady=(0, 7))
+        tk.Button(
+            buttons, text="SALVAR E USAR REAL", command=lambda: save_all(REAL),
+            bd=0, relief="flat", bg="#9a6b18", fg="white",
+            activebackground="#b27c1d", activeforeground="white",
+            font=("Segoe UI Semibold", 9), pady=10,
+        ).pack(fill="x", pady=(0, 7))
+
+        lower_buttons = tk.Frame(buttons, bg="#0b0f12")
+        lower_buttons.pack(fill="x")
+        tk.Button(
+            lower_buttons, text="SÓ SALVAR", command=save_all,
+            bd=0, relief="flat", bg="#24313a", fg="#e8eef1",
+            activebackground="#30424d", activeforeground="white",
+            font=("Segoe UI Semibold", 9), pady=9,
         ).pack(side="left", fill="x", expand=True, padx=(0, 4))
         tk.Button(
-            buttons, text="CANCELAR", command=window.destroy,
+            lower_buttons, text="CANCELAR", command=lambda: on_close(),
             bd=0, relief="flat", bg="#1b2428", fg="#d8e0e3",
             activebackground="#28343a", activeforeground="white",
             font=("Segoe UI", 9), pady=10,

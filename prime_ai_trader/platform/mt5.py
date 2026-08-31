@@ -173,10 +173,31 @@ class MT5Bridge:
             rows = mt5.copy_rates_range(symbol, tf, start, end)
         else:
             rows = mt5.copy_rates_from_pos(symbol, tf, 0, max(2, int(limit)))
+            # Em um ativo recém-aberto, o terminal pode devolver só as barras já
+            # carregadas no gráfico (como 108/200). Uma consulta por intervalo
+            # solicita ao servidor da corretora o trecho anterior sem inventar
+            # candles nem reduzir o mínimo analítico.
+            minimum = min(200, max(2, int(limit)))
+            if (
+                (rows is None or len(rows) < minimum)
+                and hasattr(mt5, "copy_rates_range")
+            ):
+                history_end = datetime.now(timezone.utc)
+                span_days = max(
+                    30,
+                    min(3650, int(self._TIMEFRAME_SECONDS[timeframe] * int(limit) / 86400 * 6) + 1),
+                )
+                ranged = mt5.copy_rates_range(
+                    symbol, tf, history_end - timedelta(days=span_days), history_end,
+                )
+                if ranged is not None and (rows is None or len(ranged) > len(rows)):
+                    rows = ranged
         if rows is None or len(rows) == 0:
             raise MT5UnavailableError(
                 f"O MT5 não retornou candles de {symbol} em {timeframe}: {mt5.last_error()}"
             )
+        if len(rows) > int(limit):
+            rows = rows[-int(limit):]
         seconds = self._TIMEFRAME_SECONDS[timeframe]
         now = datetime.now(timezone.utc)
         result: list[Candle] = []

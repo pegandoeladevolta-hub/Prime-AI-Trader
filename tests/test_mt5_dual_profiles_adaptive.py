@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from prime_ai_trader.app.mt5_adaptive_controller import MT5AdaptiveTradingController
+from prime_ai_trader.app.mt5_adaptive_controller import (
+    MT5AdaptiveTradingController,
+    MT5_HISTORY_LOADING_PREFIX,
+)
 from prime_ai_trader.app.mt5_profiles import REAL, SIMULATOR, MT5ProfileStore, classify_account_environment
 from prime_ai_trader.platform.mt5_dual import MT5Bridge
 
@@ -53,8 +56,58 @@ class AdaptiveDepthTests(unittest.TestCase):
         controller.settings = SimpleNamespace(mt5_analysis_candles=2000)
         controller._effective_analysis_candles = 0
         controller._analysis_reduced_warning = ""
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, MT5_HISTORY_LOADING_PREFIX):
             controller._live_analysis_windows(list(range(120)), "1m")
+
+
+class FakeHistoryMT5:
+    TIMEFRAME_M1 = 1
+
+    def __init__(self) -> None:
+        self.range_calls = 0
+
+    def symbol_info(self, symbol):
+        return SimpleNamespace(visible=True)
+
+    def account_info(self):
+        return SimpleNamespace(login=1199787247)
+
+    @staticmethod
+    def _rows(amount: int):
+        start = 1_700_000_000
+        return [
+            {
+                "time": start + index * 60,
+                "open": 10.0,
+                "high": 10.5,
+                "low": 9.5,
+                "close": 10.1,
+                "real_volume": 1,
+                "tick_volume": 2,
+            }
+            for index in range(amount)
+        ]
+
+    def copy_rates_from_pos(self, symbol, timeframe, start, limit):
+        return self._rows(108)
+
+    def copy_rates_range(self, symbol, timeframe, start, end):
+        self.range_calls += 1
+        return self._rows(250)
+
+    def last_error(self):
+        return (1, "Success")
+
+
+class MT5HistoryWarmupTests(unittest.TestCase):
+    def test_short_chart_history_requests_an_older_server_range(self) -> None:
+        bridge = MT5Bridge(environment=SIMULATOR)
+        fake = FakeHistoryMT5()
+        bridge._mt5 = fake
+        bridge.connected = True
+        candles = bridge.fetch_candles("BBSEU434", "1m", limit=2001)
+        self.assertEqual(len(candles), 250)
+        self.assertEqual(fake.range_calls, 1)
 
 
 class FakeProfitMT5:

@@ -136,7 +136,10 @@ class SecretStore:
         else:
             from cryptography.fernet import Fernet
             encrypted = b"FERNET" + Fernet(_fallback_key()).encrypt(payload)
-        self.path.write_bytes(encrypted)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(f"{self.path.name}.tmp")
+        temporary.write_bytes(encrypted)
+        temporary.replace(self.path)
 
     def load(self) -> dict[str, str]:
         if not self.path.exists():

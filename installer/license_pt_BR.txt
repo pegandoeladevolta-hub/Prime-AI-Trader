@@ -1,6 +1,6 @@
 PRIME TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 1.3.1
+Versão 1.3.2
 
 1. O PRIME TRADER é um terminal analítico que pode se conectar ao MetaTrader 5. Ele não substitui orientação financeira profissional e nenhuma função garante lucro, taxa de acerto ou alcance de meta diária.
 

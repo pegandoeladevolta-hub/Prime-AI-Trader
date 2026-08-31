@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import time
 from dataclasses import replace
 from datetime import datetime
 
 from ..app.mt5_history import initialize_mt5_history_epoch
+from ..app.mt5_adaptive_controller import MT5_HISTORY_LOADING_PREFIX
 from ..core.models import Direction, SignalState
 from ..platform.mt5 import MT5ExecutionError, MT5UnavailableError
 from .prime_terminal import EXEC_AUTO
@@ -26,6 +28,8 @@ class PrimeTraderLiveApp(PrimeTraderApp):
     FORMING_MIN_STABLE_SECONDS = 1.6
     AUTO_RETRY_SECONDS = 3.0
     AUTO_MAX_ATTEMPTS = 3
+    HISTORY_LOAD_RETRY_MS = 2_500
+    HISTORY_LOAD_MAX_ATTEMPTS = 24
 
     def __init__(self, controller) -> None:
         self._last_auto_signature = None
@@ -36,6 +40,8 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         self._forming_first_seen = 0.0
         self._pending_closed_analysis = None
         self._closed_retry_job = None
+        self._history_load_retry_job = None
+        self._history_load_attempts = 0
         # Nova etapa MT5-SLTP: apaga uma única vez históricos incompatíveis.
         # O histórico oficial da conta no MetaTrader não é tocado.
         self._history_reset_result = initialize_mt5_history_epoch(controller.repository)
@@ -175,6 +181,7 @@ class PrimeTraderLiveApp(PrimeTraderApp):
         current = (self.market_var.get(), self.symbol_var.get(), self.timeframe_var.get())
         if token != self._analysis_token or context != current or not self._analysis_active:
             return
+        self._history_load_attempts = 0
         self.render_snapshot(snapshot)
         try:
             depth = int(self.controller.analysis_candles())
@@ -188,6 +195,41 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             f"{management} • R:R mín 1:{rr:g} • {depth or '—'} candles"
         )
         self._start_crypto_stream(token, context)
+
+    def _retry_history_loading(self) -> None:
+        self._history_load_retry_job = None
+        if not self._analysis_active or self._task_running or not self.winfo_exists():
+            return
+        # Chama a implementação-base para manter o contador da mesma tentativa.
+        super().start_analysis()
+
+    def _task_error(self, error: str, quiet: bool = False) -> None:
+        if str(error).startswith(MT5_HISTORY_LOADING_PREFIX):
+            self._task_running = False
+            if not quiet:
+                self.task_progress.stop()
+            match = re.search(r"\[(\d+)/(\d+)\]", str(error))
+            loaded, required = match.groups() if match else ("—", "200")
+            self._history_load_attempts += 1
+            if (
+                self._analysis_active
+                and self._history_load_attempts <= self.HISTORY_LOAD_MAX_ATTEMPTS
+            ):
+                self.status_var.set(
+                    f"CARREGANDO HISTÓRICO MT5 • {loaded}/{required} candles • "
+                    f"tentativa automática {self._history_load_attempts}/{self.HISTORY_LOAD_MAX_ATTEMPTS}"
+                )
+                if self._history_load_retry_job is None:
+                    self._history_load_retry_job = self.after(
+                        self.HISTORY_LOAD_RETRY_MS, self._retry_history_loading,
+                    )
+            else:
+                self.status_var.set(
+                    f"HISTÓRICO INSUFICIENTE • {loaded}/{required} candles • "
+                    "este ativo/timeframe ainda não possui 200 barras; escolha outro ou tente mais tarde"
+                )
+            return
+        return super()._task_error(error, quiet)
 
     def _start_crypto_stream(self, token: int, context: tuple[str, str, str]) -> None:
         """Stream MT5: preço ao vivo e fechamentos atualizam o mesmo contexto."""
@@ -359,6 +401,13 @@ class PrimeTraderLiveApp(PrimeTraderApp):
             return False
 
     def start_analysis(self):
+        if self._history_load_retry_job is not None:
+            try:
+                self.after_cancel(self._history_load_retry_job)
+            except Exception:
+                pass
+            self._history_load_retry_job = None
+        self._history_load_attempts = 0
         self._reset_forming_stability()
         self._pending_closed_analysis = None
         self._auto_failures.clear()
@@ -377,6 +426,13 @@ class PrimeTraderLiveApp(PrimeTraderApp):
     def pause_analysis(self, silent: bool = False):
         self._reset_forming_stability()
         self._pending_closed_analysis = None
+        self._history_load_attempts = 0
+        if self._history_load_retry_job is not None:
+            try:
+                self.after_cancel(self._history_load_retry_job)
+            except Exception:
+                pass
+            self._history_load_retry_job = None
         if self._closed_retry_job is not None:
             try:
                 self.after_cancel(self._closed_retry_job)
@@ -399,4 +455,10 @@ class PrimeTraderLiveApp(PrimeTraderApp):
                 pass
             self._closed_retry_job = None
         self._pending_closed_analysis = None
+        if self._history_load_retry_job is not None:
+            try:
+                self.after_cancel(self._history_load_retry_job)
+            except Exception:
+                pass
+            self._history_load_retry_job = None
         super()._close()
