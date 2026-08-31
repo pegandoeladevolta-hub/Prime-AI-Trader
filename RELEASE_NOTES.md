@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.3.4 — 31/08/2026
+
+### Sessão MT5 única e detecção automática da conta
+
+- Remove da interface os campos e botões de login, servidor e senha do MetaTrader 5.
+- O PRIME TRADER conecta somente à sessão que já está autenticada no terminal oficial da Clear.
+- O mesmo `terminal64.exe` atende conta Demo e Real; o servidor da sessão identifica automaticamente o ambiente correto.
+- O topo passa a exibir apenas `CLEAR DEMO • conta ...` ou `CLEAR REAL • conta ...`, sem o cadastro duplicado.
+- Credenciais MT5 salvas pelas versões 1.3.1–1.3.3 são apagadas na primeira abertura, preservando os demais segredos do aplicativo.
+- Histórico, diário, meta, stop e perdas consecutivas continuam separados pela conta detectada. A conta Real continua exigindo confirmação manual.
+- Validação local: 412 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.3.3 — 31/08/2026
 
 ### Conexão com a sessão ativa do MT5

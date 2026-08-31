@@ -97,7 +97,7 @@ class PrimeTraderApp(PrimeAITraderApp):
             font=("Segoe UI Semibold", 15),
         ).pack(side="left")
         tk.Button(
-            top, text="CONECTAR MT5", command=self._connect_mt5,
+            top, text="CONECTAR AO MT5", command=self._connect_mt5,
             bd=0, relief="flat", bg="#151c20", fg="#dce3e6",
             activebackground="#1d282d", activeforeground="white",
             font=("Segoe UI Semibold", 8), padx=14, pady=6,
@@ -292,7 +292,7 @@ class PrimeTraderApp(PrimeAITraderApp):
             fg="#78858b", font=("Segoe UI", 8),
         ).pack(side="left")
         tk.Label(
-            footer, text="FONTE: METATRADER 5 • MOTOR 1.3.3", bg="#090d0f",
+            footer, text="FONTE: METATRADER 5 • MOTOR 1.3.4", bg="#090d0f",
             fg="#566269", font=("Segoe UI", 8),
         ).pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=100)
@@ -324,6 +324,9 @@ class PrimeTraderApp(PrimeAITraderApp):
                 account = self.controller.connect_mt5()
             else:
                 account = self.mt5.connect()
+            account_hook = getattr(self, "_on_mt5_account_connected", None)
+            if callable(account_hook):
+                account_hook(account)
             self.mt5_connected.set(True)
             symbols = self.mt5.list_symbols()
             self.mt5_asset_combo.configure(values=symbols)
@@ -337,9 +340,12 @@ class PrimeTraderApp(PrimeAITraderApp):
             self.market_var.set(self.controller.settings.market)
             crypto_count = sum(1 for symbol in symbols if self._looks_crypto(symbol))
             crypto_note = f" • {crypto_count} cripto" if crypto_count else " • sem cripto neste servidor"
-            self.mt5_account_text.set(
-                f"{account.server} • conta {account.login}{crypto_note}"
-            )
+            account_formatter = getattr(self, "_format_mt5_account_text", None)
+            if callable(account_formatter):
+                account_text = str(account_formatter(account, crypto_note))
+            else:
+                account_text = f"{account.server} • conta {account.login}{crypto_note}"
+            self.mt5_account_text.set(account_text)
             self.status_var.set(
                 f"MT5 conectado • {len(symbols)} ativos negociáveis carregados"
             )

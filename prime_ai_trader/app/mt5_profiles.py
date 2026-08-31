@@ -15,6 +15,8 @@ ENVIRONMENTS = (REAL, SIMULATOR)
 @dataclass
 class MT5ProfilesConfig:
     environment: str = REAL
+    shared_terminal_path: str = ""
+    # Mantidos somente para migrar configurações das versões 1.3.1–1.3.3.
     real_terminal_path: str = ""
     simulator_terminal_path: str = ""
     real_daily_profit_target: float = 0.0
@@ -44,6 +46,10 @@ class MT5ProfileStore:
             config = MT5ProfilesConfig()
         if config.environment not in ENVIRONMENTS:
             config.environment = REAL
+        if not str(config.shared_terminal_path or "").strip():
+            config.shared_terminal_path = str(
+                config.real_terminal_path or config.simulator_terminal_path or ""
+            ).strip()
         for name in (
             "real_daily_profit_target", "real_daily_stop_loss",
             "simulator_daily_profit_target", "simulator_daily_stop_loss",
@@ -77,18 +83,12 @@ class MT5ProfileStore:
         self.save()
 
     def terminal_path(self, environment: str | None = None) -> str:
-        env = environment or self.environment
-        return (
-            self.config.simulator_terminal_path
-            if env == SIMULATOR else self.config.real_terminal_path
-        )
+        return str(self.config.shared_terminal_path or "")
 
     def set_terminal_path(self, path: str, environment: str | None = None) -> None:
-        env = environment or self.environment
-        if env == SIMULATOR:
-            self.config.simulator_terminal_path = str(path or "")
-        else:
-            self.config.real_terminal_path = str(path or "")
+        self.config.shared_terminal_path = str(path or "")
+        self.config.real_terminal_path = ""
+        self.config.simulator_terminal_path = ""
         self.save()
 
     def daily_limits(self, environment: str | None = None) -> tuple[float, float]:
@@ -148,8 +148,8 @@ class MT5ProfileStore:
         except (TypeError, ValueError):
             self.config.real_max_consecutive_losses = 2
         legacy_path = str(getattr(settings, "mt5_terminal_path", "") or "").strip()
-        if legacy_path and not self.config.real_terminal_path:
-            self.config.real_terminal_path = legacy_path
+        if legacy_path and not self.config.shared_terminal_path:
+            self.config.shared_terminal_path = legacy_path
         self.config.migrated_legacy_limits = True
         self.save()
 

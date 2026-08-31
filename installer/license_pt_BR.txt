@@ -1,6 +1,6 @@
 PRIME TRADER — TERMOS DE USO E AVISO DE RISCO
 
-Versão 1.3.3
+Versão 1.3.4
 
 1. O PRIME TRADER é um terminal analítico que pode se conectar ao MetaTrader 5. Ele não substitui orientação financeira profissional e nenhuma função garante lucro, taxa de acerto ou alcance de meta diária.
 
@@ -12,7 +12,7 @@ Versão 1.3.3
 
 5. Sinais, scores, notícias, modelos e backtests podem estar errados ou atrasados. Desempenho passado não garante resultado futuro.
 
-6. Login, servidor e senha do MT5 podem ser salvos localmente. No Windows, os segredos são protegidos por DPAPI para o usuário do computador. O usuário deve manter o Windows protegido e nunca compartilhar o arquivo de segredos.
+6. O PRIME TRADER não solicita nem salva login, servidor ou senha do MT5. A autenticação é feita somente dentro do MetaTrader 5 oficial. Ao atualizar, campos de credenciais MT5 deixados por versões anteriores são removidos do armazenamento local protegido.
 
 7. O PRIME TRADER usa a instalação oficial do MetaTrader 5 e a sessão da corretora. Disponibilidade, autenticação, cotações, execução, slippage e histórico dependem do terminal, do servidor e da corretora.
 

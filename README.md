@@ -1,16 +1,14 @@
-# PRIME TRADER 1.3.3
+# PRIME TRADER 1.3.4
 
 Terminal desktop com interface inspirada no layout solicitado e conexão ao MetaTrader 5. O PRIME TRADER usa o MT5 instalado no computador como fonte de mercado, conta, posições, histórico e execução. Ele não modifica os arquivos internos nem a interface original do MetaTrader 5.
 
 ## O que esta versão faz
 
 - Conecta ao terminal MetaTrader 5 da Clear e confirma se a sessão aberta é **CLEAR REAL** ou **CLEAR SIMULADOR / DEMO**.
-- Mantém seleção, caminho do terminal, login, histórico e limites diários separados para as duas contas.
-- Exibe botões diretos **CONTA REAL** e **CONTA DEMO** antes de conectar.
-- Salva login, servidor e senha de cada perfil localmente. No Windows, os segredos ficam protegidos por DPAPI para o mesmo usuário do computador.
-- Permite cadastrar apenas a conta Demo sem exigir os campos da conta Real; o botão **SALVAR E USAR DEMO** grava, relê e seleciona o perfil correto antes da conexão.
-- Quando a conta correta já está aberta no MT5, conecta pela sessão ativa sem reenviar a senha; o login automático só é usado para uma troca real de conta.
-- Quando o MT5 aberto não corresponde ao perfil escolhido, permite usar a conta detectada, revisar o cadastro ou cancelar — sem mostrar a senha.
+- Usa um único caminho do terminal da Clear para conta Real e Demo; a troca de conta acontece somente dentro do próprio MetaTrader 5.
+- Não solicita nem salva login, servidor ou senha. Credenciais MT5 deixadas pelas versões antigas são removidas na primeira abertura.
+- Ao conectar, lê login e servidor da sessão aberta e identifica automaticamente se a conta é **CLEAR REAL** ou **CLEAR DEMO**.
+- Histórico, diário e limites de risco continuam separados conforme a conta detectada.
 - Lê candles e conta diretamente do MT5, pesquisa os símbolos disponíveis na corretora e mostra posições e resultados realizados no gráfico e no diário.
 - Quando um ativo recém-aberto entrega menos de 200 candles, solicita um intervalo maior ao servidor e repete a carga automaticamente; não gera análise com histórico insuficiente.
 - Analisa de 500 a 3.000 candles do MT5 por decisão (padrão: 2.000), mantendo os 200 mais recentes no gráfico, além de estrutura, tendência, momentum, volatilidade, padrões, suporte/resistência e contexto de timeframe superior.
@@ -42,12 +40,12 @@ A meta diária é um circuito de parada. Ela não obriga a IA a operar, aumentar
 ## Configuração das contas Clear
 
 1. Instale e abra o terminal oficial MetaTrader 5 fornecido pela Clear.
-2. No PRIME TRADER, escolha **CONTA REAL** ou **CONTA DEMO**.
-3. Abra **CONTAS / LOGIN AUTOMÁTICO**, preencha login, servidor e senha específica do MT5 e clique em **SALVAR E USAR DEMO** ou **SALVAR E USAR REAL**.
-4. Se necessário, use **SELECIONAR TERMINAL MT5** e escolha `terminal64.exe` da instalação da Clear.
-5. Clique em **CONECTAR PERFIL**. Confira o número da conta, o ambiente e o saldo antes de habilitar qualquer execução.
+2. Faça o login na conta desejada diretamente dentro do MetaTrader 5 e aguarde as cotações aparecerem.
+3. Deixe o terminal aberto. Não informe login ou senha no PRIME TRADER.
+4. Se necessário, use **SELECIONAR TERMINAL MT5** uma única vez e escolha `terminal64.exe` da instalação da Clear.
+5. Clique em **CONECTAR AO MT5**. O aplicativo exibirá automaticamente **CLEAR DEMO** ou **CLEAR REAL** e o número da conta detectada.
 
-Se o terminal estiver autenticado em uma conta diferente, o aplicativo informa exatamente qual ambiente detectou. Escolher “usar a conta detectada” troca o perfil; escolher “manter” abre o cadastro da conta originalmente selecionada.
+Para trocar entre Demo e Real, altere a conta dentro do MetaTrader 5 e conecte novamente. O PRIME TRADER nunca realiza essa troca por senha.
 
 ## Gestão técnica
 

@@ -14,21 +14,34 @@ from prime_ai_trader.platform.mt5_dual import MT5Bridge
 
 
 class MT5ProfileStoreTests(unittest.TestCase):
-    def test_real_and_simulator_keep_paths_limits_and_journals_separate(self) -> None:
+    def test_real_and_simulator_share_terminal_but_keep_limits_and_journals_separate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = MT5ProfileStore(Path(tmp) / "profiles.json")
-            store.set_terminal_path(r"C:\ClearReal\terminal64.exe", REAL)
+            store.set_terminal_path(r"C:\Clear\terminal64.exe", REAL)
             store.set_daily_limits(300, 120, REAL)
             store.set_consecutive_loss_limit(2, REAL)
-            store.set_terminal_path(r"C:\ClearSimulador\terminal64.exe", SIMULATOR)
             store.set_daily_limits(800, 350, SIMULATOR)
             store.set_consecutive_loss_limit(4, SIMULATOR)
-            self.assertNotEqual(store.terminal_path(REAL), store.terminal_path(SIMULATOR))
+            self.assertEqual(store.terminal_path(REAL), store.terminal_path(SIMULATOR))
+            self.assertEqual(store.terminal_path(), r"C:\Clear\terminal64.exe")
             self.assertEqual(store.daily_limits(REAL), (300.0, 120.0))
             self.assertEqual(store.daily_limits(SIMULATOR), (800.0, 350.0))
             self.assertEqual(store.consecutive_loss_limit(REAL), 2)
             self.assertEqual(store.consecutive_loss_limit(SIMULATOR), 4)
             self.assertNotEqual(store.journal_path(REAL), store.journal_path(SIMULATOR))
+
+    def test_legacy_real_terminal_path_becomes_the_single_shared_mt5_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "profiles.json"
+            path.write_text(
+                '{"environment":"CLEAR SIMULADOR",'
+                '"real_terminal_path":"C:\\\\Program Files\\\\Clear Investimentos MT5\\\\terminal64.exe"}',
+                encoding="utf-8",
+            )
+            store = MT5ProfileStore(path)
+            expected = r"C:\Program Files\Clear Investimentos MT5\terminal64.exe"
+            self.assertEqual(store.terminal_path(REAL), expected)
+            self.assertEqual(store.terminal_path(SIMULATOR), expected)
 
     def test_server_classification(self) -> None:
         self.assertEqual(classify_account_environment("ClearInvestimentos-CLEAR"), REAL)

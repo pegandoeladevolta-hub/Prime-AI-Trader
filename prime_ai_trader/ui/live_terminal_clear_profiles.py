@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 
 from ..app.mt5_daily_limits import evaluate_daily_limits
-from ..app.mt5_profiles import ENVIRONMENTS, REAL, SIMULATOR, MT5ProfileStore, classify_account_environment
+from ..app.mt5_profiles import REAL, SIMULATOR, MT5ProfileStore, classify_account_environment
 from ..core.models import Direction
 from ..database.mt5_journal import MT5TradeJournal
 from .live_terminal_mt5_journal import PrimeTraderLiveApp as JournalPrimeTraderLiveApp
@@ -43,7 +43,7 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         env = self.profile_store.environment
         self.mt5_environment_var = tk.StringVar(master=self, value=env)
         self.mt5_environment_status_var = tk.StringVar(
-            master=self, value=f"PERFIL ATIVO: {env}"
+            master=self, value="AGUARDANDO CONEXÃO COM O MT5"
         )
         self.trade_value_summary_var = tk.StringVar(
             master=self, value="Aguardando sinal com Entrada + SL + TP para calcular valores."
@@ -58,7 +58,7 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         self._clear_profile_card = card
 
         tk.Label(
-            card, text="CLEAR • AMBIENTE MT5", bg="#0f1619", fg="#e8eef1",
+            card, text="CLEAR • CONTA DETECTADA PELO MT5", bg="#0f1619", fg="#e8eef1",
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w", padx=11, pady=(10, 3))
         tk.Label(
@@ -66,73 +66,31 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
             bg="#0f1619", fg="#14d8a7", font=("Segoe UI Semibold", 8),
         ).pack(anchor="w", padx=11, pady=(0, 7))
 
-        combo = ttk.Combobox(
-            card, textvariable=self.mt5_environment_var,
-            values=list(ENVIRONMENTS), state="readonly", font=("Segoe UI", 9),
-        )
-        combo.pack(fill="x", padx=11, pady=(0, 7))
-        combo.bind("<<ComboboxSelected>>", lambda _: self._environment_changed())
-        self.mt5_environment_combo = combo
-
-        account_buttons = tk.Frame(card, bg="#0f1619")
-        account_buttons.pack(fill="x", padx=11, pady=(0, 7))
-        self.mt5_real_account_button = tk.Button(
-            account_buttons, text="CONTA REAL",
-            command=lambda: self._select_environment(REAL),
-            bd=0, relief="flat", fg="white", font=("Segoe UI Semibold", 8), pady=7,
-        )
-        self.mt5_real_account_button.pack(side="left", fill="x", expand=True, padx=(0, 3))
-        self.mt5_demo_account_button = tk.Button(
-            account_buttons, text="CONTA DEMO",
-            command=lambda: self._select_environment(SIMULATOR),
-            bd=0, relief="flat", fg="white", font=("Segoe UI Semibold", 8), pady=7,
-        )
-        self.mt5_demo_account_button.pack(side="left", fill="x", expand=True, padx=(3, 0))
-
         buttons = tk.Frame(card, bg="#0f1619")
         buttons.pack(fill="x", padx=11, pady=(0, 7))
         tk.Button(
-            buttons, text="🔎 PESQUISAR ATIVO", command=self._open_asset_search,
+            buttons, text="CONECTAR AO MT5 ABERTO", command=self._connect_mt5,
+            bd=0, relief="flat", bg="#176f63", fg="white",
+            activebackground="#218b7c", activeforeground="white",
+            font=("Segoe UI Semibold", 8), pady=8,
+        ).pack(fill="x")
+
+        tk.Button(
+            card, text="🔎 PESQUISAR ATIVO", command=self._open_asset_search,
             bd=0, relief="flat", bg="#161f23", fg="#e0e6e9",
             activebackground="#222e33", activeforeground="white",
             font=("Segoe UI Semibold", 8), pady=7,
-        ).pack(side="left", fill="x", expand=True, padx=(0, 3))
-        tk.Button(
-            buttons, text="CONECTAR PERFIL", command=self._connect_mt5,
-            bd=0, relief="flat", bg="#176f63", fg="white",
-            activebackground="#218b7c", activeforeground="white",
-            font=("Segoe UI Semibold", 8), pady=7,
-        ).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        ).pack(fill="x", padx=11, pady=(0, 7))
 
         tk.Label(
             card,
-            text="Escolha a conta antes de conectar. REAL e DEMO mantêm login, histórico e limites separados.",
+            text=(
+                "Faça o login somente no MetaTrader 5. O Prime Trader lê a sessão aberta "
+                "e identifica automaticamente se a conta é DEMO ou REAL."
+            ),
             bg="#0f1619", fg="#66757c", font=("Segoe UI", 7),
             wraplength=252, justify="left",
         ).pack(anchor="w", padx=11, pady=(0, 10))
-
-    def _refresh_environment_buttons(self) -> None:
-        if not hasattr(self, "mt5_real_account_button"):
-            return
-        active = self.profile_store.environment
-        for button, environment in (
-            (self.mt5_real_account_button, REAL),
-            (self.mt5_demo_account_button, SIMULATOR),
-        ):
-            selected = environment == active
-            button.configure(
-                bg="#176f63" if selected else "#24313a",
-                activebackground="#218b7c" if selected else "#30424d",
-            )
-
-    def _select_environment(self, environment: str) -> None:
-        if environment not in ENVIRONMENTS:
-            return
-        if environment == self.profile_store.environment:
-            self._refresh_environment_buttons()
-            return
-        self.mt5_environment_var.set(environment)
-        self._environment_changed()
 
     def _build_trade_value_card(self) -> None:
         parent = getattr(self, "_mt5_sidebar_body", None)
@@ -156,52 +114,11 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
             wraplength=252, justify="left",
         ).pack(anchor="w", padx=11, pady=(0, 10))
 
-    def _environment_changed(self) -> None:
-        selected = self.mt5_environment_var.get()
-        if selected not in ENVIRONMENTS:
-            return
-        old = self.profile_store.environment
-        if selected == old:
-            return
-
-        if self.mt5_connected.get():
-            try:
-                rows = list(self.mt5.prime_positions())
-            except Exception:
-                rows = []
-            if rows:
-                self.mt5_environment_var.set(old)
-                messagebox.showwarning(
-                    "Trocar ambiente MT5",
-                    "Existe uma operação do Prime Trader aberta no ambiente atual. Encerre-a no TP/SL ou manualmente antes de trocar entre REAL e SIMULADOR.",
-                    parent=self,
-                )
-                return
-
-        try:
-            self._sync_journal()
-        except Exception:
-            pass
-        try:
-            self.mt5.disconnect()
-        except Exception:
-            pass
-        self.mt5_connected.set(False)
-        self.profile_store.set_environment(selected)
-        self.mt5_journal = MT5TradeJournal(self.profile_store.journal_path(selected))
-        path = self.profile_store.terminal_path(selected)
-        configure = getattr(self.controller, "configure_mt5_profile", None)
-        if callable(configure):
-            configure(selected, path)
-        self.mt5_account_text.set(f"{selected} • desconectado")
-        self._load_profile_into_view()
-        self._enforce_real_manual_confirmation()
-        self.status_var.set(f"Perfil alterado para {selected} • conecte o MT5 correspondente")
-
     def _load_profile_into_view(self) -> None:
         env = self.profile_store.environment
         self.mt5_environment_var.set(env)
-        self.mt5_environment_status_var.set(f"PERFIL ATIVO: {env}")
+        if not self.mt5_connected.get():
+            self.mt5_environment_status_var.set(f"ÚLTIMA CONTA: {env}")
         target, stop = self.profile_store.daily_limits(env)
         self.daily_profit_target_var.set(f"{target:g}")
         self.daily_stop_loss_var.set(f"{stop:g}")
@@ -209,8 +126,7 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
             str(self.profile_store.consecutive_loss_limit(env))
         )
         path = self.profile_store.terminal_path(env)
-        self.mt5_terminal_display_var.set(path or f"AUTO • procurando terminal do perfil {env}")
-        self._refresh_environment_buttons()
+        self.mt5_terminal_display_var.set(path or "AUTO • procurando o MT5 da Clear")
         self._refresh_trade_value()
 
     def _daily_status(self):
@@ -278,10 +194,9 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         return super()._execution_profile_changed()
 
     def _select_mt5_terminal(self) -> None:
-        env = self.profile_store.environment
         destination = filedialog.askopenfilename(
             parent=self,
-            title=f"Selecionar terminal MetaTrader 5 • {env}",
+            title="Selecionar o MetaTrader 5 da Clear",
             filetypes=[("MetaTrader 5", "terminal64.exe terminal.exe"), ("Executável", "*.exe")],
         )
         if not destination:
@@ -292,17 +207,48 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
                 "Selecionar MT5", "O arquivo não se chama terminal64.exe/terminal.exe. Usar mesmo assim?", parent=self,
             ):
                 return
-        self.profile_store.set_terminal_path(str(path), env)
+        self.profile_store.set_terminal_path(str(path))
         configure = getattr(self.controller, "configure_mt5_profile", None)
         if callable(configure):
-            configure(env, str(path))
+            configure(self.profile_store.environment, str(path))
         self.mt5_terminal_display_var.set(str(path))
         self.mt5_connected.set(False)
-        self.status_var.set(f"Terminal salvo para {env} • {path.parent.name}")
+        self.status_var.set(f"MetaTrader 5 selecionado • {path.parent.name}")
+
+    def _on_mt5_account_connected(self, account) -> None:
+        """Adota a conta que o próprio MT5 informa antes de ler posições."""
+        detected = classify_account_environment(account.server, account.name)
+        previous = self.profile_store.environment
+        if detected != previous:
+            self.profile_store.set_environment(detected)
+            self.mt5_journal = MT5TradeJournal(self.profile_store.journal_path(detected))
+            self._load_profile_into_view()
+        self.mt5_environment_var.set(detected)
+        self.mt5.environment = detected
+        self._enforce_real_manual_confirmation()
+
+        resolved = str(getattr(self.mt5, "terminal_path", "") or "")
+        if resolved:
+            self.profile_store.set_terminal_path(resolved)
+            self.mt5_terminal_display_var.set(resolved)
+
+        account_kind = "DEMO" if detected == SIMULATOR else "REAL"
+        self.mt5_environment_status_var.set(
+            f"CONECTADO: CLEAR {account_kind} • conta {account.login}"
+        )
+        if detected != previous:
+            self.status_var.set(
+                f"Conta {account_kind} detectada automaticamente pelo servidor {account.server}"
+            )
+
+    def _format_mt5_account_text(self, account, crypto_note: str = "") -> str:
+        detected = classify_account_environment(account.server, account.name)
+        account_kind = "DEMO" if detected == SIMULATOR else "REAL"
+        return f"CLEAR {account_kind} • conta {account.login}"
 
     def _connect_mt5(self) -> None:
         env = self.profile_store.environment
-        path = self.profile_store.terminal_path(env)
+        path = self.profile_store.terminal_path()
         configure = getattr(self.controller, "configure_mt5_profile", None)
         if callable(configure):
             configure(env, path)
@@ -312,17 +258,14 @@ class PrimeTraderLiveApp(JournalPrimeTraderLiveApp):
         try:
             account = self.mt5.account()
             detected = classify_account_environment(account.server, account.name)
-            if detected != env:
-                raise RuntimeError(f"Sessão {detected} conectada no perfil {env}")
             resolved = str(getattr(self.mt5, "terminal_path", "") or "")
             if resolved:
-                self.profile_store.set_terminal_path(resolved, env)
+                self.profile_store.set_terminal_path(resolved)
                 self.mt5_terminal_display_var.set(resolved)
-            self.mt5_account_text.set(
-                f"{env} • {account.server} • conta {account.login} • {account.currency}"
-            )
+            self.mt5_account_text.set(self._format_mt5_account_text(account))
+            account_kind = "DEMO" if detected == SIMULATOR else "REAL"
             self.mt5_environment_status_var.set(
-                f"CONECTADO: {env} • {account.server}"
+                f"CONECTADO: CLEAR {account_kind} • conta {account.login}"
             )
             self._refresh_trade_value()
         except Exception as exc:

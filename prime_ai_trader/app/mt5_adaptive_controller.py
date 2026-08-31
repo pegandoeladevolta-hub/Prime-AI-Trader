@@ -32,16 +32,8 @@ class MT5AdaptiveTradingController(MT5MarketTradingController):
         self,
         environment: str,
         terminal_path: str = "",
-        *,
-        login: int | None = None,
-        password: str = "",
-        server: str = "",
     ) -> None:
         self.mt5.set_environment(environment, terminal_path or None)
-        # Chamadas antigas que só atualizam ambiente/caminho não apagam a
-        # credencial que acabou de ser carregada pelo gerenciador seguro.
-        if login is not None or password or server:
-            self.mt5.set_credentials(login=login, password=password, server=server)
         self.settings.mt5_terminal_path = str(terminal_path or "")
 
     def connect_mt5(self):
