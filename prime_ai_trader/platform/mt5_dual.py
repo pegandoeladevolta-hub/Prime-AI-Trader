@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..app.mt5_profiles import REAL, SIMULATOR, classify_account_environment
+from ..app.mt5_profiles import (
+    REAL,
+    SIMULATOR,
+    classify_account_environment,
+    is_clear_account,
+)
 from .mt5_positions import MT5Bridge as BaseMT5Bridge
 
 
@@ -33,6 +38,12 @@ class MT5Bridge(BaseMT5Bridge):
         account = super().connect()
         self.environment = classify_account_environment(account.server, account.name)
         return account
+
+    def _session_allowed(self, info: object) -> bool:
+        return is_clear_account(
+            str(getattr(info, "server", "") or ""),
+            str(getattr(info, "name", "") or ""),
+        )
 
     def estimate_trade_profit(
         self, symbol: str, side: str, volume: float,

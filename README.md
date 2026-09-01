@@ -1,10 +1,12 @@
-# PRIME TRADER 1.3.4
+# PRIME TRADER 1.3.5
 
 Terminal desktop com interface inspirada no layout solicitado e conexão ao MetaTrader 5. O PRIME TRADER usa o MT5 instalado no computador como fonte de mercado, conta, posições, histórico e execução. Ele não modifica os arquivos internos nem a interface original do MetaTrader 5.
 
 ## O que esta versão faz
 
 - Conecta ao terminal MetaTrader 5 da Clear e confirma se a sessão aberta é **CLEAR REAL** ou **CLEAR SIMULADOR / DEMO**.
+- Tenta primeiro a sessão MT5 que já está aberta, sem forçar um novo contexto pelo caminho do executável.
+- Se a sessão aberta for de outra corretora, recusa essa conta e só então tenta o `terminal64.exe` da Clear.
 - Usa um único caminho do terminal da Clear para conta Real e Demo; a troca de conta acontece somente dentro do próprio MetaTrader 5.
 - Não solicita nem salva login, servidor ou senha. Credenciais MT5 deixadas pelas versões antigas são removidas na primeira abertura.
 - Ao conectar, lê login e servidor da sessão aberta e identifica automaticamente se a conta é **CLEAR REAL** ou **CLEAR DEMO**.
@@ -43,7 +45,7 @@ A meta diária é um circuito de parada. Ela não obriga a IA a operar, aumentar
 2. Faça o login na conta desejada diretamente dentro do MetaTrader 5 e aguarde as cotações aparecerem.
 3. Deixe o terminal aberto. Não informe login ou senha no PRIME TRADER.
 4. Se necessário, use **SELECIONAR TERMINAL MT5** uma única vez e escolha `terminal64.exe` da instalação da Clear.
-5. Clique em **CONECTAR AO MT5**. O aplicativo exibirá automaticamente **CLEAR DEMO** ou **CLEAR REAL** e o número da conta detectada.
+5. Clique em **CONECTAR AO MT5 ABERTO**. O aplicativo exibirá automaticamente **CLEAR DEMO** ou **CLEAR REAL** e o número da conta detectada.
 
 Para trocar entre Demo e Real, altere a conta dentro do MetaTrader 5 e conecte novamente. O PRIME TRADER nunca realiza essa troca por senha.
 
@@ -84,7 +86,7 @@ python -m unittest discover -s tests -v
 python -m compileall -q prime_ai_trader tests
 ```
 
-A suíte cobre conexão MT5, classificação Real/Demo, credenciais criptografadas, troca de perfil, plano adaptativo de SL/TP, execução, uma posição por vez, diário, saldo, meta/stop diário, duas perdas consecutivas, análise, notícias, modelos, SQLite, interface e empacotamento Windows.
+A suíte cobre anexação à sessão MT5 aberta, fallback pelo executável, classificação Real/Demo, ausência e limpeza de credenciais antigas, troca de perfil, plano adaptativo de SL/TP, execução, uma posição por vez, diário, saldo, meta/stop diário, duas perdas consecutivas, análise, notícias, modelos, SQLite, interface e empacotamento Windows.
 
 ## Dados locais
 

@@ -70,20 +70,18 @@ class ClearTerminalTests(unittest.TestCase):
             self.assertEqual(found[0], clear)
             self.assertTrue(all("clear" in str(path).lower() for path in found))
 
-    def test_authorization_minus_6_launches_same_clear_terminal_and_retries(self) -> None:
+    def test_failed_open_session_falls_back_to_clear_path_once(self) -> None:
         bridge = MT5Bridge()
         fake = FakeMT5Module()
         bridge._mt5 = fake
         clear = Path(r"C:\Program Files\Clear Investimentos MT5 Terminal\terminal64.exe")
-        with patch.object(bridge, "discover_terminal_paths", return_value=[clear]), patch.object(
-            bridge, "_launch_terminal"
-        ) as launcher, patch("prime_ai_trader.platform.mt5_positions.time.sleep", return_value=None):
+        with patch.object(bridge, "discover_terminal_paths", return_value=[clear]):
             account = bridge.connect()
         self.assertEqual(account.server, "Clear-Real")
         self.assertEqual(account.currency, "BRL")
         self.assertEqual(bridge.terminal_path, str(clear))
-        launcher.assert_called_once_with(clear)
         self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(fake.calls[0], {})
         self.assertEqual(fake.calls[-1]["path"], str(clear))
 
 

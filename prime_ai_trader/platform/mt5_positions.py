@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
-import time
 from pathlib import Path
 from typing import Any
 
@@ -162,96 +160,124 @@ class MT5Bridge(RobustMT5Bridge):
         clear = [path for path in ordered if "clear" in str(path).lower()]
         return clear if clear else ordered
 
-    @staticmethod
-    def _launch_terminal(path: Path) -> None:
-        if os.name != "nt" or not path.exists():
-            return
+    def _session_allowed(self, info: object) -> bool:
+        """Permite que subclasses restrinjam a corretora da sessão encontrada."""
+        return True
+
+    def _session_rejection_reason(self, info: object) -> str:
+        server = str(getattr(info, "server", "") or "não informado")
+        login = int(getattr(info, "login", 0) or 0)
+        return f"conta {login} do servidor {server} não pertence à corretora esperada"
+
+    def _adopt_reported_terminal_path(self, mt5: object) -> None:
+        """Guarda o executável informado pela sessão anexada, quando disponível."""
         try:
-            subprocess.Popen(
-                [str(path)],
-                cwd=str(path.parent),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
-        except OSError:
+            terminal_info = mt5.terminal_info()  # type: ignore[attr-defined]
+        except Exception:
             return
+        raw = str(getattr(terminal_info, "path", "") or "").strip()
+        if not raw:
+            return
+        reported = Path(raw)
+        if reported.name.lower() in self.TERMINAL_EXES:
+            self.terminal_path = str(reported)
+            return
+        for executable in self.TERMINAL_EXES:
+            candidate = reported / executable
+            if candidate.exists():
+                self.terminal_path = str(candidate)
+                return
 
     def connect(self):
-        """Conecta ao terminal correto e trata explicitamente autorização -6."""
+        """Anexa primeiro à sessão aberta e só depois tenta um executável específico."""
         mt5 = self._module()
         candidates = self.discover_terminal_paths(self.terminal_path)
         attempts: list[str] = []
         authorization_failed = False
 
-        # Em máquina com somente um MT5 e sem caminho detectável, preserva o
-        # mecanismo oficial de autodetecção do pacote MetaTrader5.
-        paths: list[Path | None] = list(candidates) if candidates else [None]
-        for candidate in paths:
+        def error_code(error: object) -> int:
             try:
-                mt5.shutdown()
+                return int(error[0])  # type: ignore[index]
             except Exception:
-                pass
+                return 0
 
-            kwargs: dict[str, Any] = {}
-            if candidate is not None:
-                kwargs["path"] = str(candidate)
-
+        def try_connection(
+            kwargs: dict[str, Any], label: str, candidate: Path | None = None,
+        ):
+            nonlocal authorization_failed
             initialized = bool(mt5.initialize(**kwargs))
             error = mt5.last_error()
-            if not initialized and candidate is not None:
-                try:
-                    code = int(error[0])
-                except Exception:
-                    code = 0
-                if code == -6:
-                    authorization_failed = True
-                # Abre explicitamente o terminal de corretora e tenta anexar de novo.
-                self._launch_terminal(candidate)
-                time.sleep(1.4)
-                initialized = bool(mt5.initialize(**kwargs))
-                error = mt5.last_error()
-
-            label = str(candidate) if candidate is not None else "autodetecção do MetaTrader5"
             if not initialized:
-                try:
-                    code = int(error[0])
-                except Exception:
-                    code = 0
-                if code == -6:
+                if error_code(error) == -6:
                     authorization_failed = True
                 attempts.append(f"{label}: {error}")
-                continue
+                return None
 
             info = mt5.account_info()
             if info is None:
-                attempts.append(f"{label}: terminal aberto, mas sem conta autenticada")
+                attempts.append(f"{label}: terminal acessível, mas sem conta ativa")
                 try:
                     mt5.shutdown()
                 except Exception:
                     pass
-                continue
+                return None
+
+            if not self._session_allowed(info):
+                attempts.append(f"{label}: {self._session_rejection_reason(info)}")
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
+                return None
 
             self.connected = True
             if candidate is not None:
                 self.terminal_path = str(candidate)
+            else:
+                self._adopt_reported_terminal_path(mt5)
             return self._account_snapshot(info)
+
+        # A sessão que já está aberta deve vir primeiro. Forçar ``path=`` pode
+        # iniciar outro contexto do mesmo terminal e devolver autorização -6,
+        # mesmo quando a interface visível já está autenticada.
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+        account = try_connection({}, "ETAPA 1 • sessão MT5 já aberta")
+        if account is not None:
+            return account
+
+        # Somente depois tentamos cada terminal instalado. Cada caminho é usado
+        # uma única vez: repetir a mesma chamada após -6 não muda a autenticação.
+        for candidate in candidates:
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            account = try_connection(
+                {"path": str(candidate)},
+                f"ETAPA 2 • terminal selecionado {candidate}",
+                candidate,
+            )
+            if account is not None:
+                return account
 
         self.connected = False
         details = "\n".join(attempts[-3:]) if attempts else str(mt5.last_error())
-        if authorization_failed or any("sem conta autenticada" in item for item in attempts):
+        if authorization_failed or any("sem conta ativa" in item for item in attempts):
             raise MT5UnavailableError(
-                "O terminal MT5 foi localizado, mas a sessão não está autorizada.\n\n"
-                "Abra o Clear Investimentos MT5, faça o login da sua conta da Clear "
-                "dentro do próprio MetaTrader 5, aguarde as cotações aparecerem e "
-                "deixe o terminal aberto. Depois clique em CONECTAR MT5 novamente.\n\n"
+                "Não foi possível anexar à sessão ativa do MT5 da Clear.\n\n"
+                "Confirme a conta ativa na barra de título do MetaTrader 5 e aguarde "
+                "as cotações aparecerem. A lista do Navegador mostra contas cadastradas, "
+                "mas não confirma qual delas está conectada.\n\n"
                 "O Prime Trader não precisa e não armazena sua senha.\n\n"
-                f"Diagnóstico:\n{details}"
+                f"Diagnóstico por etapa:\n{details}"
             )
         raise MT5UnavailableError(
             "Não foi possível conectar a nenhum terminal MetaTrader 5 instalado.\n\n"
             "Use SELECIONAR TERMINAL MT5 e escolha o arquivo terminal64.exe da sua corretora.\n\n"
-            f"Diagnóstico:\n{details}"
+            f"Diagnóstico por etapa:\n{details}"
         )
 
     async def stream_candles(self, symbol: str, timeframe: str, callback, stop_event) -> None:

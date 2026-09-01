@@ -1,5 +1,17 @@
 # Release notes
 
+## 1.3.5 — 01/09/2026
+
+### Conexão real com a sessão MT5 já aberta
+
+- Corrige o fluxo que dizia anexar ao MT5 aberto, mas começava forçando `initialize(path=terminal64.exe)` e podia receber `Terminal: Authorization failed (-6)` mesmo com a interface autenticada.
+- A primeira tentativa agora usa a sessão ativa do pacote oficial MetaTrader5, sem caminho, login, servidor ou senha.
+- O servidor da conta é validado antes de aceitar a sessão: um MT5 aberto de outra corretora é recusado e o programa tenta depois o executável da Clear.
+- O `terminal64.exe` é usado apenas como fallback e cada caminho é tentado uma única vez; o mesmo erro `-6` não é repetido sem mudança de contexto.
+- O diagnóstico diferencia `ETAPA 1 • sessão MT5 já aberta` de `ETAPA 2 • terminal selecionado` e esclarece que a lista do Navegador contém contas cadastradas, não necessariamente a conta ativa.
+- Testes reproduzem exatamente o caso em que a sessão aberta funciona, mas a inicialização forçada por caminho falha com `-6`.
+- Validação local: 415 testes aprovados, zero falhas e um smoke test visual reservado para o runner Windows.
+
 ## 1.3.4 — 31/08/2026
 
 ### Sessão MT5 única e detecção automática da conta

@@ -166,7 +166,12 @@ def classify_account_environment(server: str, name: str = "") -> str:
     return REAL
 
 
+def is_clear_account(server: str, name: str = "") -> bool:
+    """Confirma que a sessão MT5 pertence à Clear antes de adotá-la."""
+    return "clear" in f"{server} {name}".lower()
+
+
 __all__ = [
     "REAL", "SIMULATOR", "ENVIRONMENTS", "MT5ProfilesConfig", "MT5ProfileStore",
-    "classify_account_environment",
+    "classify_account_environment", "is_clear_account",
 ]

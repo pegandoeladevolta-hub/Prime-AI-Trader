@@ -292,7 +292,7 @@ class PrimeTraderApp(PrimeAITraderApp):
             fg="#78858b", font=("Segoe UI", 8),
         ).pack(side="left")
         tk.Label(
-            footer, text="FONTE: METATRADER 5 • MOTOR 1.3.4", bg="#090d0f",
+            footer, text="FONTE: METATRADER 5 • MOTOR 1.3.5", bg="#090d0f",
             fg="#566269", font=("Segoe UI", 8),
         ).pack(side="right", padx=12)
         self.task_progress = ttk.Progressbar(footer, mode="indeterminate", length=100)
